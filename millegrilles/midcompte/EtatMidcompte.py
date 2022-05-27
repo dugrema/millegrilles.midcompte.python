@@ -17,6 +17,7 @@ class EtatMidcompte:
         self.__certificat_millegrille: Optional[EnveloppeCertificat] = None
         self.__password_mq: Optional[str] = None
         self.__password_mongo: Optional[str] = None
+        self.__idmg: Optional[str] = None
 
     async def reload_configuration(self):
         self.__logger.info("Reload configuration sur disque ou dans docker")
@@ -26,6 +27,7 @@ class EtatMidcompte:
             self.__configuration.key_pem_path, self.__configuration.cert_pem_path)
 
         self.__certificat_millegrille = EnveloppeCertificat.from_file(self.__configuration.ca_pem_path)
+        self.__idmg = self.__certificat_millegrille.idmg
 
         with open(self.__configuration.password_mq_path, 'r') as fichier:
             self.__password_mq = fichier.read().strip()
@@ -36,3 +38,8 @@ class EtatMidcompte:
     @property
     def configuration(self):
         return self.__configuration
+
+    @property
+    def idmg(self):
+        return self.__idmg
+

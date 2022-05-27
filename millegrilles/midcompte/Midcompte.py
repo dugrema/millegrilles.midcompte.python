@@ -66,6 +66,11 @@ class ApplicationInstance:
 
     async def entretien_rabbitmq(self):
         self.__logger.debug("entretien_rabbitmq")
+        await self.__module_entretien_rabbitmq.entretien()
+        if self.__module_entretien_rabbitmq.entretien_initial_complete is True:
+            # Changer periode entretien a 60 minutes
+            self.__logger.debug("RabbitMQ initialise OK - Changer periode d'entretien rabbitmq a 60 minutes")
+            self.__tache_rabbitmq.set_intervalle(datetime.timedelta(minutes=60))
 
     async def entretien(self):
         self.__logger.info("entretien thread debut")

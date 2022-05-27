@@ -60,14 +60,14 @@ class EntretienRabbitMq:
         self.__logger.debug("entretien fin")
 
     async def creer_session(self):
-        if self.__etat_midcompte.configuration.instance_password_mq_path is not None:
-            with open(self.__etat_midcompte.configuration.instance_password_mq_path, 'r') as fichier:
+        if self.__etat_midcompte.configuration.password_mq_path is not None:
+            with open(self.__etat_midcompte.configuration.password_mq_path, 'r') as fichier:
                 password_mq = fichier.read().strip()
             basic_auth = aiohttp.BasicAuth('admin', password_mq)
             self.__session = aiohttp.ClientSession(auth=basic_auth)
 
     async def configurer_admin(self):
-        with open(self.__etat_midcompte.configuration.instance_password_mq_path, 'r') as fichier:
+        with open(self.__etat_midcompte.configuration.password_mq_path, 'r') as fichier:
             password_mq = fichier.read().strip()
 
         basic_auth = aiohttp.BasicAuth('guest', 'guest')
@@ -119,3 +119,6 @@ class EntretienRabbitMq:
             self.__logger.debug("Reponse creation vhost %s : %s" % (idmg, response))
             response.raise_for_status()
 
+    @property
+    def entretien_initial_complete(self):
+        return self.__entretien_initial_complete
