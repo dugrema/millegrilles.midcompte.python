@@ -1,14 +1,18 @@
 import argparse
 import asyncio
+import datetime
 import logging
 import signal
 
-from asyncio import Event, AbstractEventLoop
+from asyncio import Event, AbstractEventLoop, TimeoutError
 from typing import Optional
 
 from millegrilles.midcompte.Configuration import ConfigurationMidcompte
 from millegrilles.midcompte.EntretienComptes import ModuleEntretienComptes
 from millegrilles.midcompte.EtatMidcompte import EtatMidcompte
+from millegrilles.midcompte.EntretienRabbitMq import EntretienRabbitMq
+from millegrilles.midcompte.EntretienMongoDb import EntretienMongoDb
+from millegrilles.docker.Entretien import TacheEntretien
 
 
 class ApplicationInstance:
@@ -18,7 +22,14 @@ class ApplicationInstance:
 
         self.__configuration = ConfigurationMidcompte()
         self.__etat_midcompte = EtatMidcompte(self.__configuration)
-        self.__module_entretien = ModuleEntretienComptes(self.__configuration)
+
+        self.__module_entretien_comptes: Optional[ModuleEntretienComptes] = None
+        self.__module_entretien_mongodb: Optional[EntretienMongoDb] = None
+        self.__module_entretien_rabbitmq: Optional[EntretienRabbitMq] = None
+
+        self.__tache_comptes: Optional = TacheEntretien(datetime.timedelta(seconds=30), self.entretien_comptes)
+        self.__tache_mongodb = TacheEntretien(datetime.timedelta(seconds=30), self.entretien_mongodb)
+        self.__tache_rabbitmq = TacheEntretien(datetime.timedelta(seconds=30), self.entretien_rabbitmq)
 
         self.__loop: Optional[AbstractEventLoop] = None
         self._stop_event: Optional[Event] = None  # Evenement d'arret global de l'application
@@ -34,12 +45,45 @@ class ApplicationInstance:
         self.__configuration.parse_config(args)
         await self.__etat_midcompte.reload_configuration()
 
+        self.__module_entretien_comptes = ModuleEntretienComptes(self.__etat_midcompte)
+        self.__module_entretien_mongodb = EntretienMongoDb(self.__etat_midcompte)
+        self.__module_entretien_rabbitmq = EntretienRabbitMq(self.__etat_midcompte)
+
+        self.__logger.info("charger_configuration prete")
+
     def exit_gracefully(self, signum=None, frame=None):
         self.__logger.info("Fermer application, signal: %d" % signum)
         self.__loop.call_soon_threadsafe(self._stop_event.set)
 
     async def fermer(self):
         self._stop_event.set()
+
+    async def entretien_comptes(self):
+        self.__logger.debug("entretien_comptes")
+
+    async def entretien_mongodb(self):
+        self.__logger.debug("entretien_mongodb")
+
+    async def entretien_rabbitmq(self):
+        self.__logger.debug("entretien_rabbitmq")
+
+    async def entretien(self):
+        self.__logger.info("entretien thread debut")
+
+        while self._stop_event.is_set() is False:
+            self.__logger.debug("run() debut execution cycle")
+
+            await self.__tache_rabbitmq.run()
+            await self.__tache_mongodb.run()
+            await self.__tache_comptes.run()
+
+            try:
+                self.__logger.debug("run() fin execution cycle")
+                await asyncio.wait_for(self._stop_event.wait(), 10)
+            except TimeoutError:
+                pass
+
+        self.__logger.info("entretien thread fin")
 
     async def executer(self):
         """
@@ -48,7 +92,7 @@ class ApplicationInstance:
         """
 
         tasks = [
-            asyncio.create_task(self.__module_entretien.run(self._stop_event)),
+            asyncio.create_task(self.entretien()),
             #asyncio.create_task(self.__web_server.run(self._stop_event))
         ]
 
@@ -64,6 +108,7 @@ async def initialiser_application():
     args = parse()
     if args.verbose:
         logging.getLogger('millegrilles').setLevel(logging.DEBUG)
+        logging.getLogger('__main__').setLevel(logging.DEBUG)
     else:
         logging.getLogger('millegrilles').setLevel(logging.WARN)
 

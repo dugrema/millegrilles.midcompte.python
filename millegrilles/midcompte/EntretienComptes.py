@@ -5,14 +5,13 @@ from typing import Optional
 
 from asyncio import Event, TimeoutError
 
-from millegrilles.midcompte.Configuration import ConfigurationMidcompte
-
+from millegrilles.midcompte.EtatMidcompte import EtatMidcompte
 
 class ModuleEntretienComptes:
 
-    def __init__(self, configuration: ConfigurationMidcompte):
+    def __init__(self, etat_midcompte: EtatMidcompte):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-        self.__configuration = configuration
+        self.__etat_midcompte = etat_midcompte
 
     async def run(self, stop_event: Event):
         self.__logger.info("run Debut")
