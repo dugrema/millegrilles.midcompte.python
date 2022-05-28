@@ -27,3 +27,6 @@ class EntretienMongoDb:
             self.__logger.exception("Erreur verification RabbitMQ https")
 
         self.__logger.debug("entretien fin")
+
+    async def ajouter_compte(self, info: dict):
+        self.__logger.debug("Ajouter compte dans MongoDB: %s" % info)

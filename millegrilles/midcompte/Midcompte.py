@@ -13,6 +13,7 @@ from millegrilles.midcompte.EtatMidcompte import EtatMidcompte
 from millegrilles.midcompte.EntretienRabbitMq import EntretienRabbitMq
 from millegrilles.midcompte.EntretienMongoDb import EntretienMongoDb
 from millegrilles.docker.Entretien import TacheEntretien
+from millegrilles.midcompte.WebServer import WebServer
 
 
 class ApplicationInstance:
@@ -22,6 +23,8 @@ class ApplicationInstance:
 
         self.__configuration = ConfigurationMidcompte()
         self.__etat_midcompte = EtatMidcompte(self.__configuration)
+
+        self.__web_server: Optional[WebServer] = None
 
         self.__module_entretien_comptes: Optional[ModuleEntretienComptes] = None
         self.__module_entretien_mongodb: Optional[EntretienMongoDb] = None
@@ -48,6 +51,9 @@ class ApplicationInstance:
         self.__module_entretien_comptes = ModuleEntretienComptes(self.__etat_midcompte)
         self.__module_entretien_mongodb = EntretienMongoDb(self.__etat_midcompte)
         self.__module_entretien_rabbitmq = EntretienRabbitMq(self.__etat_midcompte)
+
+        self.__etat_midcompte.ajouter_listener(self.__module_entretien_mongodb)
+        self.__etat_midcompte.ajouter_listener(self.__module_entretien_rabbitmq)
 
         self.__logger.info("charger_configuration prete")
 
@@ -90,6 +96,10 @@ class ApplicationInstance:
 
         self.__logger.info("entretien thread fin")
 
+    async def preparer_environnement(self):
+        self.__web_server = WebServer(self.__etat_midcompte)
+        self.__web_server.setup()
+
     async def executer(self):
         """
         Boucle d'execution principale
@@ -98,7 +108,7 @@ class ApplicationInstance:
 
         tasks = [
             asyncio.create_task(self.entretien()),
-            #asyncio.create_task(self.__web_server.run(self._stop_event))
+            asyncio.create_task(self.__web_server.run(self._stop_event))
         ]
 
         # Execution de la loop avec toutes les tasks
@@ -149,6 +159,7 @@ async def demarrer():
 
     logger.info("Setup app")
     app = await initialiser_application()
+    await app.preparer_environnement()
 
     try:
         logger.info("Debut execution app")

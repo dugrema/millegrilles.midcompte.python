@@ -100,7 +100,8 @@ class EntretienRabbitMq:
 
         self.__entretien_initial_complete = True
 
-    async def ajouter_compte(self):
+    async def ajouter_compte(self, info: dict):
+        self.__logger.debug("Ajouter compte dans RabbitMQ: %s" % info)
         raise NotImplementedError('todo')
 
     async def ajouter_exchange(self, niveau_securite: str):

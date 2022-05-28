@@ -19,6 +19,8 @@ class EtatMidcompte:
         self.__password_mongo: Optional[str] = None
         self.__idmg: Optional[str] = None
 
+        self.__listeners_actions = list()
+
     async def reload_configuration(self):
         self.__logger.info("Reload configuration sur disque ou dans docker")
 
@@ -34,6 +36,18 @@ class EtatMidcompte:
 
         with open(self.__configuration.password_mongo_path, 'r') as fichier:
             self.__password_mongo = fichier.read().strip()
+
+    async def ajouter_compte(self, info: dict):
+        self.__logger.info("Ajouter compte : %s" % info)
+        for listener in self.__listeners_actions:
+            if hasattr(listener, 'ajouter_compte') is True:
+                try:
+                    await listener.ajouter_compte(info)
+                except:
+                    self.__logger.exception("Erreur ajout compte")
+
+    def ajouter_listener(self, listener):
+        self.__listeners_actions.append(listener)
 
     @property
     def configuration(self):
