@@ -75,9 +75,9 @@ class ConfigurationMidcompte:
 class ConfigurationWeb:
 
     def __init__(self):
-        self.ca_pem_path = '/var/opt/millegrilles/secrets/pki.millegrille.cert'
-        self.web_cert_pem_path = '/var/opt/millegrilles/secrets/pki.web.cert'
-        self.web_key_pem_path = '/var/opt/millegrilles/secrets/pki.web.key'
+        self.ca_pem_path = '/run/secrets/pki.millegrille'
+        self.web_cert_pem_path = '/run/secrets/pki.midcompte.cert'
+        self.web_key_pem_path = '/run/secrets/pki.midcompte.key'
         self.port = 2444
 
     def get_env(self) -> dict:

@@ -41,6 +41,7 @@ class WebServer:
 
     def _charger_ssl(self):
         self.__ssl_context = SSLContext()
+        self.__logger.debug("Charger certificat %s" % self.__configuration.web_cert_pem_path)
         self.__ssl_context.load_cert_chain(self.__configuration.web_cert_pem_path,
                                            self.__configuration.web_key_pem_path)
 

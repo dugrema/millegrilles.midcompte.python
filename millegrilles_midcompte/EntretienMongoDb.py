@@ -18,6 +18,8 @@ class EntretienMongoDb:
 
     async def connecter_mongo(self):
         configuration_mongo = {
+            'host': self.__etat_midcompte.configuration.mongo_hostname,
+            'port': self.__etat_midcompte.configuration.mongo_port,
             'username': 'admin',
             'password': self.__etat_midcompte.password_mongo,
             'tls': True,
