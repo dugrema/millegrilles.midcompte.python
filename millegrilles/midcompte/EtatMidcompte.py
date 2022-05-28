@@ -59,6 +59,10 @@ class EtatMidcompte:
         return self.__configuration
 
     @property
+    def password_mongo(self):
+        return self.__password_mongo
+
+    @property
     def idmg(self):
         return self.__idmg
 
