@@ -30,3 +30,4 @@ class EntretienMongoDb:
 
     async def ajouter_compte(self, info: dict):
         self.__logger.debug("Ajouter compte dans MongoDB: %s" % info)
+        raise NotImplementedError('todo')

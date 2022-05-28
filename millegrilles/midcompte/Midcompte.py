@@ -52,7 +52,7 @@ class ApplicationInstance:
         self.__module_entretien_mongodb = EntretienMongoDb(self.__etat_midcompte)
         self.__module_entretien_rabbitmq = EntretienRabbitMq(self.__etat_midcompte)
 
-        self.__etat_midcompte.ajouter_listener(self.__module_entretien_mongodb)
+        # self.__etat_midcompte.ajouter_listener(self.__module_entretien_mongodb)
         self.__etat_midcompte.ajouter_listener(self.__module_entretien_rabbitmq)
 
         self.__logger.info("charger_configuration prete")

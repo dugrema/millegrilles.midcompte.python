@@ -39,12 +39,17 @@ class EtatMidcompte:
 
     async def ajouter_compte(self, info: dict):
         self.__logger.info("Ajouter compte : %s" % info)
+        tous_succes = True
         for listener in self.__listeners_actions:
             if hasattr(listener, 'ajouter_compte') is True:
                 try:
                     await listener.ajouter_compte(info)
                 except:
                     self.__logger.exception("Erreur ajout compte")
+                    tous_succes = False
+
+        if tous_succes is False:
+            raise Exception('Erreur ajout au moins un compte')
 
     def ajouter_listener(self, listener):
         self.__listeners_actions.append(listener)

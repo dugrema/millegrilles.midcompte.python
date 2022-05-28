@@ -52,17 +52,26 @@ class WebServer:
 
     async def handle_ajouter_compte(self, request: Request):
         headers = request.headers
-        verified = headers.get('Verified')
-        client_cert = headers.get('X-Client-Cert')
         dn = headers.get('DN')
         self.__logger.debug("AJouter compte %s" % dn)
 
-        # Cleanup certificat
-        client_cert = client_cert.replace('\t', '')
-
-        enveloppe = EnveloppeCertificat.from_pem(client_cert)
-
+        verified = headers.get('Verified')
         if verified == 'SUCCESS':
+            # Cleanup certificat
+            client_cert = headers.get('X-Client-Cert')
+            client_cert = client_cert.replace('\t', '')
+            enveloppe = EnveloppeCertificat.from_pem(client_cert)
+
+            idmg = enveloppe.idmg
+            if idmg != self.__etat_midcompte.idmg:
+                self.__logger.debug("ECHEC ajout compte (%s) - le certificat n'est pas pour la bonne millegrille" % dn)
+                return web.HTTPForbidden()
+
+            exchanges = enveloppe.get_exchanges
+            if exchanges is None or len(exchanges) == 0:
+                self.__logger.debug("ECHEC ajout compte (%s) - le certificat n'a pas d'exchanges" % dn)
+                return web.HTTPForbidden()
+
             info = {
                 'dn': dn,
                 'certificat': enveloppe,
