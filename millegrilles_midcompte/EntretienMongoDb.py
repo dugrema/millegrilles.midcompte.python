@@ -4,7 +4,7 @@ from typing import Optional
 
 from pymongo import MongoClient
 
-from millegrilles.messages.EnveloppeCertificat import EnveloppeCertificat
+from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 
 
 class EntretienMongoDb:

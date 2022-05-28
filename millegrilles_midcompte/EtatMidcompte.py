@@ -2,9 +2,9 @@ import logging
 
 from typing import Optional
 
-from millegrilles.messages.CleCertificat import CleCertificat
-from millegrilles.messages.EnveloppeCertificat import EnveloppeCertificat
-from millegrilles.midcompte.Configuration import ConfigurationMidcompte
+from millegrilles_messages.messages.CleCertificat import CleCertificat
+from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
+from millegrilles_midcompte.Configuration import ConfigurationMidcompte
 
 
 class EtatMidcompte:

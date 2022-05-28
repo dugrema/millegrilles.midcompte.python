@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 import subprocess
 
 
@@ -20,9 +20,9 @@ def get_version():
 
 
 setup(
-    name='millegrilles.midcompte',
+    name='millegrilles_midcompte',
     version='%s' % get_version(),
-    packages=['millegrilles.midcompte'],
+    packages=find_packages(),
     url='https://github.com/dugrema/millegrilles.midcompte.python',
     license='AFFERO',
     author='Mathieu Dugre',

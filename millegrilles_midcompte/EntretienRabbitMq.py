@@ -9,8 +9,8 @@ from typing import Optional
 from aiohttp.client_exceptions import ClientConnectorError
 from cryptography.x509.extensions import ExtensionNotFound
 
-from millegrilles.messages import Constantes
-from millegrilles.messages.EnveloppeCertificat import EnveloppeCertificat
+from millegrilles_messages.messages import Constantes
+from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 
 
 class EntretienRabbitMq:

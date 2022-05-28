@@ -3,8 +3,8 @@ import os
 
 from typing import Optional
 
-from millegrilles.midcompte import Constantes
-from millegrilles.messages import Constantes as ConstantesMessages
+from millegrilles_midcompte import Constantes
+from millegrilles_messages.messages import Constantes as ConstantesMessages
 
 CONST_INSTANCE_PARAMS = [
     Constantes.PARAM_MONGO_HOSTNAME,

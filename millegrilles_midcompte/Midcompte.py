@@ -7,13 +7,13 @@ import signal
 from asyncio import Event, AbstractEventLoop, TimeoutError
 from typing import Optional
 
-from millegrilles.midcompte.Configuration import ConfigurationMidcompte
-from millegrilles.midcompte.EntretienComptes import ModuleEntretienComptes
-from millegrilles.midcompte.EtatMidcompte import EtatMidcompte
-from millegrilles.midcompte.EntretienRabbitMq import EntretienRabbitMq
-from millegrilles.midcompte.EntretienMongoDb import EntretienMongoDb
-from millegrilles.docker.Entretien import TacheEntretien
-from millegrilles.midcompte.WebServer import WebServer
+from millegrilles_midcompte.Configuration import ConfigurationMidcompte
+from millegrilles_midcompte.EntretienComptes import ModuleEntretienComptes
+from millegrilles_midcompte.EtatMidcompte import EtatMidcompte
+from millegrilles_midcompte.EntretienRabbitMq import EntretienRabbitMq
+from millegrilles_midcompte.EntretienMongoDb import EntretienMongoDb
+from millegrilles_midcompte.WebServer import WebServer
+from millegrilles_messages.docker.Entretien import TacheEntretien
 
 
 class ApplicationInstance:
@@ -123,10 +123,12 @@ async def initialiser_application():
 
     args = parse()
     if args.verbose:
-        logging.getLogger('millegrilles').setLevel(logging.DEBUG)
+        logging.getLogger('millegrilles_messagerie').setLevel(logging.DEBUG)
+        logging.getLogger('millegrilles_midcompte').setLevel(logging.DEBUG)
         logging.getLogger('__main__').setLevel(logging.DEBUG)
     else:
-        logging.getLogger('millegrilles').setLevel(logging.WARN)
+        logging.getLogger('millegrilles_messagerie').setLevel(logging.WARN)
+        logging.getLogger('millegrilles_midcompte').setLevel(logging.WARN)
 
     await app.charger_configuration(args)
 

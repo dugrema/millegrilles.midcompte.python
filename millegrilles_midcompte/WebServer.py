@@ -8,9 +8,9 @@ from asyncio.exceptions import TimeoutError
 from ssl import SSLContext
 from typing import Optional
 
-from millegrilles.midcompte.Configuration import ConfigurationWeb
-from millegrilles.midcompte.EtatMidcompte import EtatMidcompte
-from millegrilles.messages.EnveloppeCertificat import EnveloppeCertificat
+from millegrilles_midcompte.Configuration import ConfigurationWeb
+from millegrilles_midcompte.EtatMidcompte import EtatMidcompte
+from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 
 
 class WebServer:

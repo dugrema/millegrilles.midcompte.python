@@ -3,7 +3,7 @@ import logging
 
 from asyncio import Event, TimeoutError
 
-from millegrilles.midcompte.EtatMidcompte import EtatMidcompte
+from millegrilles_midcompte.EtatMidcompte import EtatMidcompte
 
 
 class ModuleEntretienComptes:
