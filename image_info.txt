@@ -1,0 +1,10 @@
+# Fichier d'information pour le build Docker
+
+REPO=docker.maceroc.com
+NAME=millegrilles_midcompte_python
+BRANCH=`git rev-parse --abbrev-ref HEAD`
+ARCH_SUPPORTEES=( x86_64 aarch64 )
+BUILD=`cat build.txt`
+
+VERSION=$BRANCH.$BUILD
+echo $VERSION > version.txt
