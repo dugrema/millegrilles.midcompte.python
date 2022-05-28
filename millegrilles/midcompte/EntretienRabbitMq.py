@@ -1,5 +1,4 @@
 import aiohttp
-import asyncio
 import logging
 import ssl
 import urllib
@@ -8,7 +7,6 @@ from os import path
 from typing import Optional
 
 from aiohttp.client_exceptions import ClientConnectorError
-from asyncio import Event, TimeoutError
 from cryptography.x509.extensions import ExtensionNotFound
 
 from millegrilles.messages import Constantes

@@ -1,11 +1,10 @@
 import asyncio
 import logging
 
-from typing import Optional
-
 from asyncio import Event, TimeoutError
 
 from millegrilles.midcompte.EtatMidcompte import EtatMidcompte
+
 
 class ModuleEntretienComptes:
 

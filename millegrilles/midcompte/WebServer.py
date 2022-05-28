@@ -1,4 +1,3 @@
-import aiohttp
 import asyncio
 import logging
 
@@ -6,11 +5,9 @@ from aiohttp import web
 from aiohttp.web_request import Request
 from asyncio import Event
 from asyncio.exceptions import TimeoutError
-from os import path
 from ssl import SSLContext
 from typing import Optional
 
-from millegrilles.messages import Constantes
 from millegrilles.midcompte.Configuration import ConfigurationWeb
 from millegrilles.midcompte.EtatMidcompte import EtatMidcompte
 from millegrilles.messages.EnveloppeCertificat import EnveloppeCertificat
@@ -113,17 +110,3 @@ class WebServer:
         finally:
             self.__logger.info("Site arrete")
             await runner.cleanup()
-
-
-def main():
-    logging.basicConfig()
-    logging.getLogger(__name__).setLevel(logging.DEBUG)
-    logging.getLogger('millegrilles').setLevel(logging.DEBUG)
-
-    server = WebServer()
-    server.setup()
-    asyncio.run(server.run())
-
-
-if __name__  == '__main__':
-    main()

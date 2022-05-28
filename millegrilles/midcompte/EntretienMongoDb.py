@@ -1,11 +1,7 @@
-import aiohttp
 import logging
-import ssl
 
-from os import path
 from typing import Optional
 
-from aiohttp.client_exceptions import ClientConnectorError
 from pymongo import MongoClient
 
 from millegrilles.messages.EnveloppeCertificat import EnveloppeCertificat
