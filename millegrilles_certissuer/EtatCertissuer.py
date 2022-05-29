@@ -25,6 +25,12 @@ class EtatCertissuer:
         self.__validateur_certificats: Optional[ValidateurCertificatCache] = None
         self.__validateur_messages: Optional[ValidateurMessage] = None
 
+        self.__ca_str: Optional[str] = None
+
+    @property
+    def ca_str(self):
+        return self.__ca_str
+
     @property
     def cle_intermediaire(self):
         return self.__cle_intermediaire
@@ -42,6 +48,7 @@ class EtatCertissuer:
         path_ca = path.join(path_certissuer, 'millegrille.pem')
         try:
             self.__ca = EnveloppeCertificat.from_file(path_ca)
+            self.__ca_str = self.__ca.certificat_pem
             self.__validateur_certificats = ValidateurCertificatCache(self.__ca)
             self.__validateur_messages = ValidateurMessage(self.__validateur_certificats)
         except FileNotFoundError:

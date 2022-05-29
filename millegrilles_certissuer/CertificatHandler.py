@@ -2,6 +2,7 @@ from millegrilles_certissuer.Configuration import ConfigurationWeb
 from millegrilles_certissuer.EtatCertissuer import EtatCertissuer
 from millegrilles_messages.certificats.CertificatsConfiguration import signer_configuration
 from millegrilles_messages.certificats.CertificatsInstance import signer_instance_protege
+from millegrilles_messages.certificats.CertificatsUsager import signer_usager
 from millegrilles_messages.messages import Constantes
 
 
@@ -24,3 +25,15 @@ class CertificatHandler:
         csr = parametres['csr']
         enveloppe = signer_configuration(cle_intermediaire, csr, parametres)
         return enveloppe.chaine_pem()
+
+    def generer_certificat_usager(self, parametres: dict) -> str:
+        cle_intermediaire = self.__etat_certissuer.cle_intermediaire
+        csr = parametres['csr']
+        enveloppe = signer_usager(cle_intermediaire, csr, parametres)
+
+        # Ajouter le certificat CA
+        ca_str = self.__etat_certissuer.ca_str
+        chaine_pem = enveloppe.chaine_pem().copy()
+        chaine_pem.append(ca_str)
+
+        return chaine_pem

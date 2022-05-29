@@ -36,6 +36,11 @@ class WebServer:
             web.get('/csr', self.handle_csr),
             web.post('/installer', self.handle_installer),
             web.post('/signerModule', self.handle_signer_module),
+            web.post('/signerUsager', self.handle_signer_usager_interne),
+            web.post('/certissuerInterne/signerUsager', self.handle_signer_usager_interne),
+
+            # Commandes relayees par nginx
+            web.post('/certissuer/signerUsager', self.handle_signer_usager),
         ])
 
     async def handle_csr(self, request):
@@ -85,7 +90,37 @@ class WebServer:
             pass
 
         chaine = self.__certificat_handler.generer_certificat_module(info_cert)
-        return web.json_response({'certificat': chaine})
+        return web.json_response({'ok': True, 'certificat': chaine})
+
+    async def handle_signer_usager_interne(self, request: web.Request):
+        """
+        Appel direct au module (sans /certissuer)
+        :param request:
+        :return:
+        """
+        info_cert = await request.json()
+        self.__logger.debug("handle_signer_usager_interne params\n%s" % json.dumps(info_cert, indent=2))
+
+        # Valider signature de request (doit etre role instance, niveau de securite suffisant pour exchanges)
+        enveloppe = await self.__etat_certissuer.validateur_messages.verifier(info_cert)
+
+        # Le certificat doit avoir le role instance ou core
+        roles_enveloppe = enveloppe.get_roles
+        if 'core' not in roles_enveloppe:
+            return web.HTTPForbidden()
+
+        chaine = self.__certificat_handler.generer_certificat_usager(info_cert)
+
+        return web.json_response({'ok': True, 'certificat': chaine})
+
+
+    async def handle_signer_usager(self, request: web.Request):
+        """
+        Signe un certificat d'usager qui provient d'un serveur externe (relaye via nginx)
+        :param request:
+        :return:
+        """
+        return web.HTTPNotImplemented()
 
     async def entretien(self):
         self.__logger.debug('Entretien')
