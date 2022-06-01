@@ -3,6 +3,7 @@ import logging
 from typing import Optional
 
 from pymongo import MongoClient
+from pymongo.errors import OperationFailure
 
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 
@@ -64,4 +65,10 @@ class EntretienMongoDb:
 
         self.__logger.debug("Creation compte Mongo : %s", commande)
         external_db = self.__client_mongo.get_database('$external')
-        external_db.command(commande)
+        try:
+            external_db.command(commande)
+        except OperationFailure as oe:
+            if oe.code == 51003:
+                pass  # Compte existe deja, OK
+            else:
+                raise oe

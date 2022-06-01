@@ -82,6 +82,7 @@ class WebServer:
                 self.__logger.exception("Erreur ajout compte %s" % dn)
                 return web.HTTPInternalServerError()
         else:
+            self.__logger.error("Acces refuse %s" % dn)
             return web.HTTPForbidden()
 
     async def entretien(self):
