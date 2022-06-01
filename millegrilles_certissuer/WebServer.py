@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import json
 import logging
 
@@ -89,6 +90,24 @@ class WebServer:
         except KeyError:
             pass
 
+        params_temps = dict()
+        try:
+            duree_jours = int(self.__etat_certissuer.configuration.duree_certificats_jours)
+            params_temps['days'] = duree_jours
+        except TypeError:
+            pass
+
+        try:
+            duree_minutes = int(self.__etat_certissuer.configuration.duree_certificats_minutes)
+            params_temps['minutes'] = duree_minutes
+        except TypeError:
+            pass
+
+        if len(params_temps) > 0:
+            # Trouver duree en secondes
+            secondes = datetime.timedelta(**params_temps).seconds
+            info_cert['duree'] = int(secondes)
+
         chaine = self.__certificat_handler.generer_certificat_module(info_cert)
         return web.json_response({'ok': True, 'certificat': chaine})
 
@@ -112,7 +131,6 @@ class WebServer:
         chaine = self.__certificat_handler.generer_certificat_usager(info_cert)
 
         return web.json_response({'ok': True, 'certificat': chaine})
-
 
     async def handle_signer_usager(self, request: web.Request):
         """

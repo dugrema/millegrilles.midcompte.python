@@ -43,6 +43,10 @@ class EtatCertissuer:
     def validateur_messages(self):
         return self.__validateur_messages
 
+    @property
+    def configuration(self):
+        return self.__configuration
+
     async def charger_init(self):
         path_certissuer = self.__configuration.path_certissuer
         path_ca = path.join(path_certissuer, 'millegrille.pem')
