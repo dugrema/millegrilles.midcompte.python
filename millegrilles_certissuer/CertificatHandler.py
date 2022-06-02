@@ -4,6 +4,7 @@ from millegrilles_messages.certificats.CertificatsConfiguration import signer_co
 from millegrilles_messages.certificats.CertificatsInstance import signer_instance_protege
 from millegrilles_messages.certificats.CertificatsUsager import signer_usager
 from millegrilles_messages.messages import Constantes
+from millegrilles_messages.certificats.Generes import DUREE_CERT_DEFAUT
 
 
 class CertificatHandler:
@@ -12,10 +13,10 @@ class CertificatHandler:
         self.__configuration = configuration
         self.__etat_certissuer = etat_certissuer
 
-    def generer_certificat_instance(self, csr: str, securite: str) -> str:
+    def generer_certificat_instance(self, csr: str, securite: str, duree=DUREE_CERT_DEFAUT) -> str:
         cle_intermediaire = self.__etat_certissuer.cle_intermediaire
         if securite == Constantes.SECURITE_PROTEGE:
-            enveloppe_certificat = signer_instance_protege(cle_intermediaire, csr)
+            enveloppe_certificat = signer_instance_protege(cle_intermediaire, csr, duree)
         else:
             raise Exception('Type securite %s non supporte pour une instance' % securite)
         return enveloppe_certificat.chaine_pem()

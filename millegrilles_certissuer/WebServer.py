@@ -12,6 +12,7 @@ from millegrilles_messages.messages import Constantes
 from millegrilles_certissuer.Configuration import ConfigurationWeb
 from millegrilles_certissuer.EtatCertissuer import EtatCertissuer
 from millegrilles_certissuer.CertificatHandler import CertificatHandler
+from millegrilles_messages.certificats.Generes import DUREE_CERT_DEFAUT
 
 
 class WebServer:
@@ -38,10 +39,13 @@ class WebServer:
             web.post('/installer', self.handle_installer),
             web.post('/signerModule', self.handle_signer_module),
             web.post('/signerUsager', self.handle_signer_usager_interne),
+            web.post('/renouvelerInstance', self.handle_renouveler_instance),
             web.post('/certissuerInterne/signerUsager', self.handle_signer_usager_interne),
 
             # Commandes relayees par nginx
             web.post('/certissuer/signerUsager', self.handle_signer_usager),
+            web.post('/certissuer/signerModule', self.handle_signer_module),
+            web.post('/certissuer/renouvelerInstance', self.handle_renouveler_instance),
         ])
 
     async def handle_csr(self, request):
@@ -65,6 +69,42 @@ class WebServer:
         cert_instance = self.__certificat_handler.generer_certificat_instance(csr_instance, securite)
         self.__logger.debug("Nouveau certificat d'instance\n%s" % cert_instance)
         return web.json_response({'certificat': cert_instance}, status=201)
+
+    async def handle_renouveler_instance(self, request):
+        info_cert = await request.json()
+        self.__logger.debug("handle_installer params\n%s" % json.dumps(info_cert, indent=2))
+
+        # Valider signature de request (doit etre role instance, niveau de securite suffisant pour exchanges)
+        enveloppe = await self.__etat_certissuer.validateur_messages.verifier(info_cert)
+
+        # Le certificat doit avoir le role instance
+        roles_enveloppe = enveloppe.get_roles
+        if 'instance' not in roles_enveloppe:
+            return web.HTTPForbidden()
+
+        # Les niveaux de securite demandes doivent etre supporte par le certificat demandeur
+        securite_enveloppe = enveloppe.get_exchanges
+        if Constantes.SECURITE_PROTEGE in securite_enveloppe:
+            niveau_securite = Constantes.SECURITE_PROTEGE
+        elif Constantes.SECURITE_PROTEGE in securite_enveloppe:
+            niveau_securite = Constantes.SECURITE_PRIVE
+        elif Constantes.SECURITE_PROTEGE in securite_enveloppe:
+            niveau_securite = Constantes.SECURITE_PUBLIC
+        else:
+            self.__logger.error("handle_renouveler_instance() Niveau de securite non supporte : %s" % securite_enveloppe)
+            return web.HTTPBadRequest()
+
+        secondes = self.get_duree_certificat()
+        if secondes is not None:
+            duree = datetime.timedelta(seconds=secondes)
+        else:
+            duree = DUREE_CERT_DEFAUT
+
+        # Generer le certificat pour l'application d'instance
+        csr_instance = info_cert['csr_instance']
+        cert_instance = self.__certificat_handler.generer_certificat_instance(csr_instance, niveau_securite, duree)
+        self.__logger.debug("Nouveau certificat d'instance\n%s" % cert_instance)
+        return web.json_response({'certificat': cert_instance})
 
     async def handle_signer_module(self, request):
         info_cert = await request.json()
@@ -90,7 +130,17 @@ class WebServer:
         except KeyError:
             pass
 
+        secondes = self.get_duree_certificat()
+
+        if secondes is not None:
+            info_cert['duree'] = secondes
+
+        chaine = self.__certificat_handler.generer_certificat_module(info_cert)
+        return web.json_response({'ok': True, 'certificat': chaine})
+
+    def get_duree_certificat(self):
         params_temps = dict()
+
         try:
             duree_jours = int(self.__etat_certissuer.configuration.duree_certificats_jours)
             params_temps['days'] = duree_jours
@@ -105,11 +155,11 @@ class WebServer:
 
         if len(params_temps) > 0:
             # Trouver duree en secondes
-            secondes = datetime.timedelta(**params_temps).seconds
-            info_cert['duree'] = int(secondes)
+            secondes = int(datetime.timedelta(**params_temps).seconds)
+        else:
+            secondes = None
 
-        chaine = self.__certificat_handler.generer_certificat_module(info_cert)
-        return web.json_response({'ok': True, 'certificat': chaine})
+        return secondes
 
     async def handle_signer_usager_interne(self, request: web.Request):
         """
