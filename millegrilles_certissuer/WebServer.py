@@ -113,20 +113,25 @@ class WebServer:
 
         # Le certificat doit avoir le role instance ou core
         roles_enveloppe = enveloppe.get_roles
-        if 'instance' not in roles_enveloppe and 'core' not in roles_enveloppe:
-            return web.HTTPForbidden()
+        delegation_globale = enveloppe.get_delegation_globale
+        if 'instance' in roles_enveloppe or 'core' in roles_enveloppe:
+            # Les niveaux de securite demandes doivent etre supporte par le certificat demandeur
+            securite_enveloppe = enveloppe.get_exchanges
+            try:
+                for ex in info_cert['exchanges']:
+                    if ex == Constantes.SECURITE_SECURE:
+                        ex = Constantes.SECURITE_PROTEGE  # Niveau protege permet de creer certificat secure
+                    if ex not in securite_enveloppe:
+                        self.__logger.info(
+                            'Niveau de securite %s demande par un certificat qui ne le supporte pas' % ex)
+                        return web.HTTPForbidden()
+            except KeyError:
+                pass
 
-        # Les niveaux de securite demandes doivent etre supporte par le certificat demandeur
-        securite_enveloppe = enveloppe.get_exchanges
-        try:
-            for ex in info_cert['exchanges']:
-                if ex == Constantes.SECURITE_SECURE:
-                    ex = Constantes.SECURITE_PROTEGE  # Niveau protege permet de creer certificat secure
-                if ex not in securite_enveloppe:
-                    self.__logger.info('Niveau de securite %s demande par un certificat qui ne le supporte pas' % ex)
-                    return web.HTTPForbidden()
-        except KeyError:
+        elif delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE:
             pass
+        else:
+            return web.HTTPForbidden()
 
         secondes = self.get_duree_certificat()
 
