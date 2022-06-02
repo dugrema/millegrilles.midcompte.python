@@ -43,9 +43,7 @@ class WebServer:
             web.post('/certissuerInterne/signerUsager', self.handle_signer_usager_interne),
 
             # Commandes relayees par nginx
-            web.post('/certissuer/signerUsager', self.handle_signer_usager),
-            web.post('/certissuer/signerModule', self.handle_signer_module),
-            web.post('/certissuer/renouvelerInstance', self.handle_renouveler_instance),
+            # web.post('/certissuer/signerModule', self.handle_signer_module),
         ])
 
     async def handle_csr(self, request):
