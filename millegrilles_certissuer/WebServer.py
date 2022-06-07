@@ -7,6 +7,7 @@ from aiohttp import web
 from asyncio import Event
 from asyncio.exceptions import TimeoutError
 from typing import Optional
+from cryptography.x509.extensions import ExtensionNotFound
 
 from millegrilles_messages.messages import Constantes
 from millegrilles_certissuer.Configuration import ConfigurationWeb
@@ -112,8 +113,15 @@ class WebServer:
         enveloppe = await self.__etat_certissuer.validateur_messages.verifier(info_cert)
 
         # Le certificat doit avoir le role instance ou core
-        roles_enveloppe = enveloppe.get_roles
-        delegation_globale = enveloppe.get_delegation_globale
+        try:
+            roles_enveloppe = enveloppe.get_roles
+        except ExtensionNotFound:
+            roles_enveloppe = None
+        try:
+            delegation_globale = enveloppe.get_delegation_globale
+        except ExtensionNotFound:
+            delegation_globale = None
+
         if 'instance' in roles_enveloppe or 'core' in roles_enveloppe:
             # Les niveaux de securite demandes doivent etre supporte par le certificat demandeur
             securite_enveloppe = enveloppe.get_exchanges
