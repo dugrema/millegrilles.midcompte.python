@@ -146,7 +146,26 @@ class WebServer:
         if secondes is not None:
             info_cert['duree'] = secondes
 
-        chaine = self.__certificat_handler.generer_certificat_module(info_cert)
+        # Determiner si on renouvelle un certificat d'instance ou signe module
+        try:
+            roles = info_cert['roles']
+            if 'instance' in roles and 'instance' in roles_enveloppe:  # On renouvelle une instance
+                # Determiner niveau securite
+                niveaux = [Constantes.SECURITE_SECURE, Constantes.SECURITE_PROTEGE, Constantes.SECURITE_PRIVE, Constantes.SECURITE_PUBLIC, None]
+                niveau = None
+                for niveau in niveaux:
+                    if niveau in enveloppe.get_exchanges:
+                        break
+                if niveau is not None:
+                    csr = info_cert['csr_instance']
+                    chaine = self.__certificat_handler.generer_certificat_instance(csr, niveau)
+                else:
+                    return web.json_response({'ok': False, 'err': 'Renouvellement instance avec mauvais type de certificat'})
+            else:
+                chaine = self.__certificat_handler.generer_certificat_module(info_cert)
+        except KeyError:
+            chaine = self.__certificat_handler.generer_certificat_module(info_cert)
+
         return web.json_response({'ok': True, 'certificat': chaine})
 
     def get_duree_certificat(self):

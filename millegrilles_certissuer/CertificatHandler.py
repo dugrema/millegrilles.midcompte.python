@@ -1,7 +1,8 @@
 from millegrilles_certissuer.Configuration import ConfigurationWeb
 from millegrilles_certissuer.EtatCertissuer import EtatCertissuer
 from millegrilles_messages.certificats.CertificatsConfiguration import signer_configuration
-from millegrilles_messages.certificats.CertificatsInstance import signer_instance_protege
+from millegrilles_messages.certificats.CertificatsInstance import signer_instance_protege, signer_instance_prive, \
+    signer_instance_public
 from millegrilles_messages.certificats.CertificatsUsager import signer_usager
 from millegrilles_messages.messages import Constantes
 from millegrilles_messages.certificats.Generes import DUREE_CERT_DEFAUT
@@ -17,6 +18,10 @@ class CertificatHandler:
         cle_intermediaire = self.__etat_certissuer.cle_intermediaire
         if securite == Constantes.SECURITE_PROTEGE:
             enveloppe_certificat = signer_instance_protege(cle_intermediaire, csr, duree)
+        elif securite == Constantes.SECURITE_PRIVE:
+            enveloppe_certificat = signer_instance_prive(cle_intermediaire, csr, duree)
+        elif securite == Constantes.SECURITE_PRIVE:
+            enveloppe_certificat = signer_instance_public(cle_intermediaire, csr, duree)
         else:
             raise Exception('Type securite %s non supporte pour une instance' % securite)
         return enveloppe_certificat.chaine_pem()
