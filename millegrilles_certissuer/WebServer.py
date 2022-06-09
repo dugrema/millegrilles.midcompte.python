@@ -149,13 +149,17 @@ class WebServer:
         # Determiner si on renouvelle un certificat d'instance ou signe module
         try:
             roles = info_cert['roles']
-            if 'instance' in roles and 'instance' in roles_enveloppe:  # On renouvelle une instance
+            if 'instance' in roles and (
+                    'instance' in roles_enveloppe or delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE):  # On renouvelle une instance
                 # Determiner niveau securite
-                niveaux = [Constantes.SECURITE_SECURE, Constantes.SECURITE_PROTEGE, Constantes.SECURITE_PRIVE, Constantes.SECURITE_PUBLIC, None]
-                niveau = None
-                for niveau in niveaux:
-                    if niveau in enveloppe.get_exchanges:
-                        break
+                if enveloppe.get_delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE:
+                    niveau = info_cert['securite']
+                else:
+                    niveaux = [Constantes.SECURITE_SECURE, Constantes.SECURITE_PROTEGE, Constantes.SECURITE_PRIVE, Constantes.SECURITE_PUBLIC, None]
+                    niveau = None
+                    for niveau in niveaux:
+                        if niveau in enveloppe.get_exchanges:
+                            break
                 if niveau is not None:
                     csr = info_cert['csr_instance']
                     chaine = self.__certificat_handler.generer_certificat_instance(csr, niveau)
