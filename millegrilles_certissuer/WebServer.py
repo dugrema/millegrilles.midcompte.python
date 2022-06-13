@@ -71,7 +71,7 @@ class WebServer:
 
     async def handle_renouveler_instance(self, request):
         info_cert = await request.json()
-        self.__logger.debug("handle_installer params\n%s" % json.dumps(info_cert, indent=2))
+        self.__logger.debug("handle_renouveler_instance params\n%s" % json.dumps(info_cert, indent=2))
 
         # Valider signature de request (doit etre role instance, niveau de securite suffisant pour exchanges)
         enveloppe = await self.__etat_certissuer.validateur_messages.verifier(info_cert)
@@ -107,7 +107,7 @@ class WebServer:
 
     async def handle_signer_module(self, request):
         info_cert = await request.json()
-        self.__logger.debug("handle_installer params\n%s" % json.dumps(info_cert, indent=2))
+        self.__logger.debug("handle_signer_module params\n%s" % json.dumps(info_cert, indent=2))
 
         # Valider signature de request (doit etre role instance, niveau de securite suffisant pour exchanges)
         enveloppe = await self.__etat_certissuer.validateur_messages.verifier(info_cert)
@@ -162,7 +162,12 @@ class WebServer:
                             break
                 if niveau is not None:
                     csr = info_cert['csr_instance']
-                    chaine = self.__certificat_handler.generer_certificat_instance(csr, niveau)
+                    try:
+                        duree_int = info_cert['duree']
+                        duree = datetime.timedelta(seconds=duree_int)
+                    except KeyError:
+                        duree = None
+                    chaine = self.__certificat_handler.generer_certificat_instance(csr, niveau, duree)
                 else:
                     return web.json_response({'ok': False, 'err': 'Renouvellement instance avec mauvais type de certificat'})
             else:
