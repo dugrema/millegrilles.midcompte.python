@@ -9,6 +9,7 @@ from asyncio.exceptions import TimeoutError
 from typing import Optional
 from cryptography.x509.extensions import ExtensionNotFound
 
+from millegrilles_messages.certificats.Generes import EnveloppeCsr
 from millegrilles_messages.messages import Constantes
 from millegrilles_certissuer.Configuration import ConfigurationWeb
 from millegrilles_certissuer.EtatCertissuer import EtatCertissuer
@@ -156,16 +157,25 @@ class WebServer:
             if 'instance' in roles and (
                     'instance' in roles_enveloppe or delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE):  # On renouvelle une instance
                 # Determiner niveau securite
+                csr = info_cert['csr_instance']
+                enveloppe_csr = EnveloppeCsr.from_str(csr)
+                if enveloppe_csr.csr.is_signature_valid is False:
+                    return web.json_response({'ok': False, 'err': 'CSR signature mismatch (X.509)'})
+
                 if delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE:
                     niveau = info_cert['securite']
                 else:
+                    # Verifier que le CSR d'instance a le meme instance_id (CN) que l'enveloppe
+                    if enveloppe.subject_common_name != enveloppe_csr.cn:
+                        return web.json_response({'ok': False, 'err': 'CN mismatch entre certificat et CSR'})
+
                     niveaux = [Constantes.SECURITE_SECURE, Constantes.SECURITE_PROTEGE, Constantes.SECURITE_PRIVE, Constantes.SECURITE_PUBLIC, None]
                     niveau = None
                     for niveau in niveaux:
                         if niveau in exchanges:
                             break
+
                 if niveau is not None:
-                    csr = info_cert['csr_instance']
                     try:
                         duree_int = info_cert['duree']
                         duree = datetime.timedelta(seconds=duree_int)
