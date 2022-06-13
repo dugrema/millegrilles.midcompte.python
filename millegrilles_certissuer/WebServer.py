@@ -121,6 +121,10 @@ class WebServer:
             delegation_globale = enveloppe.get_delegation_globale
         except ExtensionNotFound:
             delegation_globale = None
+        try:
+            exchanges = enveloppe.get_exchanges
+        except ExtensionNotFound:
+            exchanges = None
 
         if 'instance' in roles_enveloppe or 'core' in roles_enveloppe:
             # Les niveaux de securite demandes doivent etre supporte par le certificat demandeur
@@ -152,13 +156,13 @@ class WebServer:
             if 'instance' in roles and (
                     'instance' in roles_enveloppe or delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE):  # On renouvelle une instance
                 # Determiner niveau securite
-                if enveloppe.get_delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE:
+                if delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE:
                     niveau = info_cert['securite']
                 else:
                     niveaux = [Constantes.SECURITE_SECURE, Constantes.SECURITE_PROTEGE, Constantes.SECURITE_PRIVE, Constantes.SECURITE_PUBLIC, None]
                     niveau = None
                     for niveau in niveaux:
-                        if niveau in enveloppe.get_exchanges:
+                        if niveau in exchanges:
                             break
                 if niveau is not None:
                     csr = info_cert['csr_instance']
