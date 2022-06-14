@@ -82,8 +82,8 @@ class EtatCertissuer:
         if self.__csr is None:
             try:
                 instance_id = self.__cle_intermediaire.enveloppe.subject_common_name
-            except TypeError:
-                instance_id = 'Uninitialized'
+            except (AttributeError, TypeError):
+                instance_id = self.configuration.instance_id
             self.__csr = generer_csr_intermediaire(instance_id)
 
         return self.__csr.get_pem_csr()
