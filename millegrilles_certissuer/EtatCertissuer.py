@@ -80,7 +80,10 @@ class EtatCertissuer:
 
     def get_csr(self) -> str:
         if self.__csr is None:
-            instance_id = self.__configuration.instance_id
+            try:
+                instance_id = self.__cle_intermediaire.enveloppe.subject_common_name
+            except (AttributeError, TypeError):
+                instance_id = self.configuration.instance_id
             self.__csr = generer_csr_intermediaire(instance_id)
 
         return self.__csr.get_pem_csr()
