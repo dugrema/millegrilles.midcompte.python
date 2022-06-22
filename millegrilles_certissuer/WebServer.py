@@ -94,11 +94,11 @@ class WebServer:
             self.__logger.error("handle_renouveler_instance() Niveau de securite non supporte : %s" % securite_enveloppe)
             return web.HTTPBadRequest()
 
-        secondes = self.get_duree_certificat()
-        if secondes is not None:
-            duree = datetime.timedelta(seconds=secondes)
-        else:
-            duree = DUREE_CERT_DEFAUT
+        duree = self.get_duree_certificat()
+        # if secondes is not None:
+        #     duree = datetime.timedelta(seconds=secondes)
+        # else:
+        #     duree = DUREE_CERT_DEFAUT
 
         # Generer le certificat pour l'application d'instance
         csr_instance = info_cert['csr_instance']
