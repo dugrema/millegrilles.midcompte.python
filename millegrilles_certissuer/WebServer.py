@@ -146,7 +146,7 @@ class WebServer:
         else:
             return web.HTTPForbidden()
 
-        secondes = self.get_duree_certificat()
+        secondes = int(self.get_duree_certificat().total_seconds())
 
         if secondes is not None:
             info_cert['duree'] = secondes
@@ -180,7 +180,7 @@ class WebServer:
                         duree_int = info_cert['duree']
                         duree = datetime.timedelta(seconds=duree_int)
                     except KeyError:
-                        duree = None
+                        duree = self.get_duree_certificat()
                     chaine = self.__certificat_handler.generer_certificat_instance(csr, niveau, duree)
                 else:
                     return web.json_response({'ok': False, 'err': 'Renouvellement instance avec mauvais type de certificat'})
@@ -208,11 +208,13 @@ class WebServer:
 
         if len(params_temps) > 0:
             # Trouver duree en secondes
-            secondes = int(datetime.timedelta(**params_temps).seconds)
+            duree = datetime.timedelta(**params_temps)
         else:
-            secondes = None
+            duree = datetime.timedelta(days=31)
 
-        return secondes
+        # secondes = int(duree.total_seconds())
+
+        return duree
 
     async def handle_signer_usager_interne(self, request: web.Request):
         """
