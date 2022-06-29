@@ -3,7 +3,7 @@ import logging
 import json
 import tarfile
 
-from os import path, makedirs
+from os import path, makedirs, unlink
 from typing import Optional
 
 from millegrilles_messages.messages.ValidateurMessage import ValidateurMessage, ValidateurCertificatCache
@@ -51,7 +51,8 @@ class RestaurateurArchives:
 
     async def run(self):
         path_archive = await self.extraire_archive()
-        await self.dechiffrer(path_archive)
+        path_archive_dechiffree = await self.dechiffrer(path_archive)
+        await self.extraire_archive_dechiffree(path_archive_dechiffree)
 
     async def extraire_archive(self) -> str:
         makedirs(self.__work_path, mode=0o755, exist_ok=True)
@@ -69,10 +70,12 @@ class RestaurateurArchives:
 
         return path_archive
 
-    async def dechiffrer(self, path_archive: str):
+    async def dechiffrer(self, path_archive: str) -> str:
         catalogue_path = path.join(self.__work_path, 'catalogue.json')
         with open(catalogue_path, 'r') as fichier:
             catalogue = json.load(fichier)
+
+        enveloppe = await self.__validateur_messages.verifier(catalogue, utiliser_date_message=True)
 
         cle_dechiffree = self.__clecert_ca.dechiffrage_asymmetrique(catalogue['cle'])
         decipher = DecipherMgs3(cle_dechiffree, catalogue['iv'], catalogue['tag'])
@@ -88,6 +91,15 @@ class RestaurateurArchives:
 
         decipher.finalize()
         print("Dechiffrage OK")
+
+        unlink(path_archive)
+
+        return path_archive_dechiffree
+
+    async def extraire_archive_dechiffree(self, path_archive):
+        with tarfile.open(path_archive, 'r') as tar_file:
+            tar_file.extractall(self.__work_path)
+        unlink(path_archive)
 
 
 def charger_cle_ca(path_cle_ca: str) -> CleCertificat:
