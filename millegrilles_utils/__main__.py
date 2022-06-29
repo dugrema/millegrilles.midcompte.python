@@ -3,6 +3,7 @@ import asyncio
 import logging
 
 from millegrilles_utils.Backup import main as backup_main
+from millegrilles_utils.Restaurer import main as restaurer_main
 
 
 def parse() -> argparse.Namespace:
@@ -28,6 +29,13 @@ def parse() -> argparse.Namespace:
     subparser_backup.add_argument('--ca', default='/var/opt/millegrilles/configuration/pki.millegrille.cert',
                                   help='Certificat de MilleGrille')
 
+    # Subparser restaurer
+    subparser_restaurer = subparsers.add_parser('restaurer', help='Restaurer archive')
+    subparser_restaurer.add_argument('--cleca', required=True, help='Path/URL du JSON de cle de millegrille')
+    subparser_restaurer.add_argument('--archive', required=True, help='Path/URL de fichier d''archive')
+    subparser_restaurer.add_argument('--workpath', default='/var/opt/millegrilles_backup/_RESTAURER',
+                                     help='Path/URL de fichier d''archive')
+
     args = parser.parse_args()
     adjust_logging(args)
 
@@ -50,6 +58,8 @@ async def demarrer(args: argparse.Namespace):
         raise NotImplementedError('todo')
     elif command == 'backup':
         await backup_main(args.source, args.dest, args.ca)
+    elif command == 'restaurer':
+        await restaurer_main(args.archive, args.workpath, args.cleca)
     else:
         raise ValueError('non supporte')
 

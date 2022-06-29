@@ -15,6 +15,7 @@ from millegrilles_messages.messages.FormatteurMessages import SignateurTransacti
 from millegrilles_messages.messages.CleCertificat import CleCertificat
 
 TAILLE_BUFFER = 32 * 1024
+REP_ARCHIVES = '_ARCHIVES'
 
 
 class GenerateurBackup:
@@ -80,7 +81,7 @@ class GenerateurBackup:
             return
 
         # Creer repertoire archives
-        path_archives = path.join(self.__source, '_ARCHIVES')
+        path_archives = path.join(self.__source, REP_ARCHIVES)
         makedirs(path_archives, mode=0o755, exist_ok=True)
 
         path_tar_file = path.join(path_archives, '%s.%s.tar' % (repertoire, date_courante))
@@ -134,18 +135,6 @@ class GenerateurBackup:
         # Creer fichier d'information de chiffrage
         info_chiffrage = cipher.get_info_dechiffrage()
         return fichier_dest, info_chiffrage
-
-
-class StreamTar:
-    """
-    Stream processor qui permet d'ajouter des fichiers dans un .tar
-    """
-
-    def __init__(self, output_path: str):
-        pass
-
-    def process_fichier(self, path_fichier: str):
-        pass
 
 
 async def main(source: str, dest: str, ca: Optional[str]):
