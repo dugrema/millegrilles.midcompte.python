@@ -2,13 +2,17 @@ import asyncio
 import datetime
 import logging
 import subprocess
-import pytz
+import tarfile
+import json
 
-from os import listdir, path
+from os import listdir, path, unlink, makedirs
 from typing import Optional
 
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 from millegrilles_utils.Configuration import ConfigurationBackup
+from millegrilles_messages.chiffrage.Mgs3 import CipherMgs3
+
+TAILLE_BUFFER = 32 * 1024
 
 
 class GenerateurBackup:
@@ -74,6 +78,9 @@ class GenerateurBackup:
         return sorted(repertoires_backup)
 
     async def backup_repertoire(self, repertoire: str):
+        if self.__enveloppe_ca is None:
+            raise ValueError('enveloppe_ca doit etre initialise')
+
         date_courante = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
         nom_archive = '%s.tar.xz' % repertoire
         commande = ['tar', 'c', '-Jf', nom_archive, repertoire]
@@ -87,10 +94,52 @@ class GenerateurBackup:
             self.__logger.error("Archive %s en erreur, on skip" % repertoire)
             return
 
-        if self.__enveloppe_ca is not None:
+        # Creer repertoire archives
+        path_archives = path.join(self.__source, '_ARCHIVES')
+        makedirs(path_archives, mode=0o755, exist_ok=True)
+
+        path_tar_file = path.join(path_archives, '%s.%s.tar' % (repertoire, date_courante))
+        nom_archive_chiffree = '%s.mgs3' % nom_archive
+        path_catalogue = path.join(self.__source, 'catalogue.json')
+        fichier_dest = path.join(self.__source, nom_archive_chiffree)
+
+        try:
             # Chiffrer le .tar.xz
-            nom_archive_chiffree = '%s.mgs3'
-            # cipher =
+            fichier_dest, info_chiffrage = await self.chiffrer_archive(nom_archive, fichier_dest)
+
+            with open(path_catalogue, 'w') as fichier_cat:
+                json.dump(info_chiffrage, fichier_cat)
+
+            with tarfile.open(path_tar_file, 'w') as tar_out:
+                tar_out.add(path_catalogue, arcname='catalogue.json')
+                tar_out.add(fichier_dest, arcname=nom_archive_chiffree)
+        except IOError:
+            # Cleanup fichier tar si present
+            unlink(path_tar_file)
+        finally:
+            # Cleanup
+            unlink(fichier_dest)
+            unlink(path_catalogue)
+
+    async def chiffrer_archive(self, nom_archive: str, fichier_dest: str):
+        public_x25519 = self.__enveloppe_ca.get_public_x25519()
+        cipher = CipherMgs3(public_x25519)
+        fichier_src = path.join(self.__source, nom_archive)
+
+        with open(fichier_dest, 'wb') as fp_dest:
+            with open(fichier_src, 'rb') as fp_src:
+                bytes_buffer = fp_src.read(TAILLE_BUFFER)
+                while len(bytes_buffer) > 0:
+                    output_buffer = cipher.update(bytes_buffer)
+                    fp_dest.write(output_buffer)
+                    bytes_buffer = fp_src.read(TAILLE_BUFFER)
+
+        # Retirer fichier src (dechiffre)
+        unlink(fichier_src)
+
+        # Creer fichier d'information de chiffrage
+        info_chiffrage = cipher.get_info_dechiffrage()
+        return fichier_dest, info_chiffrage
 
 
 class StreamTar:
