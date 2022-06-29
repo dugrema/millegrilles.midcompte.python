@@ -14,4 +14,4 @@ RUN pip3 install --no-cache-dir -r $BUILD_FOLDER/requirements.txt && \
 
 WORKDIR /opt/millegrilles/dist
 
-CMD ["-m", "millegrilles_midcompte", "--verbose"]
+CMD ["-m", "millegrilles_utils", "--verbose", "midcompte"]
