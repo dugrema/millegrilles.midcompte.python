@@ -11,6 +11,8 @@ from typing import Optional
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 from millegrilles_utils.Configuration import ConfigurationBackup
 from millegrilles_messages.chiffrage.Mgs3 import CipherMgs3
+from millegrilles_messages.messages.FormatteurMessages import SignateurTransactionSimple, FormatteurMessageMilleGrilles
+from millegrilles_messages.messages.CleCertificat import CleCertificat
 
 TAILLE_BUFFER = 32 * 1024
 
@@ -24,6 +26,7 @@ class GenerateurBackup:
         self.__dest = dest
 
         self.__enveloppe_ca: Optional[EnveloppeCertificat] = None
+        self.__formatteur: Optional[FormatteurMessageMilleGrilles] = None
 
         # Parse configuration environnement
         self.__config.parse_config(config)
@@ -36,28 +39,10 @@ class GenerateurBackup:
             self.__logger.warning("Chiffrage annule, CA introuvable (path %s)", path_ca)
             return
 
-    # def preparer_cipher(self, nom_application: str, catalogue_backup: dict, path_output: str):
-    #     # Faire requete pour obtenir les cles de chiffrage
-    #     domaine_action = 'MaitreDesCles.' + Constantes.ConstantesMaitreDesCles.REQUETE_CERT_MAITREDESCLES
-    #     cles_chiffrage = self.__handler_requetes.requete(domaine_action)
-    #     self.__logger.debug("Cles chiffrage recu : %s" % cles_chiffrage)
-    #
-    #     # Creer un fichier .tar.xz.mgs2 pour streamer le backup
-    #     output_stream = open(path_output, 'wb')
-    #
-    #     heure = datetime.datetime.utcnow().strftime(BackupAgent.FORMAT_HEURE)
-    #     cipher, transaction_maitredescles = self.__backup_util.preparer_cipher(
-    #         catalogue_backup, cles_chiffrage, heure,
-    #         nom_application=nom_application,
-    #         output_stream=output_stream
-    #     )
-    #
-    #     self.__logger.debug("Transaction maitredescles:\n%s", json.dumps(transaction_maitredescles, indent=2))
-    #
-    #     lzma_compressor = lzma.open(cipher, 'w')  # Pipe data vers le cipher
-    #     tar_output = tarfile.open(fileobj=lzma_compressor, mode="w|")  # Pipe data vers lzma
-    #
-    #     return {'cipher': cipher, 'maitredescles': transaction_maitredescles, 'lzma': lzma_compressor, 'tar': tar_output}
+        clecert = CleCertificat.from_files(self.__config.key_pem_path, self.__config.cert_pem_path)
+
+        signateur = SignateurTransactionSimple(clecert)
+        self.__formatteur = FormatteurMessageMilleGrilles(self.__enveloppe_ca.idmg, signateur)
 
     async def run(self):
         repertoires = await self.identifier_repertoires()
@@ -106,6 +91,10 @@ class GenerateurBackup:
         try:
             # Chiffrer le .tar.xz
             fichier_dest, info_chiffrage = await asyncio.to_thread(self.chiffrer_archive, nom_archive, fichier_dest)
+
+            # Ajouter info module
+            info_chiffrage['module'] = repertoire
+
             await asyncio.to_thread(self.sauvegarder_tar,
                                     fichier_dest, info_chiffrage, nom_archive_chiffree, path_catalogue, path_tar_file)
         except IOError:
@@ -117,8 +106,9 @@ class GenerateurBackup:
             unlink(path_catalogue)
 
     def sauvegarder_tar(self, fichier_dest, info_chiffrage, nom_archive_chiffree, path_catalogue, path_tar_file):
+        info_chiffrage_signe, uuid_transaction = self.__formatteur.signer_message(info_chiffrage)
         with open(path_catalogue, 'w') as fichier_cat:
-            json.dump(info_chiffrage, fichier_cat)
+            json.dump(info_chiffrage_signe, fichier_cat)
         with tarfile.open(path_tar_file, 'w') as tar_out:
             tar_out.add(path_catalogue, arcname='catalogue.json')
             tar_out.add(fichier_dest, arcname=nom_archive_chiffree)

@@ -17,8 +17,8 @@ class ConfigurationBackup:
 
     def __init__(self):
         self.ca_pem_path = '/var/opt/millegrilles/configuration/pki.millegrille.cert'
-        self.web_cert_pem_path: Optional[str] = None
-        self.web_key_pem_path: Optional[str] = None
+        self.cert_pem_path: Optional[str] = None
+        self.key_pem_path: Optional[str] = None
 
     def get_env(self) -> dict:
         """
@@ -44,5 +44,5 @@ class ConfigurationBackup:
             dict_params.update(configuration)
 
         self.ca_pem_path = dict_params.get(ConstantesMessages.ENV_CA_PEM) or self.ca_pem_path
-        self.web_cert_pem_path = dict_params.get(Constantes.PARAM_CERT_PATH) or self.web_cert_pem_path
-        self.web_key_pem_path = dict_params.get(Constantes.PARAM_KEY_PATH) or self.web_key_pem_path
+        self.cert_pem_path = dict_params.get(Constantes.PARAM_CERT_PATH) or self.cert_pem_path
+        self.key_pem_path = dict_params.get(Constantes.PARAM_KEY_PATH) or self.key_pem_path
