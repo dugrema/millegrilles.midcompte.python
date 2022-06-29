@@ -105,14 +105,9 @@ class GenerateurBackup:
 
         try:
             # Chiffrer le .tar.xz
-            fichier_dest, info_chiffrage = await self.chiffrer_archive(nom_archive, fichier_dest)
-
-            with open(path_catalogue, 'w') as fichier_cat:
-                json.dump(info_chiffrage, fichier_cat)
-
-            with tarfile.open(path_tar_file, 'w') as tar_out:
-                tar_out.add(path_catalogue, arcname='catalogue.json')
-                tar_out.add(fichier_dest, arcname=nom_archive_chiffree)
+            fichier_dest, info_chiffrage = await asyncio.to_thread(self.chiffrer_archive, nom_archive, fichier_dest)
+            await asyncio.to_thread(self.sauvegarder_tar,
+                                    fichier_dest, info_chiffrage, nom_archive_chiffree, path_catalogue, path_tar_file)
         except IOError:
             # Cleanup fichier tar si present
             unlink(path_tar_file)
@@ -121,7 +116,14 @@ class GenerateurBackup:
             unlink(fichier_dest)
             unlink(path_catalogue)
 
-    async def chiffrer_archive(self, nom_archive: str, fichier_dest: str):
+    def sauvegarder_tar(self, fichier_dest, info_chiffrage, nom_archive_chiffree, path_catalogue, path_tar_file):
+        with open(path_catalogue, 'w') as fichier_cat:
+            json.dump(info_chiffrage, fichier_cat)
+        with tarfile.open(path_tar_file, 'w') as tar_out:
+            tar_out.add(path_catalogue, arcname='catalogue.json')
+            tar_out.add(fichier_dest, arcname=nom_archive_chiffree)
+
+    def chiffrer_archive(self, nom_archive: str, fichier_dest: str):
         public_x25519 = self.__enveloppe_ca.get_public_x25519()
         cipher = CipherMgs3(public_x25519)
         fichier_src = path.join(self.__source, nom_archive)
@@ -133,6 +135,8 @@ class GenerateurBackup:
                     output_buffer = cipher.update(bytes_buffer)
                     fp_dest.write(output_buffer)
                     bytes_buffer = fp_src.read(TAILLE_BUFFER)
+
+        cipher.finalize()
 
         # Retirer fichier src (dechiffre)
         unlink(fichier_src)
