@@ -2,11 +2,15 @@ import asyncio
 import getpass
 import logging
 import json
+import lzma
+
+import multibase
 import tarfile
 
 from os import path, makedirs, unlink
 from typing import Optional
 
+from millegrilles_messages.messages import Constantes
 from millegrilles_messages.messages.ValidateurMessage import ValidateurMessage, ValidateurCertificatCache
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 from millegrilles_messages.messages.CleCertificat import CleCertificat
@@ -58,7 +62,7 @@ class RestaurateurArchives:
         self.__validateur_messages = ValidateurMessage(self.__validateur_certificats)
 
     async def preparer_mq(self):
-        self.__restaurateur_transactions = RestaurateurTransactions(self.__config)
+        self.__restaurateur_transactions = RestaurateurTransactions(self.__config, self.__clecert_ca, self.__work_path)
         await self.__restaurateur_transactions.preparer()
 
     async def run(self):
@@ -122,15 +126,22 @@ class RestaurateurArchives:
 
 class RestaurateurTransactions:
 
-    def __init__(self, config: ConfigurationBackup):
+    def __init__(self, config: ConfigurationBackup, clecert_ca: CleCertificat, work_path: str):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__config = config
+        self.__clecert_ca = clecert_ca
+        self.__work_path = work_path
         self.__stop_event: Optional[asyncio.Event] = None
+        self.__liste_complete_event: Optional[asyncio.Event] = None
         self.__messages_thread: Optional[MessagesThread] = None
+
+        self.__path_fichier_archives = path.join(work_path, 'liste.txt')
+        self.__fp_fichiers_archive = None
 
     async def preparer(self):
         reply_res = RessourcesConsommation(self.traiter_reponse)
         self.__stop_event = asyncio.Event()
+        self.__liste_complete_event = asyncio.Event()
         messages_thread = MessagesThread(self.__stop_event)
         messages_thread.set_reply_ressources(reply_res)
 
@@ -143,8 +154,31 @@ class RestaurateurTransactions:
 
         self.__messages_thread = messages_thread
 
-    async def traiter_reponse(self, message):
+    async def traiter_reponse(self, message, module_messages: MessagesThread):
         self.__logger.info("Message recu : %s" % json.dumps(message.parsed, indent=2))
+
+        message_parsed = message.parsed
+
+        if self.__liste_complete_event.is_set() is False:
+            # Mode recevoir liste fichiers/cles
+            try:
+                cles = message_parsed['cles']
+                self.__logger.info("Cles recues : %s", cles)
+
+                await asyncio.to_thread(self.conserver_liste_fichiers, cles)
+
+            except KeyError:
+                pass
+
+            try:
+                if message_parsed['complet'] is True:
+                    self.__liste_complete_event.set()
+            except KeyError:
+                pass
+
+    def conserver_liste_fichiers(self, cles: dict):
+        for nom_fichier, cle in cles.items():
+            self.__fp_fichiers_archive.write(nom_fichier + '\n')
 
     async def run(self):
         # Demarrer traitement messages
@@ -159,10 +193,69 @@ class RestaurateurTransactions:
         await asyncio.tasks.wait(tasks, return_when=asyncio.tasks.FIRST_COMPLETED)
 
     async def run_traitement_transactions(self):
-        producer = self.__messages_thread.get_producer()
         self.__logger.info("Attendre MQ")
         await self.__messages_thread.attendre_pret()
         self.__logger.info("MQ pret")
+
+        await self.recuperer_liste_fichiers()
+
+    async def recuperer_liste_fichiers(self):
+        producer = self.__messages_thread.get_producer()
+
+        self.__fp_fichiers_archive = open(self.__path_fichier_archives, 'w')
+
+        await producer.executer_commande(
+            dict(), domaine='fichiers', action='getClesBackupTransactions',
+            exchange=Constantes.SECURITE_PRIVE,
+            nowait=True)
+
+        await asyncio.wait_for(self.__liste_complete_event.wait(), 5)
+        self.__fp_fichiers_archive.close()
+        self.__fp_fichiers_archive = None
+
+        await self.traiter_transactions()
+
+    async def traiter_transactions(self):
+        producer = self.__messages_thread.get_producer()
+
+        with open(self.__path_fichier_archives, 'r') as fichier:
+            for ligne_fichier in fichier:
+                self.__logger.debug("Traiter %s" % ligne_fichier)
+                nom_fichier = ligne_fichier.strip()
+
+                # Bounce la requete de fichier de backup
+                requete = {'fichierBackup': nom_fichier}
+                resultat = await producer.executer_requete(requete, domaine='fichiers', action='getBackupTransaction', exchange='2.prive')
+                transaction_backup = resultat.parsed['backup']
+                self.__logger.debug("Fichier transaction : %s" % json.dumps(transaction_backup, indent=2))
+                try:
+                    await self.traiter_transactions_fichier(transaction_backup)
+                except ValueError:
+                    self.__logger.exception("Erreur dechiffrage fichier %s" % nom_fichier)
+
+    async def traiter_transactions_fichier(self, backup: dict):
+        domaine = backup['domaine']
+
+        # Dechiffrer cle
+        cle_dechiffree = self.__clecert_ca.dechiffrage_asymmetrique(backup['cle'])
+        decipher = DecipherMgs3(cle_dechiffree, backup['iv'], backup['tag'])
+
+        # Dechiffrer transactions
+        data_transactions = await asyncio.to_thread(self.extraire_transactions, backup['data_transactions'], decipher)
+        pass
+
+    def extraire_transactions(self, data: str, decipher: DecipherMgs3):
+        data = multibase.decode(data)  # Base 64 decode
+        data = decipher.update(data)   # Dechiffrer
+        decipher.finalize()            # Valider contenu dechiffre
+        data: bytes = lzma.decompress(data)   # Decompresser en bytes (jsonl)
+
+        liste_transactions = list()
+        for ligne in data.splitlines():
+            transaction = json.loads(ligne.decode('utf-8'))
+            liste_transactions.append(transaction)
+
+        return liste_transactions
 
 
 def charger_cle_ca(path_cle_ca: str) -> CleCertificat:
