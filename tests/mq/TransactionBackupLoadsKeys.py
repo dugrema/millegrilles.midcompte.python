@@ -24,10 +24,10 @@ async def main():
     exchange_1 = ExchangeConfiguration("1.public", ExchangeType.topic)
 
     reply_res = RessourcesConsommation(callback_reply_q)
-    # q1 = RessourcesConsommation(callback_q_1, 'CoreBackup/tada')
-    # q1.ajouter_rk('3.protege', 'commande.CoreBackup.m1')
-    # q1.ajouter_rk('2.prive', 'commande.CoreBackup.m2')
-    #
+    q1 = RessourcesConsommation(callback_q_1, 'instance/test_backup')
+    q1.ajouter_rk('2.prive', 'commande.instance.test_backup')
+    q1.set_ttl(30000)
+
     # q2 = RessourcesConsommation(callback_q_2, 'CoreBackup/titi', durable=True)
     # q2.set_ttl(30000)
     # q2.ajouter_rk('2.prive', 'evenement.CoreBackup.t1')
@@ -35,7 +35,7 @@ async def main():
 
     messages_thread = MessagesThread(stop_event)
     messages_thread.set_reply_ressources(reply_res)
-    # messages_thread.ajouter_consumer(q1)
+    messages_thread.ajouter_consumer(q1)
     # messages_thread.ajouter_consumer(q2)
 
     # Demarrer traitement messages
@@ -65,7 +65,8 @@ async def run_tests(messages_thread, stop_event):
     reply_q = producer.get_reply_q()
     await producer.executer_commande(
         dict(), domaine='fichiers', action='getClesBackupTransactions',
-        exchange=Constantes.SECURITE_PRIVE, nowait=True)
+        exchange=Constantes.SECURITE_PRIVE,
+        nowait=True)
 
     logger.info("Attente")
     try:
@@ -75,15 +76,37 @@ async def run_tests(messages_thread, stop_event):
     stop_event.set()
 
 
-async def callback_reply_q(message, module_messages):
+async def callback_reply_q(message, module_messages: MessagesThread):
     message_parsed = message.parsed
-    logger.info("Message recu : %s" % json.dumps(message_parsed, indent=2))
+
+    try:
+        cles = message_parsed['cles']
+        logger.info("Cles recues : %s" % json.dumps(cles, indent=2))
+
+        # Faire une requete pour l'archive a dechiffrer
+        producer = module_messages.get_producer()
+
+        for nom_fichier, cle in cles.items():
+            requete = {'fichierBackup': nom_fichier}
+
+            # Note : bounce vers Q1 pour permettre de faire la requete sur le fichier (besoin thread reply_q)
+            await producer.executer_commande(requete, domaine='instance', action='test_backup', exchange='2.prive', nowait=True)
+
+    except KeyError:
+        logger.info("Message recu : %s" % json.dumps(message_parsed, indent=2))
 
     # wait_event.wait(0.7)
 
 
-def callback_q_1(message, module_messages):
-    logger.info("callback_q_1 Message recu : %s" % message)
+async def callback_q_1(message, module_messages: MessagesThread):
+    logger.info("callback_q_1 Message recu : %s" % json.dumps(message.parsed, indent=2))
+    producer = module_messages.get_producer()
+
+    # Bounce la requete de fichier de backup
+    requete = {'fichierBackup': message.parsed['fichierBackup']}
+    resultat = await producer.executer_requete(requete, domaine='fichiers', action='getBackupTransaction', exchange='2.prive')
+    transaction_backup = resultat.parsed['backup']
+    logger.info("Fichier transaction : %s" % json.dumps(transaction_backup, indent=2))
 
 
 def callback_q_2(message, module_messages):
