@@ -32,9 +32,10 @@ def parse() -> argparse.Namespace:
     # Subparser restaurer
     subparser_restaurer = subparsers.add_parser('restaurer', help='Restaurer archive')
     subparser_restaurer.add_argument('--cleca', required=True, help='Path/URL du JSON de cle de millegrille')
-    subparser_restaurer.add_argument('--archive', required=True, help='Path/URL de fichier d''archive')
-    subparser_restaurer.add_argument('--workpath', default='/var/opt/millegrilles_backup/_RESTAURER',
-                                     help='Path/URL de fichier d''archive')
+    subparser_restaurer.add_argument('--workpath', default='/tmp/millegrilles_restaurer',
+                                     help='Path/URL de travail pour l''extraction')
+    subparser_restaurer.add_argument('--archive', required=False, help='Path/URL de fichier d''archive')
+    subparser_restaurer.add_argument('--transactions', action='store_true', required=False, help='Restaurer les transactions avec MQ')
 
     args = parser.parse_args()
     adjust_logging(args)
@@ -59,7 +60,7 @@ async def demarrer(args: argparse.Namespace):
     elif command == 'backup':
         await backup_main(args.source, args.dest, args.ca)
     elif command == 'restaurer':
-        await restaurer_main(args.archive, args.workpath, args.cleca)
+        await restaurer_main(args.archive, args.workpath, args.cleca, args.transactions)
     else:
         raise ValueError('non supporte')
 
