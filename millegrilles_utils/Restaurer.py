@@ -139,6 +139,8 @@ class RestaurateurTransactions:
         self.__fp_fichiers_archive = None
 
     async def preparer(self):
+        makedirs(self.__work_path, mode=0o755, exist_ok=True)
+
         reply_res = RessourcesConsommation(self.traiter_reponse)
         self.__stop_event = asyncio.Event()
         self.__liste_complete_event = asyncio.Event()
@@ -218,6 +220,7 @@ class RestaurateurTransactions:
     async def traiter_transactions(self):
         producer = self.__messages_thread.get_producer()
 
+        domaines = set()
         with open(self.__path_fichier_archives, 'r') as fichier:
             for ligne_fichier in fichier:
                 self.__logger.debug("Traiter %s" % ligne_fichier)
@@ -225,13 +228,26 @@ class RestaurateurTransactions:
 
                 # Bounce la requete de fichier de backup
                 requete = {'fichierBackup': nom_fichier}
-                resultat = await producer.executer_requete(requete, domaine='fichiers', action='getBackupTransaction', exchange='2.prive')
+                resultat = await producer.executer_requete(requete, domaine='fichiers',
+                                                           action='getBackupTransaction', exchange='2.prive')
                 transaction_backup = resultat.parsed['backup']
-                self.__logger.debug("Fichier transaction : %s" % json.dumps(transaction_backup, indent=2))
+                try:
+                    domaines.add(transaction_backup['domaine'])
+                except KeyError:
+                    self.__logger.error("Transaction %s n'a pas de champ domaine - ** SKIP **" % nom_fichier)
+                    continue
+
+                self.__logger.debug("Fichier transaction %s" % nom_fichier)
                 try:
                     await self.traiter_transactions_fichier(transaction_backup)
                 except ValueError:
                     self.__logger.exception("Erreur dechiffrage fichier %s" % nom_fichier)
+
+        for domaine in domaines:
+            commande = {'domaine': domaine}
+            await producer.executer_commande(commande,
+                                             domaine=domaine, action='regenerer',
+                                             exchange=Constantes.SECURITE_PROTEGE, nowait=True)
 
     async def traiter_transactions_fichier(self, backup: dict):
         domaine = backup['domaine']
@@ -240,9 +256,22 @@ class RestaurateurTransactions:
         cle_dechiffree = self.__clecert_ca.dechiffrage_asymmetrique(backup['cle'])
         decipher = DecipherMgs3(cle_dechiffree, backup['iv'], backup['tag'])
 
+        certificats = self.preparer_certificats(backup['certificats'])
+
         # Dechiffrer transactions
         data_transactions = await asyncio.to_thread(self.extraire_transactions, backup['data_transactions'], decipher)
-        pass
+
+        producer = self.__messages_thread.get_producer()
+        for transaction in data_transactions:
+            fingerprint = transaction['en-tete']['fingerprint_certificat']
+            certificat = certificats[fingerprint]
+            transaction['_certificat'] = certificat
+
+            enveloppe_transaction = {'transaction': transaction}
+
+            await producer.executer_commande(enveloppe_transaction,
+                                             domaine=domaine, action='restaurerTransaction',
+                                             exchange=Constantes.SECURITE_PROTEGE, nowait=True)
 
     def extraire_transactions(self, data: str, decipher: DecipherMgs3):
         data = multibase.decode(data)  # Base 64 decode
@@ -256,6 +285,20 @@ class RestaurateurTransactions:
             liste_transactions.append(transaction)
 
         return liste_transactions
+
+    def preparer_certificats(self, certs: dict):
+        pems = certs['pems']
+        certificats_ref = certs['certificats']
+
+        certificats = dict()
+        for cert_ref in certificats_ref:
+            fingerprint = cert_ref[0]
+            chaine = list()
+            for cert_fp in cert_ref:
+                chaine.append(pems[cert_fp])
+            certificats[fingerprint] = chaine
+
+        return certificats
 
 
 def charger_cle_ca(path_cle_ca: str) -> CleCertificat:
