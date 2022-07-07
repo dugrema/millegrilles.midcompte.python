@@ -31,6 +31,7 @@ setup(
     install_requires=[
         'pytz>=2020.4',
         'pymongo>=3.11.2,<4.0',
-        'aiohttp>=3.8.1,<4'
+        'aiohttp>=3.8.1,<4',
+        'requests>=2.28.1,<3'
     ]
 )
