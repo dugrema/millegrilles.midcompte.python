@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import requests
 
 from cryptography.x509.extensions import ExtensionNotFound
 
@@ -6,6 +8,7 @@ from cryptography.x509.extensions import ExtensionNotFound
 from millegrilles_messages.messages import Constantes
 from millegrilles_messages.messages.MessagesModule import MessageProducerFormatteur
 from millegrilles_messages.messages.MessagesModule import MessageWrapper
+from millegrilles_relaiweb import Constantes as ConstantesRelaiWeb
 
 
 class CommandHandler:
@@ -47,10 +50,9 @@ class CommandHandler:
             delegation_globale = None
 
         try:
-            # if exchange == Constantes.SECURITE_PUBLIC and Constantes.SECURITE_PUBLIC in exchanges:
-            #     if Constantes.ROLE_CORE in roles:
-            #         if action == ConstantesInstance.EVENEMENT_TOPOLOGIE_FICHEPUBLIQUE:
-            #             return await self.sauvegarder_fiche_publique(message)
+            if exchange == Constantes.SECURITE_PUBLIC and Constantes.SECURITE_PUBLIC in exchanges:
+                if action in [ConstantesRelaiWeb.EVENEMENT_GET, ConstantesRelaiWeb.EVENEMENT_POST]:
+                    return await self.relai_web(action, message)
             # if routing_key in self.__routing_keys_modules:
             #     return await self._modules_handler.recevoir_confirmation_lecture(message)
 
@@ -62,20 +64,70 @@ class CommandHandler:
 
         return reponse
 
-    # async def transmettre_catalogue(self, producer: MessageProducerFormatteur):
-    #     self.__logger.info("Transmettre catalogues")
-    #     path_catalogues = self._etat_instance.configuration.path_catalogues
-    #
-    #     liste_fichiers_apps = listdir(path_catalogues)
-    #
-    #     info_apps = [path.join(path_catalogues, f) for f in liste_fichiers_apps if f.endswith('.json.xz')]
-    #     for app_path in info_apps:
-    #         with lzma.open(app_path, 'rt') as fichier:
-    #             app_transaction = json.load(fichier)
-    #
-    #         commande = {"catalogue": app_transaction}
-    #         await producer.executer_commande(commande, domaine=Constantes.DOMAINE_CORE_CATALOGUES,
-    #                                          action='catalogueApplication', exchange=Constantes.SECURITE_PROTEGE,
-    #                                          nowait=True)
-    #
-    #     return {'ok': True}
+    async def relai_web(self, method: str, message: MessageWrapper):
+        commande = message.parsed
+        self.__logger.debug("Commande relai web : %s", commande)
+        try:
+            certificat = message.certificat
+        except (AttributeError, KeyError):
+            return {'ok': False, 'code': 400, 'err': 'Certificat absent'}
+
+        exchanges = certificat.get_exchanges
+        if Constantes.SECURITE_PUBLIC in exchanges:
+            contenu = commande
+
+            url_requete = contenu['url']
+            params = {
+                'url': url_requete,
+                'timeout': contenu.get('timeout') or 20,
+            }
+
+            # Copier parametres optionnels
+            params_optionnels = ['headers', 'data', 'json']
+            for nom_param in params_optionnels:
+                if contenu.get(nom_param) is not None:
+                    params[nom_param] = contenu[nom_param]
+
+            flag_erreur_https = False
+            if method.lower() == 'get':
+                request_method = requests.get
+            elif method.lower() == 'post':
+                request_method = requests.post
+            else:
+                return {'ok': False, 'code': 400, 'err': 'Methode inconnue'}
+
+            try:
+                response = await asyncio.to_thread(request_method, **params)
+            except requests.exceptions.SSLError:
+                self.__logger.debug("Erreur certificat https, ajouter un flag certificat invalide")
+                flag_erreur_https = True
+                params['verify'] = False  # Desactiver verification certificat https
+                response = await asyncio.to_thread(request_method, **params)
+            except requests.exceptions.ReadTimeout:
+                self.__logger.error("Erreur timeout sur %s", params['url'])
+                return {'ok': False, 'url': url_requete, 'code': 408, 'err': 'Methode inconnue'}
+
+            self.__logger.debug("Response : %s" % response)
+
+            if 200 <= response.status_code < 300:
+                headers = response.headers
+                header_dict = {}
+                for header_key in headers.keys():
+                    header_dict[header_key] = headers.get(header_key)
+                try:
+                    json_response = response.json()
+                    return {
+                        'headers': header_dict, 'json': json_response, 'code': response.status_code,
+                        'method': method, 'url': url_requete, 'https_verify_ok': not flag_erreur_https}
+                except:
+                    # Encoder reponse en multibase
+                    return {
+                        'headers': header_dict, 'text': response.text, 'code': response.status_code,
+                        'method': method, 'url': url_requete, 'https_verify_ok': not flag_erreur_https}
+            else:
+                # Erreur
+                return {'ok': False, 'code': response.status_code, 'err': response.text, 'method': method,
+                        'url': url_requete}
+
+        else:
+            return {'ok': False, 'code': 403, 'err': 'Not authorized'}
