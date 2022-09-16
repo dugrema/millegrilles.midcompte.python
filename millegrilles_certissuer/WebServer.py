@@ -17,6 +17,9 @@ from millegrilles_certissuer.CertificatHandler import CertificatHandler
 from millegrilles_messages.certificats.Generes import DUREE_CERT_DEFAUT
 
 
+# Roles qui peuvent se connecter directement (https)
+ROLES_CONNEXION_PERMIS = ['core', 'instance']
+
 class WebServer:
 
     def __init__(self, etat_certissuer: EtatCertissuer):
@@ -127,7 +130,7 @@ class WebServer:
         except ExtensionNotFound:
             exchanges = None
 
-        if 'instance' in roles_enveloppe or 'core' in roles_enveloppe:
+        if any([r in roles_enveloppe for r in ROLES_CONNEXION_PERMIS]):
             # Les niveaux de securite demandes doivent etre supporte par le certificat demandeur
             securite_enveloppe = enveloppe.get_exchanges
             try:
