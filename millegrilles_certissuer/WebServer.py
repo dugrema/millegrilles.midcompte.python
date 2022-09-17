@@ -18,7 +18,7 @@ from millegrilles_messages.certificats.Generes import DUREE_CERT_DEFAUT
 
 
 # Roles qui peuvent se connecter directement (https)
-ROLES_CONNEXION_PERMIS = ['core', 'instance']
+ROLES_CONNEXION_PERMIS = ['core', 'instance', 'maitredescles_connexion']
 
 class WebServer:
 
@@ -141,7 +141,7 @@ class WebServer:
                         self.__logger.info(
                             'Niveau de securite %s demande par un certificat qui ne le supporte pas' % ex)
                         return web.HTTPForbidden()
-            except KeyError:
+            except (TypeError, KeyError):
                 pass
 
         elif delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE:

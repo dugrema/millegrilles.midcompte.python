@@ -20,7 +20,7 @@ class CertificatHandler:
             enveloppe_certificat = signer_instance_protege(cle_intermediaire, csr, duree)
         elif securite == Constantes.SECURITE_PRIVE:
             enveloppe_certificat = signer_instance_prive(cle_intermediaire, csr, duree)
-        elif securite == Constantes.SECURITE_PRIVE:
+        elif securite == Constantes.SECURITE_PUBLIC:
             enveloppe_certificat = signer_instance_public(cle_intermediaire, csr, duree)
         else:
             raise Exception('Type securite %s non supporte pour une instance' % securite)
