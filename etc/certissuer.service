@@ -1,0 +1,19 @@
+[Unit]
+Description=Service certissuer pour MilleGrilles
+After=docker.service
+
+[Service]
+Type=simple
+Nice=0
+PIDFile=/var/run/certissuer.pid
+ExecStart=/var/opt/millegrilles/bin/start_certissuer.sh --verbose
+User=mginstance
+Group=millegrilles
+Restart=always
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=certissuer
+
+[Install]
+WantedBy=multi-user.target
