@@ -67,7 +67,7 @@ class WebServer:
             return web.HTTPForbidden()
 
         # Generer le certificat pour l'application d'instance
-        csr_instance = info_cert['csr_instance']
+        csr_instance = info_cert['csr']
         securite = info_cert['securite']
         cert_instance = self.__certificat_handler.generer_certificat_instance(csr_instance, securite)
         self.__logger.debug("Nouveau certificat d'instance\n%s" % cert_instance)
@@ -104,7 +104,7 @@ class WebServer:
         #     duree = DUREE_CERT_DEFAUT
 
         # Generer le certificat pour l'application d'instance
-        csr_instance = info_cert['csr_instance']
+        csr_instance = info_cert['csr']
         cert_instance = self.__certificat_handler.generer_certificat_instance(csr_instance, niveau_securite, duree)
         self.__logger.debug("Nouveau certificat d'instance\n%s" % cert_instance)
         return web.json_response({'certificat': cert_instance})
@@ -160,7 +160,7 @@ class WebServer:
             if 'instance' in roles and (
                     'instance' in roles_enveloppe or delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE):  # On renouvelle une instance
                 # Determiner niveau securite
-                csr = info_cert['csr_instance']
+                csr = info_cert['csr']
                 enveloppe_csr = EnveloppeCsr.from_str(csr)
                 if enveloppe_csr.csr.is_signature_valid is False:
                     return web.json_response({'ok': False, 'err': 'CSR signature mismatch (X.509)'})
