@@ -87,11 +87,13 @@ class WebServer:
 
         # Les niveaux de securite demandes doivent etre supporte par le certificat demandeur
         securite_enveloppe = enveloppe.get_exchanges
-        if Constantes.SECURITE_PROTEGE in securite_enveloppe:
+        if Constantes.SECURITE_SECURE in securite_enveloppe:
+            niveau_securite = Constantes.SECURITE_SECURE
+        elif Constantes.SECURITE_PROTEGE in securite_enveloppe:
             niveau_securite = Constantes.SECURITE_PROTEGE
-        elif Constantes.SECURITE_PROTEGE in securite_enveloppe:
+        elif Constantes.SECURITE_PRIVE in securite_enveloppe:
             niveau_securite = Constantes.SECURITE_PRIVE
-        elif Constantes.SECURITE_PROTEGE in securite_enveloppe:
+        elif Constantes.SECURITE_PUBLIC in securite_enveloppe:
             niveau_securite = Constantes.SECURITE_PUBLIC
         else:
             self.__logger.error("handle_renouveler_instance() Niveau de securite non supporte : %s" % securite_enveloppe)
