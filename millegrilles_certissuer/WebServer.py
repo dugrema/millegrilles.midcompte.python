@@ -58,7 +58,6 @@ class WebServer:
     async def handle_installer(self, request):
         info_cert = await request.json()
         self.__logger.debug("handle_installer params\n%s" % json.dumps(info_cert, indent=2))
-
         try:
             await self.__etat_certissuer.sauvegarder_certificat(info_cert)
             self.__logger.debug("Sauvegarde du certificat intermediaire OK")
@@ -69,7 +68,8 @@ class WebServer:
         # Generer le certificat pour l'application d'instance
         csr_instance = info_cert['csr']
         securite = info_cert['securite']
-        cert_instance = self.__certificat_handler.generer_certificat_instance(csr_instance, securite)
+        duree = self.get_duree_certificat()
+        cert_instance = self.__certificat_handler.generer_certificat_instance(csr_instance, securite, duree)
         self.__logger.debug("Nouveau certificat d'instance\n%s" % cert_instance)
         return web.json_response({'certificat': cert_instance}, status=201)
 
