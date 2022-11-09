@@ -10,11 +10,7 @@ def get_version():
         with open('build.txt', "r") as buildno_file:
             build_no = buildno_file.read().strip()
 
-<<<<<<< HEAD
-#        commande_git_version = ['git', 'name-rev', '--name-only', 'HEAD']
-=======
         # commande_git_version = ['git', 'name-rev', '--name-only', 'HEAD']
->>>>>>> refs/remotes/origin/2022.8
         commande_git_version = ['git', 'rev-parse', '--abbrev-ref', 'HEAD']
         output_process = subprocess.run(commande_git_version, stdout=subprocess.PIPE)
         version = output_process.stdout.decode('utf8').strip()
