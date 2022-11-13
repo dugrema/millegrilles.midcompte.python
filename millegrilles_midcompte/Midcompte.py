@@ -53,7 +53,10 @@ class ApplicationInstance:
         self.__module_entretien_rabbitmq = EntretienRabbitMq(self.__etat_midcompte)
 
         self.__etat_midcompte.ajouter_listener(self.__module_entretien_mongodb)
-        self.__etat_midcompte.ajouter_listener(self.__module_entretien_rabbitmq)
+        if self.__configuration.mq_url is None:
+            self.__logger.info("Entretien MQ desactive")
+        else:
+            self.__etat_midcompte.ajouter_listener(self.__module_entretien_rabbitmq)
 
         self.__logger.info("charger_configuration prete")
 

@@ -71,6 +71,9 @@ class ConfigurationMidcompte:
         self.password_mq_path = dict_params.get(Constantes.PARAM_MQ_PASSWORD_PATH) or self.password_mq_path
         self.password_mongo_path = dict_params.get(Constantes.PARAM_MONGO_PASSWORD_PATH) or self.password_mongo_path
 
+    def desactiver_mq(self):
+        self.password_mq_path = None
+
 
 class ConfigurationWeb:
 

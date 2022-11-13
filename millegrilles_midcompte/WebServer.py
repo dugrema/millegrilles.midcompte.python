@@ -83,6 +83,7 @@ class WebServer:
                 return web.HTTPInternalServerError()
         else:
             self.__logger.error("Acces refuse %s" % dn)
+            self.__logger.debug("Acces refuse HEADERS : %s" % headers)
             return web.HTTPForbidden()
 
     async def entretien(self):

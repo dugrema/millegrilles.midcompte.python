@@ -31,11 +31,15 @@ class EtatMidcompte:
         self.__certificat_millegrille = EnveloppeCertificat.from_file(self.__configuration.ca_pem_path)
         self.__idmg = self.__certificat_millegrille.idmg
 
-        with open(self.__configuration.password_mq_path, 'r') as fichier:
-            self.__password_mq = fichier.read().strip()
-
         with open(self.__configuration.password_mongo_path, 'r') as fichier:
             self.__password_mongo = fichier.read().strip()
+
+        try:
+            with open(self.__configuration.password_mq_path, 'r') as fichier:
+                self.__password_mq = fichier.read().strip()
+        except FileNotFoundError:
+            self.__logger.warning("Pas de mot de passe MQ (FileNotFound), desactiver gestion MQ")
+            self.__configuration.desactiver_mq()
 
     async def ajouter_compte(self, info: dict):
         self.__logger.info("Ajouter compte : %s" % info)
