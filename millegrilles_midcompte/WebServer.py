@@ -77,7 +77,14 @@ class WebServer:
 
             try:
                 await self.__etat_midcompte.ajouter_compte(info)
+
+                if self.__etat_midcompte.configuration.mq_url is None:
+                    # HTTP 202 - indique au client qu'il doit aussi se connecter au serveur 3.protege (avec mq)
+                    return web.HTTPAccepted()
+
+                # HTTP 201 - Comptes MQ et Mongo crees
                 return web.HTTPCreated()
+
             except Exception:
                 self.__logger.exception("Erreur ajout compte %s" % dn)
                 return web.HTTPInternalServerError()
