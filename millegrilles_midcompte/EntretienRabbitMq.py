@@ -31,6 +31,9 @@ class EntretienRabbitMq:
     async def entretien(self):
         self.__logger.debug("entretien debut")
 
+        if self.__url_mq is None:
+            return  # MQ Desactive
+
         try:
             if self.__session is None:
                 await self.creer_session()

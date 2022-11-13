@@ -62,9 +62,14 @@ class ConfigurationMidcompte:
         if configuration is not None:
             dict_params.update(configuration)
 
+        mq_url = dict_params.get(Constantes.PARAM_MQ_URL)
+        if mq_url == '':
+            self.mq_url = None
+        else:
+            self.mq_url = mq_url or self.mq_url
+
         self.mongo_hostname = dict_params.get(Constantes.PARAM_MONGO_HOSTNAME) or self.mongo_hostname
         self.mongo_port = dict_params.get(Constantes.PARAM_MONGO_PORT) or self.mongo_port
-        self.mq_url = dict_params.get(Constantes.PARAM_MQ_URL) or self.mq_url
         self.cert_pem_path = dict_params.get(Constantes.PARAM_CERT_PATH) or self.cert_pem_path
         self.key_pem_path = dict_params.get(Constantes.PARAM_KEY_PATH) or self.key_pem_path
         self.ca_pem_path = dict_params.get(ConstantesMessages.ENV_CA_PEM) or self.ca_pem_path
@@ -72,6 +77,7 @@ class ConfigurationMidcompte:
         self.password_mongo_path = dict_params.get(Constantes.PARAM_MONGO_PASSWORD_PATH) or self.password_mongo_path
 
     def desactiver_mq(self):
+        self.mq_url = None
         self.password_mq_path = None
 
 
