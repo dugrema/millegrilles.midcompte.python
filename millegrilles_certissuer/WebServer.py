@@ -45,6 +45,8 @@ class WebServer:
             web.post('/signerModule', self.handle_signer_module),
             web.post('/signerUsager', self.handle_signer_usager_interne),
             web.post('/renouvelerInstance', self.handle_renouveler_instance),
+            web.post('/signerPublickeyDomaine', self.handle_signer_publickey_roledomaine),
+
             web.post('/certissuerInterne/signerUsager', self.handle_signer_usager_interne),
 
             # Commandes relayees par nginx
@@ -147,6 +149,8 @@ class WebServer:
                 pass
 
         elif delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE:
+            pass
+        elif Constantes.SECURITE_SECURE in exchanges:
             pass
         else:
             return web.HTTPForbidden()
@@ -256,6 +260,31 @@ class WebServer:
             await self.__etat_certissuer.entretien()
         except:
             self.__logger.exception("Erreur entretien etat_certissuer")
+
+    async def handle_signer_publickey_roledomaine(self, request: web.Request):
+        """
+        Signe un nouveau certificat avec la cle publique fournie. Le role donne est le nom du domaine en minuscules.
+        e.g. Demandeur a les domaines "SenseursPassifs,Tata" => roles sont "senseurspassifs,tata"
+        :param request:
+        :return:
+        """
+        info_cert = await request.json()
+        self.__logger.debug("handle_signer_usager_interne params\n%s" % json.dumps(info_cert, indent=2))
+
+        # Valider signature de request (doit etre role instance, niveau de securite suffisant pour exchanges)
+        enveloppe = await self.__etat_certissuer.validateur_messages.verifier(info_cert)
+
+        # Le certificat doit etre un certificat 4.secure
+        if Constantes.SECURITE_SECURE not in enveloppe.get_exchanges:
+            return web.HTTPForbidden()
+
+        # Le certificat doit avoir au moins 1 domaine
+        if enveloppe.get_domaines is None:
+            return web.HTTPForbidden()
+
+        chaine = self.__certificat_handler.generer_certificat_publickey_domaine(enveloppe, info_cert)
+
+        return web.json_response({'ok': True, 'certificat': chaine})
 
     async def run(self, stop_event: Optional[Event] = None):
         if stop_event is not None:

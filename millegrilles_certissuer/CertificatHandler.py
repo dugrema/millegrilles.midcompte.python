@@ -45,3 +45,6 @@ class CertificatHandler:
         chaine_pem.append(ca_str)
 
         return chaine_pem
+
+    def generer_certificat_publickey_domaine(self, enveloppe, parametres: dict) -> str:
+        raise NotImplementedError()
