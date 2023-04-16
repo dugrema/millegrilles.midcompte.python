@@ -116,6 +116,8 @@ class WebServer:
         info_cert = await request.json()
         self.__logger.debug("handle_signer_module params\n%s" % json.dumps(info_cert, indent=2))
 
+        contenu_commande = json.loads(info_cert['contenu'])
+
         # Valider signature de request (doit etre role instance, niveau de securite suffisant pour exchanges)
         enveloppe = await self.__etat_certissuer.validateur_messages.verifier(info_cert)
 
@@ -137,7 +139,7 @@ class WebServer:
             # Les niveaux de securite demandes doivent etre supporte par le certificat demandeur
             securite_enveloppe = enveloppe.get_exchanges
             try:
-                for ex in info_cert['exchanges']:
+                for ex in contenu_commande['exchanges']:
                     if ex == Constantes.SECURITE_SECURE:
                         ex = Constantes.SECURITE_PROTEGE  # Niveau protege permet de creer certificat secure
                     if ex not in securite_enveloppe:
@@ -157,21 +159,21 @@ class WebServer:
         secondes = int(self.get_duree_certificat().total_seconds())
 
         if secondes is not None:
-            info_cert['duree'] = secondes
+            contenu_commande['duree'] = secondes
 
         # Determiner si on renouvelle un certificat d'instance ou signe module
         try:
-            roles = info_cert['roles']
+            roles = contenu_commande['roles']
             if 'instance' in roles and (
                     'instance' in roles_enveloppe or delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE):  # On renouvelle une instance
                 # Determiner niveau securite
-                csr = info_cert['csr']
+                csr = contenu_commande['csr']
                 enveloppe_csr = EnveloppeCsr.from_str(csr)
                 if enveloppe_csr.csr.is_signature_valid is False:
                     return web.json_response({'ok': False, 'err': 'CSR signature mismatch (X.509)'})
 
                 if delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE:
-                    niveau = info_cert['securite']
+                    niveau = contenu_commande['securite']
                 else:
                     # Verifier que le CSR d'instance a le meme instance_id (CN) que l'enveloppe
                     if enveloppe.subject_common_name != enveloppe_csr.cn:
@@ -185,7 +187,7 @@ class WebServer:
 
                 if niveau is not None:
                     try:
-                        duree_int = info_cert['duree']
+                        duree_int = contenu_commande['duree']
                         duree = datetime.timedelta(seconds=duree_int)
                     except KeyError:
                         duree = self.get_duree_certificat()
@@ -193,9 +195,9 @@ class WebServer:
                 else:
                     return web.json_response({'ok': False, 'err': 'Renouvellement instance avec mauvais type de certificat'})
             else:
-                chaine = self.__certificat_handler.generer_certificat_module(info_cert)
+                chaine = self.__certificat_handler.generer_certificat_module(contenu_commande)
         except KeyError:
-            chaine = self.__certificat_handler.generer_certificat_module(info_cert)
+            chaine = self.__certificat_handler.generer_certificat_module(contenu_commande)
 
         return web.json_response({'ok': True, 'certificat': chaine})
 
