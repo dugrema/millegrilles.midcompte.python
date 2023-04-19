@@ -243,7 +243,10 @@ class WebServer:
         if 'core' not in roles_enveloppe:
             return web.HTTPForbidden()
 
-        chaine = self.__certificat_handler.generer_certificat_usager(info_cert)
+        # Parse contenu du message
+        contenu = json.loads(info_cert['contenu'])
+
+        chaine = self.__certificat_handler.generer_certificat_usager(contenu)
 
         return web.json_response({'ok': True, 'certificat': chaine})
 
