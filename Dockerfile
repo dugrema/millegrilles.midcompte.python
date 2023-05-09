@@ -1,4 +1,4 @@
-FROM docker.maceroc.com/millegrilles_messages_python:2023.5.2
+FROM docker.maceroc.com/millegrilles_messages_python:2023.5.3
 
 ENV BUILD_FOLDER=/opt/millegrilles/build \
     BUNDLE_FOLDER=/opt/millegrilles/dist \
