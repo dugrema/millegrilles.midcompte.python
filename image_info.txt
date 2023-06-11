@@ -1,6 +1,6 @@
 # Fichier d'information pour le build Docker
 
-REPO=docker.maceroc.com
+REPO=docker.maple.maceroc.com:5000
 NAME=millegrilles_midcompte_python
 BRANCH=`git rev-parse --abbrev-ref HEAD`
 ARCH_SUPPORTEES=( x86_64 aarch64 )
