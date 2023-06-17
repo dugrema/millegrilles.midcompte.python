@@ -55,9 +55,9 @@ class ESMain:
 
         # Debug
         #await self.__solrdao.list_field_types()
-        # await self.__solrdao.preparer_sample_data()
-        await self.__solrdao.preparer_sample_file()
-        #await self.__solrdao.requete()
+        #await self.__solrdao.preparer_sample_data()
+        #await self.__solrdao.preparer_sample_file()
+        await self.__solrdao.requete()
 
     def exit_gracefully(self, signum=None, frame=None):
         logger.info("Fermer application, signal: %d" % signum)

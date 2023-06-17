@@ -20,5 +20,6 @@ docker run --rm -it \
   --mount type=volume,source=solr-data,target=/var/solr \
   --mount type=bind,source=/home/mathieu/tmp/certs,target=/run/secrets \
   --env ZOOKEEPER_URL=solrzookeeper:2181 \
+  --env SOLR_MODULES="extraction" \
   --network millegrille_net \
   mgsolr

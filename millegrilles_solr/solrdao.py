@@ -57,17 +57,18 @@ class SolrDao:
         timeout = aiohttp.ClientTimeout(total=5)  # Timeout requete 5 secondes
         async with aiohttp.ClientSession(timeout=timeout) as session:
             requete_url = f'{self.solr_url}/solr/{self.nom_collection_fichiers}/select'
+            # params = {'q': '*:*'}
             params = {
                 'defType': 'dismax',
                 # 'q': 'monsters book lightning',
-                'q': 'sea',
-                'qf': 'name cat^2 author^2 series_t^2',
+                'q': 'covid fichier',
+                'qf': 'name^2 content',
                 'fl': '*,score'
             }
             async with session.get(requete_url, ssl=self.__ssl_context, params=params) as resp:
                 self.__logger.debug("requete Ajout data test : %d" % resp.status)
                 resp.raise_for_status()
-                self.__logger.debug("requete Reponse : %s", await resp.json())
+                self.__logger.debug("requete Reponse\n%s", json.dumps(await resp.json(), indent=2))
 
     async def list_field_types(self):
         async with aiohttp.ClientSession() as session:
@@ -79,6 +80,7 @@ class SolrDao:
 
     async def initialiser_collection_fichiers(self, session):
         nom_collection = self.nom_collection_fichiers
+
         create_collection_url = f'{self.solr_url}/api/collections'
         data = {'create': {'name': nom_collection, 'numShards': 1, 'replicationFactor': 1}}
         async with session.post(create_collection_url, ssl=self.__ssl_context, json=data) as resp:
@@ -86,18 +88,31 @@ class SolrDao:
             resp.raise_for_status()
             self.__logger.debug("initialiser_solr Reponse : %s", await resp.json())
 
+        config_extract_url = f'{self.solr_url}/api/collections/{self.nom_collection_fichiers}/config'
+        config_extract_data = {
+            "add-requesthandler": {
+                'name': '/update/extract',
+                'class': 'solr.extraction.ExtractingRequestHandler',
+                'defaults': {"lowernames": "true", "captureAttr": "false"},
+            }
+        }
+        async with session.post(config_extract_url, ssl=self.__ssl_context, json=config_extract_data) as resp:
+            self.__logger.debug("initialiser_solr Resultat config extract %s : %d" % (nom_collection, resp.status))
+            resp.raise_for_status()
+
         schema_url = f'{self.solr_url}/api/collections/{nom_collection}/schema'
         data = {'add-field': [
             {"name": "name", "type": "text_en_splitting_tight", "multiValued": False},
-            {"name": "series_t", "type": "text_en_splitting_tight", "multiValued": False},
-            {"name": "cat", "type": "string", "multiValued": True},
-            {"name": "manu", "type": "string"},
-            {"name": "features", "type": "text_general", "multiValued": True},
-            {"name": "weight", "type": "pfloat"},
-            {"name": "price", "type": "pfloat"},
-            {"name": "popularity", "type": "pint"},
-            {"name": "inStock", "type": "boolean", "stored": True},
-            {"name": "store", "type": "location"}
+            {"name": "content", "type": "text_general"},
+            # {"name": "series_t", "type": "text_en_splitting_tight", "multiValued": False},
+            # {"name": "cat", "type": "string", "multiValued": True},
+            # {"name": "manu", "type": "string"},
+            # {"name": "features", "type": "text_general", "multiValued": True},
+            # {"name": "weight", "type": "pfloat"},
+            # {"name": "price", "type": "pfloat"},
+            # {"name": "popularity", "type": "pint"},
+            # {"name": "inStock", "type": "boolean", "stored": True},
+            # {"name": "store", "type": "location"},
         ]}
         async with session.post(schema_url, ssl=self.__ssl_context, json=data) as resp:
             self.__logger.debug("initialiser_solr Resultat schema : %d" % resp.status)
@@ -105,14 +120,15 @@ class SolrDao:
             self.__logger.debug("initialiser_solr Reponse : %s", await resp.json())
 
         commit_url = f'{self.solr_url}/api/collections/{nom_collection}/config'
-        data = {"set-property": {"updateHandler.autoCommit.maxTime": 15000}}
+        data = {
+            "set-property": {
+                "updateHandler.autoCommit.maxTime": 15000,
+            }
+        }
         async with session.post(commit_url, ssl=self.__ssl_context, json=data) as resp:
             self.__logger.debug("initialiser_solr Commit data test : %d" % resp.status)
             resp.raise_for_status()
             self.__logger.debug("initialiser_solr Commit reponse : %s", await resp.json())
-
-        # TODO Retirer sample data
-        await self.preparer_sample_data()
 
     async def preparer_sample_data(self):
         data = [
@@ -159,11 +175,19 @@ class SolrDao:
     async def preparer_sample_file(self):
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            data_update_url = f'{self.solr_url}/api/collections/{self.nom_collection_fichiers}/update?commit=true'
-            with open('/home/mathieu/tas/tmp/test.pdf', 'rb') as file:
+            data_update_url = f'{self.solr_url}/solr/{self.nom_collection_fichiers}/update/extract'
+            with open('/home/mathieu/tas/tmp/test2.pdf', 'rb') as file:
+                params = {
+                    'commit': 'true',
+                    'uprefix': 'ignored_',
+                    'fmap.content': 'content',
+                    'literal.id': 'pdf2',
+                    'literal.name': 'Fichier PDF de test 2.tata'
+                }
                 async with session.post(
                     data_update_url,
                     ssl=self.__ssl_context,
+                    params=params,
                     data=file,
                     headers={'Content-Type': 'application/pdf'}
                 ) as resp:

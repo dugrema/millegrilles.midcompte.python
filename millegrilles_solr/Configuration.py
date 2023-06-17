@@ -23,7 +23,7 @@ class ConfigurationRelaiSolr:
         self.mq_host = 'localhost'
         self.mq_port = 5673
         self.solr_url = 'https://solr:8983'
-        self.nom_collection_fichiers = 'fichiers4'
+        self.nom_collection_fichiers = 'fichiers9'
         self.nom_collection_messages = 'messages'
 
     def get_env(self) -> dict:
