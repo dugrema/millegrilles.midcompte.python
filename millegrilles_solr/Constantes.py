@@ -1,0 +1,2 @@
+REQUETE_FICHIERS = 'fichiers'
+

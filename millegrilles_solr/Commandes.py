@@ -4,20 +4,18 @@ import requests
 
 from cryptography.x509.extensions import ExtensionNotFound
 
-# from millegrilles_senseurspassifs.EtatSenseursPassifs import EtatSenseursPassifs
 from millegrilles_messages.messages import Constantes
 from millegrilles_messages.messages.MessagesModule import MessageProducerFormatteur
 from millegrilles_messages.messages.MessagesModule import MessageWrapper
-from millegrilles_relaiweb import Constantes as ConstantesRelaiWeb
+from millegrilles_solr import Constantes as ConstantesRelaiSolr
 
 
 class CommandHandler:
 
-    def __init__(self, etat_senseurspassifs):
+    def __init__(self, etat_senseurspassifs, requetes_handler):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self._etat_instance = etat_senseurspassifs
-        # self._modules_handler = modules_handler
-        # self.__routing_keys_modules = modules_handler.get_routing_key_consumers()
+        self._requetes_handler = requetes_handler
 
     async def executer_commande(self, producer: MessageProducerFormatteur, message: MessageWrapper):
         reponse = None
@@ -32,6 +30,7 @@ class CommandHandler:
             return {'ok': False, 'err': 'Signature ou certificat invalide'}
 
         action = routing_key.split('.').pop()
+        type_message = routing_key.split('.')[0]
         enveloppe = message.certificat
 
         try:
@@ -50,14 +49,13 @@ class CommandHandler:
             delegation_globale = None
 
         try:
-            if exchange == Constantes.SECURITE_PUBLIC and Constantes.SECURITE_PUBLIC in exchanges:
-                if action in [ConstantesRelaiWeb.EVENEMENT_GET, ConstantesRelaiWeb.EVENEMENT_POST]:
-                    return await self.relai_web(action, message)
-            # if routing_key in self.__routing_keys_modules:
-            #     return await self._modules_handler.recevoir_confirmation_lecture(message)
+            if exchange == Constantes.SECURITE_PRIVE and Constantes.SECURITE_PRIVE in exchanges:
+                if type_message == 'requete' and action in [ConstantesRelaiSolr.REQUETE_FICHIERS]:
+                    reponse = await self._requetes_handler.traiter_requete(message)
 
             if reponse is None:
                 reponse = {'ok': False, 'err': 'Commande inconnue ou acces refuse'}
+
         except Exception as e:
             self.__logger.exception("Erreur execution commande")
             reponse = {'ok': False, 'err': str(e)}

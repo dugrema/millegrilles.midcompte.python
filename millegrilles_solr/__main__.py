@@ -22,12 +22,12 @@ class ESMain:
         self.__args = args
         self.__config = ConfigurationRelaiSolr()
         self._etat_relaisolr = EtatRelaiSolr(self.__config)
-        self._commandes_handler = CommandHandler(self._etat_relaisolr)
 
         self.__solrdao = SolrDao(self._etat_relaisolr)
         self.__rabbitmq_dao: Optional[RabbitMQDao] = None
 
         self.__requetes_handler = RequetesHandler(self._etat_relaisolr, self.__solrdao)
+        self.__commandes_handler = CommandHandler(self._etat_relaisolr, self.__requetes_handler)
 
         # Asyncio lifecycle handlers
         self.__loop = None
