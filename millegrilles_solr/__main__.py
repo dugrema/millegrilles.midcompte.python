@@ -11,6 +11,7 @@ from solrdao import SolrDao
 from Configuration import ConfigurationRelaiSolr
 from millegrilles_solr.Commandes import CommandHandler
 from millegrilles_solr.EtatRelaiSolr import EtatRelaiSolr
+from millegrilles_solr.requetes import RequetesHandler
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,8 @@ class ESMain:
         self.__solrdao = SolrDao(self._etat_relaisolr)
         self.__rabbitmq_dao: Optional[RabbitMQDao] = None
 
+        self.__requetes_handler = RequetesHandler(self._etat_relaisolr, self.__solrdao)
+
         # Asyncio lifecycle handlers
         self.__loop = None
         self._stop_event = None
@@ -37,11 +40,7 @@ class ESMain:
 
         self.__rabbitmq_dao = RabbitMQDao(self._stop_event, self._etat_relaisolr)
 
-        self.__solrdao.configure(
-            '/var/opt/millegrilles/secrets/pki.core.cert',
-            '/var/opt/millegrilles/secrets/pki.core.cle',
-            '/var/opt/millegrilles/configuration/pki.millegrille.cert'
-        )
+        self.__solrdao.configure()
 
         # Configurer core1
         await self.__solrdao.initialiser_solr()
@@ -51,13 +50,15 @@ class ESMain:
         raise NotImplementedError('todo')
 
     async def run_scripts(self):
+        import json
         # await self.__solrdao.ping()
 
         # Debug
         #await self.__solrdao.list_field_types()
         #await self.__solrdao.preparer_sample_data()
         #await self.__solrdao.preparer_sample_file()
-        await self.__solrdao.requete()
+        resultat = await self.__requetes_handler.requete_fichiers('user1', 'lightning covid')
+        logger.info("Resultat requete \n%s" % json.dumps(resultat, indent=2))
 
     def exit_gracefully(self, signum=None, frame=None):
         logger.info("Fermer application, signal: %d" % signum)
