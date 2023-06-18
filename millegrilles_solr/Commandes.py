@@ -54,7 +54,7 @@ class CommandHandler:
                 if type_message == 'requete' and action in [ConstantesRelaiSolr.REQUETE_FICHIERS]:
                     reponse = await self._requetes_handler.traiter_requete(message)
                 elif type_message == 'evenement' and action in [ConstantesRelaiSolr.EVENEMENT_CONSIGNATION_PRIMAIRE]:
-                    reponse = await self._intake_handler.trigger_fichiers()
+                    return await self._intake_handler.trigger_fichiers()
             if reponse is None:
                 reponse = {'ok': False, 'err': 'Commande inconnue ou acces refuse'}
 

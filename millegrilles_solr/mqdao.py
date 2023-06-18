@@ -47,9 +47,9 @@ class MqThread:
         res_relai_requete_fichiers.ajouter_rk(Constantes.SECURITE_PRIVE, 'requete.solrrelai.fichiers')
         messages_thread.ajouter_consumer(res_relai_requete_fichiers)
 
-        res_relai_trigger = RessourcesConsommation(self.callback_reply_q, nom_queue='solrrelai/trigger', channel_separe=True, est_asyncio=True)
-        res_relai_trigger.ajouter_rk(Constantes.SECURITE_PRIVE, 'evenement.fichiers.consignationPrimaire')
-        messages_thread.ajouter_consumer(res_relai_trigger)
+        # res_relai_trigger = RessourcesConsommation(self.callback_reply_q, nom_queue='solrrelai/trigger', channel_separe=True, est_asyncio=True)
+        # res_relai_trigger.ajouter_rk(Constantes.SECURITE_PRIVE, 'evenement.fichiers.consignationPrimaire')
+        # messages_thread.ajouter_consumer(res_relai_trigger)
 
         # res_relai_post = RessourcesConsommation(self.callback_reply_q, nom_queue='relaiweb/post', channel_separe=True, est_asyncio=True)
         # res_relai_post.ajouter_rk(Constantes.SECURITE_SECURE, 'commande.solrrelai.post')
@@ -64,7 +64,7 @@ class MqThread:
 
         # RK Public pour toutes les instances
         for rk in self.__routing_key_consumers:
-            reply_res.ajouter_rk(Constantes.SECURITE_PUBLIC, rk)
+            reply_res.ajouter_rk(Constantes.SECURITE_PRIVE, rk)
 
         messages_thread.set_reply_ressources(reply_res)
 
@@ -113,7 +113,9 @@ class RabbitMQDao:
     async def creer_thread(self):
 
         routing_keys = [
-            'commande.solrrelai.fichiers',
+            'evenement.fichiers.consignationPrimaire',
+            'evenement.GrosFichiers.fuuidNouvelleVersion',
+            # 'commande.solrrelai.fichiers',
         ]
 
         return MqThread(self.__event_stop, self.__etat_relaiweb, self.__command_handler, routing_keys)

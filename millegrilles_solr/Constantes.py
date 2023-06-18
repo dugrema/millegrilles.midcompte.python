@@ -1,3 +1,4 @@
 REQUETE_FICHIERS = 'fichiers'
 
 EVENEMENT_CONSIGNATION_PRIMAIRE = 'consignationPrimaire'
+EVENEMENT_FUUID_NOUVELLEVERSION = 'fuuidNouvelleVersion'

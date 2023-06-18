@@ -1,5 +1,7 @@
 # Intake de fichiers a indexer
 import logging
+from typing import Optional
+
 from asyncio import Event, TimeoutError, wait, FIRST_COMPLETED, gather
 
 from millegrilles_solr.EtatRelaiSolr import EtatRelaiSolr
@@ -17,6 +19,7 @@ class IntakeHandler:
         self.__event_fichiers = Event()
 
     async def trigger_fichiers(self):
+        self.__logger.info('IntakeHandler trigger fichiers recu')
         self.__event_fichiers.set()
 
     async def run(self):
@@ -32,6 +35,7 @@ class IntakeHandler:
                         timeout=60, return_when=FIRST_COMPLETED
                     )
             except TimeoutError:
+                self.__logger.debug("Verifier si fichier disponible pour indexation")
                 self.__event_fichiers.set()
             else:
                 if self.__stop_event.is_set():
@@ -40,13 +44,19 @@ class IntakeHandler:
 
             try:
                 # Requete prochain fichier
-                raise NotImplementedError('todo')
+                info_fichier = await self.get_prochain_fichier()
 
-                # Downloader/dechiffrer
+                if info_fichier is not None:
+                    # Downloader/dechiffrer
 
-                # Indexer
-                pass
+                    # Indexer
+                    pass
+                else:
+                    self.__event_fichiers.clear()
             except Exception as e:
                 self.__logger.error("traiter_fichiers Erreur traitement : %s" % e)
+                # Erreur generique non geree. Creer un delai de traitement pour poursuivre
+                self.__event_fichiers.clear()
 
-            self.__event_fichiers.clear()  # TODO : clear juste si fichier non disponible
+    async def get_prochain_fichier(self) -> Optional[dict]:
+        return None
