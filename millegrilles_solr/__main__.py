@@ -5,7 +5,7 @@ import signal
 
 from typing import Optional
 
-from millegrilles_relaiweb.RabbitMQDao import RabbitMQDao
+from millegrilles_solr.mqdao import RabbitMQDao
 
 from solrdao import SolrDao
 from Configuration import ConfigurationRelaiSolr
@@ -28,7 +28,7 @@ class ESMain:
         self.__rabbitmq_dao: Optional[RabbitMQDao] = None
 
         self.__requetes_handler = RequetesHandler(self._etat_relaisolr, self.__solrdao)
-        self.__commandes_handler = CommandHandler(self._etat_relaisolr, self.__requetes_handler)
+        self.__commandes_handler = None
         self.__intake = None
 
         # Asyncio lifecycle handlers
@@ -40,8 +40,10 @@ class ESMain:
         self._stop_event = asyncio.Event()
         self.__config.parse_config(self.__args.__dict__)
 
-        self.__rabbitmq_dao = RabbitMQDao(self._stop_event, self._etat_relaisolr)
+        await self._etat_relaisolr.reload_configuration()
         self.__intake = IntakeHandler(self._stop_event, self._etat_relaisolr)
+        self.__commandes_handler = CommandHandler(self._etat_relaisolr, self.__requetes_handler, self.__intake)
+        self.__rabbitmq_dao = RabbitMQDao(self._stop_event, self._etat_relaisolr, self.__commandes_handler)
 
         self.__solrdao.configure()
         await self.__intake.configurer()
@@ -53,6 +55,7 @@ class ESMain:
         await self.__solrdao.ping()
 
         await asyncio.gather(
+            self.__rabbitmq_dao.run(),
             self.__intake.run(),
         )
 
@@ -122,6 +125,7 @@ def main():
     logging.basicConfig()
     logging.getLogger(__name__).setLevel(logging.INFO)
     logging.getLogger('solrdao').setLevel(logging.INFO)
+    logging.getLogger('millegrilles_solr').setLevel(logging.INFO)
     args = parse()
     asyncio.run(demarrer(args))
 

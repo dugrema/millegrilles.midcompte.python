@@ -1,2 +1,3 @@
 REQUETE_FICHIERS = 'fichiers'
 
+EVENEMENT_CONSIGNATION_PRIMAIRE = 'consignationPrimaire'

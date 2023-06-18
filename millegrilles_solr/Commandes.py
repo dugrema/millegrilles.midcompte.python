@@ -12,10 +12,11 @@ from millegrilles_solr import Constantes as ConstantesRelaiSolr
 
 class CommandHandler:
 
-    def __init__(self, etat_senseurspassifs, requetes_handler):
+    def __init__(self, etat_senseurspassifs, requetes_handler, intake_handler):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self._etat_instance = etat_senseurspassifs
         self._requetes_handler = requetes_handler
+        self._intake_handler = intake_handler
 
     async def executer_commande(self, producer: MessageProducerFormatteur, message: MessageWrapper):
         reponse = None
@@ -52,7 +53,8 @@ class CommandHandler:
             if exchange == Constantes.SECURITE_PRIVE and Constantes.SECURITE_PRIVE in exchanges:
                 if type_message == 'requete' and action in [ConstantesRelaiSolr.REQUETE_FICHIERS]:
                     reponse = await self._requetes_handler.traiter_requete(message)
-
+                elif type_message == 'evenement' and action in [ConstantesRelaiSolr.EVENEMENT_CONSIGNATION_PRIMAIRE]:
+                    reponse = await self._intake_handler.trigger_fichiers()
             if reponse is None:
                 reponse = {'ok': False, 'err': 'Commande inconnue ou acces refuse'}
 

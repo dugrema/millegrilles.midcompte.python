@@ -24,7 +24,7 @@ class IntakeHandler:
         await gather(self.traiter_fichiers())
 
     async def traiter_fichiers(self):
-        while True:
+        while not self.__stop_event.is_set():
             try:
                 if self.__event_fichiers.is_set() is False:
                     await wait(
