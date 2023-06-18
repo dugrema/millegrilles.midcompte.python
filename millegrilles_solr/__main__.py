@@ -12,6 +12,7 @@ from Configuration import ConfigurationRelaiSolr
 from millegrilles_solr.Commandes import CommandHandler
 from millegrilles_solr.EtatRelaiSolr import EtatRelaiSolr
 from millegrilles_solr.requetes import RequetesHandler
+from millegrilles_solr.intake import IntakeHandler
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class ESMain:
 
         self.__requetes_handler = RequetesHandler(self._etat_relaisolr, self.__solrdao)
         self.__commandes_handler = CommandHandler(self._etat_relaisolr, self.__requetes_handler)
+        self.__intake = None
 
         # Asyncio lifecycle handlers
         self.__loop = None
@@ -39,15 +41,22 @@ class ESMain:
         self.__config.parse_config(self.__args.__dict__)
 
         self.__rabbitmq_dao = RabbitMQDao(self._stop_event, self._etat_relaisolr)
+        self.__intake = IntakeHandler(self._stop_event, self._etat_relaisolr)
 
         self.__solrdao.configure()
+        await self.__intake.configurer()
 
         # Configurer core1
         await self.__solrdao.initialiser_solr()
 
     async def run(self):
         await self.__solrdao.ping()
-        raise NotImplementedError('todo')
+
+        await asyncio.gather(
+            self.__intake.run(),
+        )
+
+        logger.info("run() stopping")
 
     async def run_scripts(self):
         import json
@@ -84,7 +93,7 @@ def parse() -> argparse.Namespace:
 
 def adjust_logging(args: argparse.Namespace):
     if args.verbose is True:
-        loggers = [__name__, 'millegrilles_messages', 'solrdao']
+        loggers = [__name__, 'millegrilles_messages', 'millegrilles_solr', 'solrdao']
         for log in loggers:
             logging.getLogger(log).setLevel(logging.DEBUG)
 
