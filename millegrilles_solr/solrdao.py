@@ -56,6 +56,17 @@ class SolrDao:
                 self.__logger.debug("initialiser_solr Collections : %s" % resultat)
                 await self.initialiser_collection_fichiers(session)
 
+    async def reset_index(self, nom_collection):
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            data = {'delete': {'query': '*:*'}}
+            delete_url = f'{self.solr_url}/solr/{nom_collection}/update'
+            async with session.post(delete_url, ssl=self.__ssl_context, json=data) as resp:
+                if resp.status != 200:
+                    self.__logger.warning("reset_index Status DELETE de collections %s : %d" % (nom_collection, resp.status))
+                else:
+                    self.__logger.info("reset_index Status DELETE de collections OK (200)")
+
     async def requete(self, nom_collection, user_id, query, qf='name^2 content', start=0, limit=100):
         timeout = aiohttp.ClientTimeout(total=5)  # Timeout requete 5 secondes
         async with aiohttp.ClientSession(timeout=timeout) as session:

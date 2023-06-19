@@ -50,11 +50,16 @@ class CommandHandler:
             delegation_globale = None
 
         try:
+            if exchange == Constantes.SECURITE_SECURE and Constantes.SECURITE_SECURE in exchanges:
+                if type_message == 'evenement':
+                    if action == ConstantesRelaiSolr.EVENEMENT_REINDEXER_CONSIGNATION:
+                        return await self._intake_handler.reset_index_fichiers()
             if exchange == Constantes.SECURITE_PRIVE and Constantes.SECURITE_PRIVE in exchanges:
                 if type_message == 'requete' and action in [ConstantesRelaiSolr.REQUETE_FICHIERS]:
                     reponse = await self._requetes_handler.traiter_requete(message)
-                elif type_message == 'evenement' and action in [ConstantesRelaiSolr.EVENEMENT_CONSIGNATION_PRIMAIRE]:
-                    return await self._intake_handler.trigger_fichiers()
+                elif type_message == 'evenement':
+                    if action in [ConstantesRelaiSolr.EVENEMENT_CONSIGNATION_PRIMAIRE]:
+                        return await self._intake_handler.trigger_fichiers()
             if reponse is None:
                 reponse = {'ok': False, 'err': 'Commande inconnue ou acces refuse'}
 

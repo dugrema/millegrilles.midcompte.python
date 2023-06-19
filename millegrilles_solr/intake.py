@@ -36,6 +36,18 @@ class IntakeHandler:
         self.__logger.info('IntakeHandler trigger fichiers recu')
         self.__event_fichiers.set()
 
+    async def reset_index_fichiers(self):
+        self.__logger.info('IntakeHandler trigger fichiers recu')
+
+        # Bloquer temporairement traitement de l'indexation
+        self.__event_fichiers.clear()
+
+        # Supprimer tous les documents indexes
+        await self.__solr_dao.reset_index(self.__solr_dao.nom_collection_fichiers)
+
+        # Redemarrer l'indexaction
+        self.__event_fichiers.set()
+
     async def run(self):
         self.__logger.info('IntakeHandler running')
         await gather(self.traiter_fichiers())
