@@ -158,7 +158,12 @@ class IntakeHandler:
         #     fichier.write(tmp_file.read())
 
 
-MIMETYPES_FULLTEXT = ['application/pdf']
+MIMETYPES_FULLTEXT = [
+    'application/pdf',
+    'application/vnd.ms-powerpoint',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]
 BASE_FULLTEXT = ['text']
 
 
