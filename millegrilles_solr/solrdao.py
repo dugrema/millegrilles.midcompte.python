@@ -1,5 +1,6 @@
 import json
 import logging
+from tempfile import TemporaryFile
 from typing import Optional
 
 import aiohttp
@@ -71,6 +72,57 @@ class SolrDao:
                 self.__logger.debug("requete response status : %d" % resp.status)
                 resp.raise_for_status()
                 return await resp.json()
+
+    async def indexer(self, nom_collection, user_id, doc_id: str, metadata: dict, fichier: Optional[TemporaryFile]):
+        if fichier is None:
+            await self._indexer_document(nom_collection, user_id, doc_id, metadata)
+        else:
+            await self._indexer_fichier(nom_collection, user_id, doc_id, metadata, fichier)
+
+    async def _indexer_document(self, nom_collection, user_id, doc_id: str, metadata: dict):
+        data = {"id": doc_id, "user_id": [user_id]}
+        data.update(metadata)
+        try:
+            data['name'] = data['nom']
+        except KeyError:
+            pass
+        timeout = aiohttp.ClientTimeout(connect=5, total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            data_update_url = f'{self.solr_url}/api/collections/{nom_collection}/update?commit=true'
+            async with session.post(data_update_url, ssl=self.__ssl_context, json=data) as resp:
+                self.__logger.debug("_indexer_document Ajout data status: %d" % resp.status)
+                resp.raise_for_status()
+                self.__logger.debug("_indexer_document Reponse : %s", await resp.json())
+
+    async def _indexer_fichier(self, nom_collection, user_id, doc_id: str, metadata: dict, fichier: TemporaryFile):
+        params = {
+            'commit': 'true',
+            'uprefix': 'ignored_*',
+            # 'fmap.content': 'content',
+            "literal.id": doc_id,
+            "literal.user_id": user_id,
+        }
+
+        for k, v in metadata.items():
+            params[f'literal.{k}'] = v
+            if k == 'nom':
+                params['name'] = v
+
+        mimetype = metadata.get('mimetype') or 'application/octet-stream'
+
+        timeout = aiohttp.ClientTimeout(connect=5, total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            data_update_url = f'{self.solr_url}/solr/{nom_collection}/update/extract'
+            async with session.post(
+                    data_update_url,
+                    ssl=self.__ssl_context,
+                    params=params,
+                    data=fichier,
+                    headers={'Content-Type': mimetype}
+            ) as resp:
+                self.__logger.debug("_indexer_fichier Ajout data status: %d" % resp.status)
+                resp.raise_for_status()
+                self.__logger.debug("_indexer_fichier Reponse : %s", await resp.json())
 
     async def list_field_types(self):
         async with aiohttp.ClientSession() as session:

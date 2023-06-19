@@ -41,7 +41,7 @@ class ESMain:
         self.__config.parse_config(self.__args.__dict__)
 
         await self._etat_relaisolr.reload_configuration()
-        self.__intake = IntakeHandler(self._stop_event, self._etat_relaisolr)
+        self.__intake = IntakeHandler(self._stop_event, self._etat_relaisolr, self.__solrdao)
         self.__commandes_handler = CommandHandler(self._etat_relaisolr, self.__requetes_handler, self.__intake)
         self.__rabbitmq_dao = RabbitMQDao(self._stop_event, self._etat_relaisolr, self.__commandes_handler)
 
@@ -69,7 +69,7 @@ class ESMain:
         #await self.__solrdao.list_field_types()
         #await self.__solrdao.preparer_sample_data()
         #await self.__solrdao.preparer_sample_file()
-        resultat = await self.__requetes_handler.requete_fichiers('user1', 'lightning covid')
+        resultat = await self.__requetes_handler.requete_fichiers('z2i3Xjx8abNcGbqKFa5bNzR3UGJkLWUBSgn5c6yZRQW6TxtdDPE', 'stinging revolt')
         logger.info("Resultat requete \n%s" % json.dumps(resultat, indent=2))
 
     def exit_gracefully(self, signum=None, frame=None):

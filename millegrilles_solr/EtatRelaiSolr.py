@@ -37,6 +37,8 @@ class EtatRelaiSolr:
         self.__producer: Optional[MessageProducerFormatteur] = None
         self.__partition: Optional[str] = None
 
+        self.__url_consignation = 'https://thinkcentre1.maple.maceroc.com:444'
+
     async def reload_configuration(self):
         self.__logger.info("Reload configuration sur disque ou dans docker")
 
@@ -103,6 +105,10 @@ class EtatRelaiSolr:
     @property
     def mq_port(self):
         return self.__mq_port
+
+    @property
+    def url_consignation(self) -> str:
+        return self.__url_consignation
 
     def set_producer(self, producer: MessageProducerFormatteur):
         self.__producer = producer
