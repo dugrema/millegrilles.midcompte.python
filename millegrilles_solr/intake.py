@@ -32,7 +32,7 @@ class IntakeHandler:
                 if self.__event_fichiers.is_set() is False:
                     await wait(
                         [self.__stop_event.wait(), self.__event_fichiers.wait()],
-                        timeout=60, return_when=FIRST_COMPLETED
+                        timeout=20, return_when=FIRST_COMPLETED
                     )
             except TimeoutError:
                 self.__logger.debug("Verifier si fichier disponible pour indexation")
@@ -59,4 +59,9 @@ class IntakeHandler:
                 self.__event_fichiers.clear()
 
     async def get_prochain_fichier(self) -> Optional[dict]:
+
+        producer = self._etat_relaisolr.producer
+        job_indexation = await producer.executer_commande(dict(), 'GrosFichiers', 'getJobIndexation', exchange="4.secure")
+        self.__logger.debug("Executer job indexation : %s" % job_indexation)
+
         return None
