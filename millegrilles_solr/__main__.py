@@ -69,7 +69,7 @@ class ESMain:
         #await self.__solrdao.list_field_types()
         #await self.__solrdao.preparer_sample_data()
         #await self.__solrdao.preparer_sample_file()
-        resultat = await self.__requetes_handler.requete_fichiers('z2i3Xjx8abNcGbqKFa5bNzR3UGJkLWUBSgn5c6yZRQW6TxtdDPE', 'stinging revolt')
+        resultat = await self.__requetes_handler.requete_fichiers('z2i3Xjx8abNcGbqKFa5bNzR3UGJkLWUBSgn5c6yZRQW6TxtdDPE', 'abus physiques')
         logger.info("Resultat requete \n%s" % json.dumps(resultat, indent=2))
 
     def exit_gracefully(self, signum=None, frame=None):

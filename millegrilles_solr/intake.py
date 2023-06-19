@@ -48,6 +48,7 @@ class IntakeHandler:
                         [self.__stop_event.wait(), self.__event_fichiers.wait()],
                         timeout=20, return_when=FIRST_COMPLETED
                     )
+                    self.__event_fichiers.set()
             except TimeoutError:
                 self.__logger.debug("Verifier si fichier disponible pour indexation")
                 self.__event_fichiers.set()
@@ -87,12 +88,13 @@ class IntakeHandler:
                     producer = self._etat_relaisolr.producer
                     await producer.executer_commande(
                         {'fuuid': fuuid, 'user_id': user_id},
-                        'GrosFichiers', 'confirmerFichierIndexe', exchange='4.secure'
+                        'GrosFichiers', 'confirmerFichierIndexe', exchange='4.secure',
+                        nowait=True
                     )
                 else:
                     self.__event_fichiers.clear()
             except Exception as e:
-                self.__logger.error("traiter_fichiers Erreur traitement : %s" % e)
+                self.__logger.exception("traiter_fichiers Erreur traitement : %s" % e)
                 # Erreur generique non geree. Creer un delai de traitement pour poursuivre
                 self.__event_fichiers.clear()
 
