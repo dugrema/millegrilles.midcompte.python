@@ -62,24 +62,25 @@ class SolrDao:
                     resultat = await resp.json()
                     self.__logger.debug("initialiser_solr Collections : %s" % resultat)
 
-    async def reset_index(self, nom_collection):
+    async def reset_index(self, nom_collection, delete=False):
         timeout = aiohttp.ClientTimeout(total=60)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            # # Delete collections
-            # delete_url = f'{self.solr_url}/api/collections/{nom_collection}'
-            # async with session.delete(delete_url, ssl=self.__ssl_context) as resp:
-            #     if resp.status != 200:
-            #         self.__logger.warning("reset_index Status DELETE de collections %s : %d" % (nom_collection, resp.status))
-            #     resp.raise_for_status()
-
-            # Delete data
-            data = {'delete': {'query': '*:*'}}
-            delete_url = f'{self.solr_url}/solr/{nom_collection}/update'
-            async with session.post(delete_url, ssl=self.__ssl_context, json=data) as resp:
-                if resp.status != 200:
-                    self.__logger.warning("reset_index Status DELETE de data collections %s : %d" % (nom_collection, resp.status))
-                else:
-                    self.__logger.info("reset_index Status DELETE de collections OK (200)")
+            if delete:
+                # Delete collections
+                delete_url = f'{self.solr_url}/api/collections/{nom_collection}'
+                async with session.delete(delete_url, ssl=self.__ssl_context) as resp:
+                    if resp.status != 200:
+                        self.__logger.warning("reset_index Status DELETE de collections %s : %d" % (nom_collection, resp.status))
+                    resp.raise_for_status()
+            else:
+                # Delete data
+                data = {'delete': {'query': '*:*'}}
+                delete_url = f'{self.solr_url}/solr/{nom_collection}/update'
+                async with session.post(delete_url, ssl=self.__ssl_context, json=data) as resp:
+                    if resp.status != 200:
+                        self.__logger.warning("reset_index Status DELETE de data collections %s : %d" % (nom_collection, resp.status))
+                    else:
+                        self.__logger.info("reset_index Status DELETE de collections OK (200)")
 
     async def requete(self, nom_collection, user_id, query, qf='name^2 content', start=0, limit=100):
         timeout = aiohttp.ClientTimeout(total=5)  # Timeout requete 5 secondes
