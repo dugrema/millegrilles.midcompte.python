@@ -1,4 +1,4 @@
-FROM docker.maple.maceroc.com:5000/millegrilles_messages_python:2023.6.0
+FROM docker.maple.maceroc.com:5000/millegrilles_messages_python:2023.6.7
 
 ENV BUILD_FOLDER=/opt/millegrilles/build \
     BUNDLE_FOLDER=/opt/millegrilles/dist \
@@ -6,7 +6,7 @@ ENV BUILD_FOLDER=/opt/millegrilles/build \
     SRC_FOLDER=/opt/millegrilles/build/src \
     CA_PEM=/run/secrets/pki.millegrille.cert \
     CERT_PEM=/run/secrets/cert.pem \
-    KEY_PEM= /run/secrets/key.pem
+    KEY_PEM=/run/secrets/key.pem
 
 COPY . $BUILD_FOLDER
 

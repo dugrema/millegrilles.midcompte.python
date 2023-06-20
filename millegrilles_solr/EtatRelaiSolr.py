@@ -1,7 +1,6 @@
-import json
 import logging
 
-from asyncio import Event
+from asyncio import wait
 from typing import Optional
 
 from millegrilles_messages.messages.CleCertificat import CleCertificat
@@ -37,7 +36,7 @@ class EtatRelaiSolr:
         self.__producer: Optional[MessageProducerFormatteur] = None
         self.__partition: Optional[str] = None
 
-        self.__url_consignation = 'https://thinkcentre1.maple.maceroc.com:444'
+        self.__url_consignation = None
 
     async def reload_configuration(self):
         self.__logger.info("Reload configuration sur disque ou dans docker")
@@ -69,6 +68,26 @@ class EtatRelaiSolr:
 
         for listener in self.__listeners_actions:
             await listener()
+
+    async def run(self, stop_event, rabbitmq_dao):
+        while stop_event.is_set() is False:
+
+            # Charger configuration consignation via topologie
+            await self.charger_url_consignation(rabbitmq_dao)
+
+            await wait([stop_event.wait()], timeout=30)
+
+    async def charger_url_consignation(self, rabbitmq_dao):
+        producer = rabbitmq_dao.get_producer()
+        await wait([producer.producer_pret().wait()], timeout=60)
+
+        reponse = await producer.executer_requete(
+            dict(), 'CoreTopologie', 'getConsignationFichiers', exchange="2.prive")
+
+        try:
+            self.__url_consignation = reponse.parsed['consignation_url']
+        except Exception as e:
+            self.__logger.exception("Erreur chargement URL consignation")
 
     def ajouter_listener(self, listener):
         self.__listeners_actions.append(listener)
