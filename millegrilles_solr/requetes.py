@@ -33,13 +33,14 @@ class RequetesHandler:
         if action == ConstantesRelaiSolr.REQUETE_FICHIERS:
             query = message.parsed['query']
             reponse = await self.requete_fichiers(user_id, query)
+            return {'ok': True, 'resultat': reponse['response']}
         else:
             raise Exception('action requete non supportee : %s' % action)
 
         # if reponse is not None:
         #     reponse = await self.chiffrer_reponse(enveloppe, reponse)
 
-        return reponse
+        return None
 
     async def requete_fichiers(self, user_id: str, query: str):
         nom_collection = self.__solrdao.nom_collection_fichiers

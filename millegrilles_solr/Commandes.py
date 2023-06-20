@@ -40,9 +40,9 @@ class CommandHandler:
             exchanges = list()
 
         try:
-            roles = enveloppe.get_roles
+            user_id = enveloppe.get_user_id
         except ExtensionNotFound:
-            roles = list()
+            user_id = list()
 
         try:
             delegation_globale = enveloppe.get_delegation_globale
@@ -54,10 +54,11 @@ class CommandHandler:
                 if type_message == 'evenement':
                     if action == ConstantesRelaiSolr.EVENEMENT_REINDEXER_CONSIGNATION:
                         return await self._intake_handler.reset_index_fichiers()
-            if exchange == Constantes.SECURITE_PRIVE and Constantes.SECURITE_PRIVE in exchanges:
+            elif exchange == Constantes.SECURITE_PRIVE and user_id is not None:
                 if type_message == 'requete' and action in [ConstantesRelaiSolr.REQUETE_FICHIERS]:
                     reponse = await self._requetes_handler.traiter_requete(message)
-                elif type_message == 'evenement':
+            elif exchange == Constantes.SECURITE_PRIVE and Constantes.SECURITE_PRIVE in exchanges:
+                if type_message == 'evenement':
                     if action in [ConstantesRelaiSolr.EVENEMENT_CONSIGNATION_PRIMAIRE]:
                         return await self._intake_handler.trigger_fichiers()
             if reponse is None:
