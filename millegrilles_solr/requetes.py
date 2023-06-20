@@ -44,7 +44,7 @@ class RequetesHandler:
 
     async def requete_fichiers(self, user_id: str, query: str):
         nom_collection = self.__solrdao.nom_collection_fichiers
-        return await self.__solrdao.requete(nom_collection, user_id, query, qf='name^2 content', start=0, limit=100)
+        return await self.__solrdao.requete(nom_collection, user_id, query, qf='name^2 content id tuuid', start=0, limit=100)
 
     async def chiffrer_reponse(self, enveloppe, reponse: dict):
         raise NotImplementedError('todo')

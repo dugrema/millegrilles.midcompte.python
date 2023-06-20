@@ -1,4 +1,5 @@
 import json
+import re
 import logging
 from tempfile import TemporaryFile
 from typing import Optional
@@ -109,7 +110,7 @@ class SolrDao:
         data = {"id": doc_id, "user_id": [user_id]}
         data.update(metadata)
         try:
-            data['name'] = data['nom']
+            data['name'] = filtrer_nom(data['nom'])
         except KeyError:
             pass
         timeout = aiohttp.ClientTimeout(connect=5, total=15)
@@ -132,7 +133,7 @@ class SolrDao:
         for k, v in metadata.items():
             params[f'literal.{k}'] = v
             if k == 'nom':
-                params['name'] = v
+                params['literal.name'] = filtrer_nom(v)
 
         mimetype = metadata.get('mimetype') or 'application/octet-stream'
 
@@ -182,9 +183,9 @@ class SolrDao:
 
         schema_url = f'{self.solr_url}/api/collections/{nom_collection}/schema'
         data = {'add-field': [
-            {"name": "name", "type": "text_en_splitting_tight", "multiValued": False, "stored": False},
+            {"name": "name", "type": "text_en_splitting_tight", "stored": False},
             {"name": "content", "type": "text_general", "stored": False},
-            {"name": "user_id", "type": "string", "multiValued": True},
+            {"name": "user_id", "type": "string", "multiValued": True, "stored": True},
             {"name": "tuuid", "type": "string", "stored": True},
             # {"name": "series_t", "type": "text_en_splitting_tight", "multiValued": False},
             # {"name": "cat", "type": "string", "multiValued": True},
@@ -280,3 +281,13 @@ class SolrDao:
                     resp.raise_for_status()
                     self.__logger.debug("preparer_sample_data Reponse ajout pdf : %s", await resp.json())
 
+
+def filtrer_nom(nom) -> str:
+    val = re.sub('[\\W]+', ' ', nom)
+    # nom = ''.join(s for s in nom if s.isalnum())
+    # nom = nom.replace('-', ' ')
+    val = val.replace('_', ' ')
+    # val = val.replace('.', ' ')
+    # nom = nom.replace('\'', ' ')
+    # nom = nom.replace('’', ' ')
+    return val
