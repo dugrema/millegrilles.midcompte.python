@@ -79,6 +79,10 @@ class EtatRelaiSolr:
 
     async def charger_url_consignation(self, rabbitmq_dao):
         producer = rabbitmq_dao.get_producer()
+        if producer is None:
+            self.__logger.warning("charger_url_consignation Producer mq n'est pas encore charge - skip")
+            return
+
         await wait([producer.producer_pret().wait()], timeout=60)
 
         reponse = await producer.executer_requete(

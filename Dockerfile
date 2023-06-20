@@ -5,6 +5,8 @@ ENV BUILD_FOLDER=/opt/millegrilles/build \
     PYTHONPATH=/opt/millegrilles/dist \
     SRC_FOLDER=/opt/millegrilles/build/src \
     CA_PEM=/run/secrets/pki.millegrille.cert \
+    MG_REDIS_HOST=redis \
+    MG_REDIS_PORT=6379 \
     CERT_PEM=/run/secrets/cert.pem \
     KEY_PEM=/run/secrets/key.pem
 

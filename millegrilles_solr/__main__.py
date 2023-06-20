@@ -7,8 +7,8 @@ from typing import Optional
 
 from millegrilles_solr.mqdao import RabbitMQDao
 
-from solrdao import SolrDao
-from Configuration import ConfigurationRelaiSolr
+from millegrilles_solr.solrdao import SolrDao
+from millegrilles_solr.Configuration import ConfigurationRelaiSolr
 from millegrilles_solr.Commandes import CommandHandler
 from millegrilles_solr.EtatRelaiSolr import EtatRelaiSolr
 from millegrilles_solr.requetes import RequetesHandler
