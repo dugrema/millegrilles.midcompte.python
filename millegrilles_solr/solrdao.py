@@ -48,22 +48,36 @@ class SolrDao:
         """
         timeout = aiohttp.ClientTimeout(total=60)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            get_core_url = f'{self.solr_url}/api/collections/{self.nom_collection_fichiers}'
-            async with session.get(get_core_url, ssl=self.__ssl_context) as resp:
-                self.__logger.debug("initialiser_solr Status collections : %d" % resp.status)
-                resultat = await resp.json()
-            if resp.status != 200:
-                self.__logger.debug("initialiser_solr Collections : %s" % resultat)
-                await self.initialiser_collection_fichiers(session)
+
+            reload_fichiers_url = f'{self.solr_url}/api/collections/{self.nom_collection_fichiers}'
+            data = {'reload': {}}
+            async with session.post(reload_fichiers_url, ssl=self.__ssl_context, json=data) as resp:
+                # get_core_url = f'{self.solr_url}/solr/admin/collections/{self.nom_collection_fichiers}'
+                # async with session.get(get_core_url, ssl=self.__ssl_context) as resp:
+                #     self.__logger.debug("initialiser_solr Status collections : %d" % resp.status)
+                if resp.status != 200:
+                    self.__logger.debug("initialiser_solr Collections")
+                    await self.initialiser_collection_fichiers(session)
+                else:
+                    resultat = await resp.json()
+                    self.__logger.debug("initialiser_solr Collections : %s" % resultat)
 
     async def reset_index(self, nom_collection):
         timeout = aiohttp.ClientTimeout(total=60)
         async with aiohttp.ClientSession(timeout=timeout) as session:
+            # # Delete collections
+            # delete_url = f'{self.solr_url}/api/collections/{nom_collection}'
+            # async with session.delete(delete_url, ssl=self.__ssl_context) as resp:
+            #     if resp.status != 200:
+            #         self.__logger.warning("reset_index Status DELETE de collections %s : %d" % (nom_collection, resp.status))
+            #     resp.raise_for_status()
+
+            # Delete data
             data = {'delete': {'query': '*:*'}}
             delete_url = f'{self.solr_url}/solr/{nom_collection}/update'
             async with session.post(delete_url, ssl=self.__ssl_context, json=data) as resp:
                 if resp.status != 200:
-                    self.__logger.warning("reset_index Status DELETE de collections %s : %d" % (nom_collection, resp.status))
+                    self.__logger.warning("reset_index Status DELETE de data collections %s : %d" % (nom_collection, resp.status))
                 else:
                     self.__logger.info("reset_index Status DELETE de collections OK (200)")
 
@@ -77,7 +91,7 @@ class SolrDao:
                 'fq': f'user_id:{user_id}',
                 'q': query,
                 'qf': qf,
-                'fl': 'id,score',
+                'fl': 'id,tuuid,score',
             }
             async with session.get(requete_url, ssl=self.__ssl_context, params=params) as resp:
                 self.__logger.debug("requete response status : %d" % resp.status)
@@ -170,6 +184,7 @@ class SolrDao:
             {"name": "name", "type": "text_en_splitting_tight", "multiValued": False, "stored": False},
             {"name": "content", "type": "text_general", "stored": False},
             {"name": "user_id", "type": "string", "multiValued": True},
+            {"name": "tuuid", "type": "string", "stored": True},
             # {"name": "series_t", "type": "text_en_splitting_tight", "multiValued": False},
             # {"name": "cat", "type": "string", "multiValued": True},
             # {"name": "manu", "type": "string"},

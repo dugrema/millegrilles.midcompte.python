@@ -88,7 +88,8 @@ class IntakeHandler:
                         tmp_file = None
 
                     info_fichier = await self.dechiffrer_metadata(job)
-                    info_fichier['mimetype'] = job['mimetype']
+                    info_fichier['mimetype'] = mimetype
+                    info_fichier['tuuid'] = job['tuuid']
 
                     self.__logger.debug("Indexer fichier %s" % json.dumps(info_fichier, indent=2))
 
