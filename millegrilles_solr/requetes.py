@@ -32,7 +32,9 @@ class RequetesHandler:
 
         if action == ConstantesRelaiSolr.REQUETE_FICHIERS:
             query = message.parsed['query']
-            reponse = await self.requete_fichiers(user_id, query)
+            start = message.parsed.get('start') or 0
+            limit = message.parsed.get('limit') or 200
+            reponse = await self.requete_fichiers(user_id, query, start=start, limit=limit)
             return {'ok': True, 'resultat': reponse['response']}
         else:
             raise Exception('action requete non supportee : %s' % action)
@@ -42,9 +44,10 @@ class RequetesHandler:
 
         return None
 
-    async def requete_fichiers(self, user_id: str, query: str):
+    async def requete_fichiers(self, user_id: str, query: str, start=0, limit=200):
         nom_collection = self.__solrdao.nom_collection_fichiers
-        return await self.__solrdao.requete(nom_collection, user_id, query, qf='name^2 content id tuuid', start=0, limit=100)
+        return await self.__solrdao.requete(
+            nom_collection, user_id, query, qf='name^2 content id tuuid', start=start, limit=limit)
 
     async def chiffrer_reponse(self, enveloppe, reponse: dict):
         raise NotImplementedError('todo')
