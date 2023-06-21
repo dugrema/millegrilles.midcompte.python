@@ -94,6 +94,8 @@ class SolrDao:
                 'q': query,
                 'qf': qf,
                 'fl': 'id,tuuid,score',
+                'start': start,
+                'rows': limit,
             }
             async with session.get(requete_url, ssl=self.__ssl_context, params=params) as resp:
                 self.__logger.debug("requete response status : %d" % resp.status)
