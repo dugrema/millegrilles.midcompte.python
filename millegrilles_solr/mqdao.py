@@ -114,9 +114,7 @@ class RabbitMQDao:
     async def creer_thread(self):
 
         routing_keys = [
-            'evenement.fichiers.consignationPrimaire',
-            'evenement.GrosFichiers.fuuidNouvelleVersion',
-            # 'commande.solrrelai.fichiers',
+            'evenement.GrosFichiers.*.jobIndexationDisponible',
         ]
 
         return MqThread(self.__event_stop, self.__etat_relaiweb, self.__command_handler, routing_keys)
