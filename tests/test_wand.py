@@ -7,7 +7,7 @@ VIDEO_1 = "/home/mathieu/Videos/SaveOurLake/005.MOV"
 PDF_1 = "/home/mathieu/Pictures/fichier1.pdf"
 PDF_2 = "/home/mathieu/Pictures/fichier2.pdf"
 WORD_1 = "/home/mathieu/tmp/fichier1.doc"
-IMAGE_FILE = WORD_1
+IMAGE_FILE = IMAGE_2
 
 
 def load_image():
@@ -19,7 +19,13 @@ def load_image():
 def thumbnail():
     image_file = '%s[0]' % IMAGE_FILE
 
-    with Image(filename=image_file) as original:
+    with open(IMAGE_FILE, 'rb') as fichier_in:
+        image_bytes = fichier_in.read()
+
+    with Image(blob=image_bytes) as original:
+        image_bytes = None
+
+    #with Image(filename=image_file) as original:
 
         # Desactiver alpha (PDF, JPG)
         if original.alpha_channel:

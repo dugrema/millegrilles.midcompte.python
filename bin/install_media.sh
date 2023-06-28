@@ -3,7 +3,7 @@
 echo Installer media
 
 apt update
-apt install -y libmagickwand-dev ghostscript
+apt install -y libmagickwand-dev ghostscript ffmpeg
 # Utiliser unoconv pour supporter conversion documents (word, wordperfect, etc)
 # apt install unoconv
 

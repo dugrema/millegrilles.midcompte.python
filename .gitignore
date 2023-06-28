@@ -4,6 +4,6 @@ dist
 *egg-info
 .idea
 venv*/
-version.txt
+**/version.txt
 base/requirements.txt
 *.tar.gz
