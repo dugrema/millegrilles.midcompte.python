@@ -43,10 +43,10 @@ class MqThread:
         messages_thread.set_env_configuration(env_configuration)
         self.creer_ressources_consommation(messages_thread)
 
-        res_relai_requete_fichiers = RessourcesConsommation(self.callback_reply_q, nom_queue='solrrelai/volatil', channel_separe=True, est_asyncio=True)
-        res_relai_requete_fichiers.ajouter_rk(Constantes.SECURITE_PRIVE, 'requete.solrrelai.fichiers')
-        res_relai_requete_fichiers.ajouter_rk(Constantes.SECURITE_SECURE, 'evenement.GrosFichiers.reindexerConsignation')
-        messages_thread.ajouter_consumer(res_relai_requete_fichiers)
+        #res_relai_requete_fichiers = RessourcesConsommation(self.callback_reply_q, nom_queue='media/volatil', channel_separe=True, est_asyncio=True)
+        # res_relai_requete_fichiers.ajouter_rk(Constantes.SECURITE_PRIVE, 'requete.solrrelai.fichiers')
+        # res_relai_requete_fichiers.ajouter_rk(Constantes.SECURITE_SECURE, 'evenement.GrosFichiers.reindexerConsignation')
+        #messages_thread.ajouter_consumer(res_relai_requete_fichiers)
 
         # res_relai_trigger = RessourcesConsommation(self.callback_reply_q, nom_queue='solrrelai/trigger', channel_separe=True, est_asyncio=True)
         # res_relai_trigger.ajouter_rk(Constantes.SECURITE_PRIVE, 'evenement.fichiers.consignationPrimaire')
@@ -101,10 +101,10 @@ class MqThread:
 
 class RabbitMQDao:
 
-    def __init__(self, event_stop: Event, etat_relaiweb, command_handler: CommandHandler):
+    def __init__(self, event_stop: Event, etat_media, command_handler: CommandHandler):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__event_stop = event_stop
-        self.__etat_relaiweb = etat_relaiweb
+        self.__etat_media = etat_media
 
         self.__command_handler = command_handler
 
@@ -114,10 +114,13 @@ class RabbitMQDao:
     async def creer_thread(self):
 
         routing_keys = [
-            'evenement.GrosFichiers.*.jobIndexationDisponible',
+            'evenement.GrosFichiers.*.jobImageDisponible',
         ]
 
-        return MqThread(self.__event_stop, self.__etat_relaiweb, self.__command_handler, routing_keys)
+        if self.__etat_media.video_desactive is not True:
+            routing_keys.append('evenement.GrosFichiers.*.jobVideoDisponible')
+
+        return MqThread(self.__event_stop, self.__etat_media, self.__command_handler, routing_keys)
 
     def get_producer(self) -> Optional[MessageProducerFormatteur]:
         return self.__producer
@@ -136,7 +139,7 @@ class RabbitMQDao:
                 self.__mq_thread = await self.creer_thread()
                 await self.__mq_thread.configurer()
                 self.__producer = self.__mq_thread.get_producer()
-                self.__etat_relaiweb.set_producer(self.__producer)  # Hook producer globalement
+                self.__etat_media.set_producer(self.__producer)  # Hook producer globalement
 
                 await self.__mq_thread.run()
             except Exception as e:
@@ -144,7 +147,7 @@ class RabbitMQDao:
             finally:
                 self.__mq_thread = None
                 self.__producer = None
-                self.__etat_relaiweb.set_producer(None)  # Cleanup hook producer globalement
+                self.__etat_media.set_producer(None)  # Cleanup hook producer globalement
 
             # Attendre pour redemarrer execution module
             self.__logger.info("Fin thread asyncio MessagesThread, attendre 30 secondes pour redemarrer")
@@ -160,19 +163,19 @@ class RabbitMQDao:
         Creer un compte sur MQ via https (monitor).
         :return:
         """
-        mq_host = self.__etat_relaiweb.mq_host
+        mq_host = self.__etat_media.mq_host
         self.__logger.info("Creation compte MQ avec %s" % mq_host)
 
         # Le monitor peut etre trouve via quelques hostnames :
         #  nginx : de l'interne, est le proxy web qui est mappe vers le monitor
         #  mq_host : de l'exterieur, est le serveur mq qui est sur le meme swarm docker que nginx
-        hosts = ['nginx', self.__etat_relaiweb.mq_host]
+        hosts = ['nginx', self.__etat_media.mq_host]
         port = 444  # 443
         path = 'administration/ajouterCompte'
 
-        mq_cafile = self.__etat_relaiweb.configuration.ca_pem_path
-        mq_certfile = self.__etat_relaiweb.configuration.cert_pem_path
-        mq_keyfile = self.__etat_relaiweb.configuration.key_pem_path
+        mq_cafile = self.__etat_media.configuration.ca_pem_path
+        mq_certfile = self.__etat_media.configuration.cert_pem_path
+        mq_keyfile = self.__etat_media.configuration.key_pem_path
 
         with open(mq_certfile, 'r') as fichier:
             chaine_cert = {'certificat': fichier.read()}

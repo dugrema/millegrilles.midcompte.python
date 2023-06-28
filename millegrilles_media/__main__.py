@@ -20,12 +20,13 @@ class ESMain:
     def __init__(self, args: argparse.Namespace):
         self.__args = args
         self.__config = ConfigurationMedia()
-        self._etat_media = EtatMedia(self.__config)
+        self._etat_media = EtatMedia(self.__config, self.__args.novideo)
 
         self.__rabbitmq_dao: Optional[RabbitMQDao] = None
 
         self.__commandes_handler = None
-        self.__intake = None
+        self.__intake_images = None
+        self.__intake_videos = None
 
         # Asyncio lifecycle handlers
         self.__loop = None
@@ -38,33 +39,42 @@ class ESMain:
 
         await self._etat_media.reload_configuration()
         self.__intake_images = IntakeJobImage(self._stop_event, self._etat_media)
-        self.__intake_videos = IntakeJobVideo(self._stop_event, self._etat_media)
+        if self.__args.novideo is not True:
+            self.__intake_videos = IntakeJobVideo(self._stop_event, self._etat_media)
         self.__commandes_handler = CommandHandler(self._etat_media, self.__intake_images, self.__intake_videos)
         self.__rabbitmq_dao = RabbitMQDao(self._stop_event, self._etat_media, self.__commandes_handler)
 
         await self.__intake_images.configurer()
-        await self.__intake_videos.configurer()
+        if self.__intake_videos is not None:
+            await self.__intake_videos.configurer()
 
     async def run(self):
-        await asyncio.gather(
+
+        threads = [
             self.__rabbitmq_dao.run(),
             self.__intake_images.run(),
-            self.__intake_videos.run(),
             self._etat_media.run(self._stop_event, self.__rabbitmq_dao),
-        )
+        ]
+
+        # Video processing est optionnel
+        if self.__intake_videos is not None:
+            threads.append(self.__intake_videos.run(),)
+
+        await asyncio.gather(*threads)
 
         logger.info("run() stopping")
 
     async def run_scripts(self):
-        import json
+        pass
+        #import json
         # await self.__solrdao.ping()
 
         # Debug
         #await self.__solrdao.list_field_types()
         #await self.__solrdao.preparer_sample_data()
         #await self.__solrdao.preparer_sample_file()
-        resultat = await self.__requetes_handler.requete_fichiers('z2i3Xjx8abNcGbqKFa5bNzR3UGJkLWUBSgn5c6yZRQW6TxtdDPE', 'abus physiques')
-        logger.info("Resultat requete \n%s" % json.dumps(resultat, indent=2))
+        #resultat = await self.__requetes_handler.requete_fichiers('z2i3Xjx8abNcGbqKFa5bNzR3UGJkLWUBSgn5c6yZRQW6TxtdDPE', 'abus physiques')
+        #logger.info("Resultat requete \n%s" % json.dumps(resultat, indent=2))
 
     def exit_gracefully(self, signum=None, frame=None):
         logger.info("Fermer application, signal: %d" % signum)
@@ -80,6 +90,10 @@ def parse() -> argparse.Namespace:
     parser.add_argument(
         '--scripts', action="store_true", required=False,
         help="Execute scripts"
+    )
+    parser.add_argument(
+        '--novideo', action="store_true", required=False,
+        help="Desactive le traitement video"
     )
 
     args = parser.parse_args()

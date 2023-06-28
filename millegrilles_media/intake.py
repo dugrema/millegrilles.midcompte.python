@@ -29,7 +29,7 @@ class IntakeHandler:
         self.__ssl_context = SSLContext()
         self.__ssl_context.load_cert_chain(cert_path, config.key_pem_path)
 
-    async def trigger_fichiers(self):
+    async def trigger_traitement(self):
         self.__logger.info('IntakeHandler trigger fichiers recu')
         self.__event_fichiers.set()
 
@@ -67,16 +67,12 @@ class IntakeHandler:
                         await self.downloader_dechiffrer_fichier(job, tmp_file)
                         tmp_file.seek(0)  # Rewind pour traitement
                         self.__logger.debug("Fichier a indexer est dechiffre (fp tmp)")
-                        # Traitement
-                        reponse = await self.traiter_fichier(job, tmp_file)
-
-                    # Confirmer succes de l'indexation
-                    producer = self._etat_media.producer
-                    await producer.executer_commande(
-                        reponse,
-                        'GrosFichiers', 'confirmerFichierIndexe', exchange='4.secure',
-                        nowait=True
-                    )
+                        try:
+                            # Traitement
+                            await self.traiter_fichier(job, tmp_file)
+                        except Exception as e:
+                            self.__logger.exception("Erreur traitement - annuler pour %s : %s" % (job, e))
+                            await self.annuler_job(job)
                 else:
                     self.__event_fichiers.clear()
             except Exception as e:
@@ -88,6 +84,9 @@ class IntakeHandler:
         raise NotImplementedError('must override')
 
     async def get_prochain_fichier(self) -> Optional[dict]:
+        raise NotImplementedError('must override')
+
+    async def annuler_job(self, job):
         raise NotImplementedError('must override')
 
     async def downloader_dechiffrer_fichier(self, job, tmp_file):
@@ -113,6 +112,7 @@ class IntakeHandler:
 class IntakeJobImage(IntakeHandler):
 
     def __init__(self, stop_event: Event, etat_media: EtatMedia):
+        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         super().__init__(stop_event, etat_media)
 
     async def get_prochain_fichier(self) -> Optional[dict]:
@@ -128,11 +128,12 @@ class IntakeJobImage(IntakeHandler):
                 self.__logger.debug("Aucune job d'images disponible")
 
         except Exception as e:
-            self.__logger.error("Erreur recuperation job image : %s" % e)
+            self.__logger.exception("Erreur recuperation job image : %s" % e)
 
         return None
 
     async def traiter_fichier(self, job, tmp_file) -> dict:
+        self.__logger.debug("Traiter image %s" % job)
 
         reponse = {
             'mimetype': job['mimetype'],
@@ -141,12 +142,19 @@ class IntakeJobImage(IntakeHandler):
             'user_id': job['user_id'],
         }
 
-        raise NotImplementedError('todo')
+        producer = self._etat_media.producer
+
+        raise NotImplementedError('todo - convertir image')
+
+    async def annuler_job(self, job):
+        producer = self._etat_media.producer
+        # raise NotImplementedError('todo -- annuler job image')
 
 
 class IntakeJobVideo(IntakeHandler):
 
     def __init__(self, stop_event: Event, etat_media: EtatMedia):
+        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         super().__init__(stop_event, etat_media)
 
     async def get_prochain_fichier(self) -> Optional[dict]:
@@ -162,11 +170,12 @@ class IntakeJobVideo(IntakeHandler):
                 self.__logger.debug("Aucune job de videos disponible")
 
         except Exception as e:
-            self.__logger.error("Erreur recuperation job video : %s" % e)
+            self.__logger.exception("Erreur recuperation job video : %s" % e)
 
         return None
 
     async def traiter_fichier(self, job, tmp_file) -> dict:
+        self.__logger.debug("Traiter video %s" % job)
 
         reponse = {
             'mimetype': job['mimetype'],
@@ -175,7 +184,13 @@ class IntakeJobVideo(IntakeHandler):
             'user_id': job['user_id'],
         }
 
-        raise NotImplementedError('todo')
+        producer = self._etat_media.producer
+
+        raise NotImplementedError('todo -- transcoder video')
+
+    async def annuler_job(self, job):
+        producer = self._etat_media.producer
+        # raise NotImplementedError('todo -- annuler job video')
 
 
 MIMETYPES_FULLTEXT = [

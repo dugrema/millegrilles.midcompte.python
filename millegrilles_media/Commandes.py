@@ -12,10 +12,9 @@ from millegrilles_media import Constantes as ConstantesMedia
 
 class CommandHandler:
 
-    def __init__(self, etat_senseurspassifs, requetes_handler, intake_images, intake_videos):
+    def __init__(self, etat_senseurspassifs, intake_images, intake_videos):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self._etat_instance = etat_senseurspassifs
-        self._requetes_handler = requetes_handler
         self._intake_images = intake_images
         self._intake_videos = intake_videos
 
@@ -51,19 +50,12 @@ class CommandHandler:
             delegation_globale = None
 
         try:
-            # if exchange == Constantes.SECURITE_SECURE and Constantes.SECURITE_SECURE in exchanges:
-            #     if type_message == 'evenement':
-            #         if action == ConstantesMedia.EVENEMENT_REINDEXER_CONSIGNATION:
-            #             return await self._intake_handler.reset_index_fichiers()
-            # elif exchange == Constantes.SECURITE_PRIVE and user_id is not None:
-            #     if type_message == 'requete' and action in [ConstantesMedia.REQUETE_FICHIERS]:
-            #         reponse = await self._requetes_handler.traiter_requete(message)
             if exchange == Constantes.SECURITE_PRIVE and Constantes.SECURITE_PRIVE in exchanges:
                 if type_message == 'evenement':
-                    if action in [ConstantesMedia.EVENEMENT_CONSIGNATION_PRIMAIRE]:
-                        # Declencher tous les intake
-                        await self._intake_images.trigger_fichiers()
-                        await self._intake_images.trigger_videos()
+                    if action in [ConstantesMedia.EVENEMENT_JOB_IMAGE_DISPONIBLE, ConstantesMedia.EVENEMENT_JOB_VIDEO_DISPONIBLE]:
+                        await self._intake_images.trigger_traitement()
+                        if self._intake_videos is not None:
+                            await self._intake_videos.trigger_traitement()
                         return
             if reponse is None:
                 reponse = {'ok': False, 'err': 'Commande inconnue ou acces refuse'}

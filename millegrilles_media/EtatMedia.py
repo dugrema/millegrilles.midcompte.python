@@ -9,14 +9,15 @@ from millegrilles_messages.messages.FormatteurMessages import SignateurTransacti
 from millegrilles_messages.messages.ValidateurCertificats import ValidateurCertificatCache
 from millegrilles_messages.messages.ValidateurMessage import ValidateurMessage
 from millegrilles_messages.messages.MessagesModule import MessageProducerFormatteur
-from millegrilles_solr.Configuration import ConfigurationRelaiSolr
+from millegrilles_media.Configuration import ConfigurationMedia
 
 
 class EtatMedia:
 
-    def __init__(self, configuration: ConfigurationRelaiSolr):
+    def __init__(self, configuration: ConfigurationMedia, video_desactive: bool):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__configuration = configuration
+        self.__video_desactive = video_desactive
 
         self.__configuration_json: Optional[dict] = None
 
@@ -112,6 +113,10 @@ class EtatMedia:
     @property
     def configuration(self):
         return self.__configuration
+
+    @property
+    def video_desactive(self):
+        return self.__video_desactive
 
     @property
     def clecertificat(self):
