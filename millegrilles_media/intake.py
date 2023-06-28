@@ -147,8 +147,16 @@ class IntakeJobImage(IntakeHandler):
         raise NotImplementedError('todo - convertir image')
 
     async def annuler_job(self, job):
+        reponse = {
+            'fuuid': job['fuuid'],
+            'user_id': job['user_id'],
+        }
+
         producer = self._etat_media.producer
-        # raise NotImplementedError('todo -- annuler job image')
+        await producer.executer_commande(
+            reponse, 'GrosFichiers', 'supprimerJobImage', exchange='4.secure',
+            nowait=True
+        )
 
 
 class IntakeJobVideo(IntakeHandler):
@@ -189,8 +197,18 @@ class IntakeJobVideo(IntakeHandler):
         raise NotImplementedError('todo -- transcoder video')
 
     async def annuler_job(self, job):
+        reponse = {
+            'ok': False,
+            'fuuid': job['fuuid'],
+            'cle_conversion': job['cle_conversion'],
+            'user_id': job['user_id'],
+        }
+
         producer = self._etat_media.producer
-        # raise NotImplementedError('todo -- annuler job video')
+        await producer.executer_commande(
+            reponse, 'GrosFichiers', 'supprimerJobVideo', exchange='4.secure',
+            nowait=True
+        )
 
 
 MIMETYPES_FULLTEXT = [
