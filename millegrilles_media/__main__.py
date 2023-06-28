@@ -7,12 +7,10 @@ from typing import Optional
 
 from millegrilles_media.mqdao import RabbitMQDao
 
-# from millegrilles_solr.solrdao import SolrDao
-# from millegrilles_solr.Configuration import ConfigurationRelaiSolr
-# from millegrilles_solr.Commandes import CommandHandler
-# from millegrilles_solr.EtatRelaiSolr import EtatRelaiSolr
-# from millegrilles_solr.requetes import RequetesHandler
-# from millegrilles_solr.intake import IntakeHandler
+from millegrilles_media.Configuration import ConfigurationMedia
+from millegrilles_media.Commandes import CommandHandler
+from millegrilles_media.EtatMedia import EtatMedia
+from millegrilles_media.intake import IntakeJobImage, IntakeJobVideo
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +19,11 @@ class ESMain:
 
     def __init__(self, args: argparse.Namespace):
         self.__args = args
-        self.__config = ConfigurationRelaiSolr()
-        self._etat_relaisolr = EtatRelaiSolr(self.__config)
+        self.__config = ConfigurationMedia()
+        self._etat_media = EtatMedia(self.__config)
 
-        self.__solrdao = SolrDao(self._etat_relaisolr)
         self.__rabbitmq_dao: Optional[RabbitMQDao] = None
 
-        self.__requetes_handler = RequetesHandler(self._etat_relaisolr, self.__solrdao)
         self.__commandes_handler = None
         self.__intake = None
 
@@ -40,24 +36,21 @@ class ESMain:
         self._stop_event = asyncio.Event()
         self.__config.parse_config(self.__args.__dict__)
 
-        await self._etat_relaisolr.reload_configuration()
-        self.__intake = IntakeHandler(self._stop_event, self._etat_relaisolr, self.__solrdao)
-        self.__commandes_handler = CommandHandler(self._etat_relaisolr, self.__requetes_handler, self.__intake)
-        self.__rabbitmq_dao = RabbitMQDao(self._stop_event, self._etat_relaisolr, self.__commandes_handler)
+        await self._etat_media.reload_configuration()
+        self.__intake_images = IntakeJobImage(self._stop_event, self._etat_media)
+        self.__intake_videos = IntakeJobVideo(self._stop_event, self._etat_media)
+        self.__commandes_handler = CommandHandler(self._etat_media, self.__intake_images, self.__intake_videos)
+        self.__rabbitmq_dao = RabbitMQDao(self._stop_event, self._etat_media, self.__commandes_handler)
 
-        self.__solrdao.configure()
-        await self.__intake.configurer()
-
-        # Configurer core1
-        await self.__solrdao.initialiser_solr()
+        await self.__intake_images.configurer()
+        await self.__intake_videos.configurer()
 
     async def run(self):
-        await self.__solrdao.ping()
-
         await asyncio.gather(
             self.__rabbitmq_dao.run(),
-            self.__intake.run(),
-            self._etat_relaisolr.run(self._stop_event, self.__rabbitmq_dao),
+            self.__intake_images.run(),
+            self.__intake_videos.run(),
+            self._etat_media.run(self._stop_event, self.__rabbitmq_dao),
         )
 
         logger.info("run() stopping")
