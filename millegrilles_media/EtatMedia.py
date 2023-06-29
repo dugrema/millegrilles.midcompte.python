@@ -1,4 +1,5 @@
 import logging
+from ssl import SSLContext
 
 from asyncio import wait
 from typing import Optional
@@ -38,6 +39,7 @@ class EtatMedia:
         self.__partition: Optional[str] = None
 
         self.__url_consignation = None
+        self.__ssl_context: Optional[SSLContext] = None
 
     async def reload_configuration(self):
         self.__logger.info("Reload configuration sur disque ou dans docker")
@@ -51,6 +53,9 @@ class EtatMedia:
         # Charger et verificat cle/certificat
         self.__clecertificat = CleCertificat.from_files(
             self.__configuration.key_pem_path, self.__configuration.cert_pem_path)
+
+        self.__ssl_context = SSLContext()
+        self.__ssl_context.load_cert_chain(self.__configuration.cert_pem_path, self.__configuration.key_pem_path)
 
         if self.__clecertificat is not None:
             idmg = self.__clecertificat.enveloppe.idmg
@@ -117,6 +122,10 @@ class EtatMedia:
     @property
     def video_desactive(self):
         return self.__video_desactive
+
+    @property
+    def ssl_context(self):
+        return self.__ssl_context
 
     @property
     def clecertificat(self):

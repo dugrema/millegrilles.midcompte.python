@@ -1,3 +1,4 @@
+import aiohttp
 import asyncio
 import tempfile
 import multibase
@@ -51,7 +52,7 @@ async def traiter_image(job, tmp_file, etat_media: EtatMedia, info_video: Option
                     ]
                     thumbnail, small, large = await asyncio.gather(*conversions)
 
-            await uploader_images(job, info_original, thumbnail, small, large, tmp_output_small, tmp_output_large, info_video)
+            await uploader_images(etat_media, job, info_original, thumbnail, small, large, tmp_output_small, tmp_output_large, info_video)
 
 
 def convertir_thumbnail(img: Image, cle_bytes: bytes) -> dict:
@@ -148,26 +149,45 @@ async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, etat
 
 
 async def uploader_images(
-        job: dict, info_original: dict, thumbnail, small, large,
+        etat_media: EtatMedia, job: dict, info_original: dict, thumbnail, small, large,
         tmpfile_small: tempfile.TemporaryFile, tmpfile_large: tempfile.TemporaryFile,
         info_video: Optional[dict] = None):
 
     commande_associer = preparer_commande_associer(job, info_original, thumbnail, small, large, info_video)
 
     # Uploader les fichiers temporaires
+    timeout = aiohttp.ClientTimeout(connect=5, total=240)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        await uploader_fichier(session, etat_media, large['hachage'], tmpfile_large)
+        await uploader_fichier(session, etat_media, small['hachage'], tmpfile_small)
 
     # Transmettre commande associer
+    producer = etat_media.producer
+    await producer.executer_commande(commande_associer, domaine='GrosFichiers', action='associerConversions', exchange='2.prive')
 
-    pass
+
+async def uploader_fichier(session: aiohttp.ClientSession, etat_media, fuuid, tmp_file: tempfile.TemporaryFile):
+    ssl_context = etat_media.ssl_context
+    url_fichier = f'{etat_media.url_consignation}/fichiers_transfert/{fuuid}'
+
+    tmp_file.seek(0)
+    headers = {'x-fuuid': fuuid}
+    async with session.put(f'{url_fichier}/0', ssl=ssl_context, headers=headers, data=tmp_file) as resp:
+        resp.raise_for_status()
+
+    async with session.post(url_fichier, ssl=ssl_context, headers=headers) as resp:
+        resp.raise_for_status()
 
 
 def preparer_commande_associer(
         job: dict, info_original: dict, thumbnail, small, large,
         info_video: Optional[dict] = None) -> dict:
 
+    mimetype = job['mimetype']
+
     label_large = '%s;%s' % (large['mimetype'], large['resolution'])
 
-    anime = info_video is not None or info_original['frames'] > 1
+    anime = info_video is not None or (mimetype.startswith('image/') and info_original['frames'] > 1)
 
     images = {
         'thumb': thumbnail,
@@ -178,6 +198,7 @@ def preparer_commande_associer(
     commande_associer = {
         'tuuid': job['tuuid'],
         'fuuid': job['fuuid'],
+        'user_id': job['user_id'],
         'width': info_original['width'],
         'height': info_original['height'],
         'mimetype': info_original['mimetype'],
@@ -191,7 +212,7 @@ def preparer_commande_associer(
         video_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'video'].__iter__())
         audio_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'audio'].__iter__())
         commande_associer['mimetype'] = job['mimetype']  # Override mimetype image snapshot
-        commande_associer['duration'] = info_video['format']['duration']
+        commande_associer['duration'] = float(info_video['format']['duration'])
 
         if video_stream is not None:
             codec_video = video_stream['codec_name']
@@ -202,6 +223,5 @@ def preparer_commande_associer(
         if audio_stream is not None:
             codec_audio = audio_stream['codec_name']
             commande_associer['audioCodec'] = codec_audio
-
 
     return commande_associer
