@@ -136,7 +136,7 @@ class IntakeJobImage(IntakeHandler):
 
     async def traiter_fichier(self, job, tmp_file) -> dict:
         self.__logger.debug("Traiter image %s" % job)
-        await traiter_image(tmp_file)
+        await traiter_image(tmp_file, self._etat_media.clecertificat, job['cle'])
 
     async def annuler_job(self, job):
         reponse = {
