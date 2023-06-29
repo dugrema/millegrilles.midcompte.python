@@ -1,3 +1,5 @@
+import tempfile
+
 import ffmpeg
 
 
@@ -16,13 +18,19 @@ def probe():
 
 
 def thumbnail():
-    ffmpeg \
-        .input(VIDEO_FILE, ss=1) \
-        .filter('scale', 128, -1) \
-        .output('/home/mathieu/tmp/video_thumbnail.jpg', vframes=1) \
-        .run()
+    with tempfile.NamedTemporaryFile() as tmp_fichier:
+        with open(VIDEO_FILE, 'rb') as input:
+            tmp_fichier.write(input.read())
+        tmp_fichier.seek(0)
 
-    stream = ffmpeg.input(VIDEO_FILE, ss=1)
+        probe = ffmpeg.probe(tmp_fichier.name)
+        duration = float(probe['format']['duration'])
+        snapshot_position = duration * 0.2
+        ffmpeg \
+            .input(tmp_fichier.name, ss=snapshot_position) \
+            .output('/home/mathieu/tmp/video_thumbnail.jpg', vframes=1) \
+            .overwrite_output() \
+            .run()
 
 
 def convertir1():

@@ -4,6 +4,7 @@ import multibase
 
 from typing import Optional
 
+import ffmpeg
 from wand.image import Image
 
 from millegrilles_messages.messages.CleCertificat import CleCertificat
@@ -35,6 +36,7 @@ async def traiter_image(tmp_file, clecert: CleCertificat, cle):
                     ]
                     thumbnail, small, large = await asyncio.gather(*conversions)
 
+            await uploader_images(thumbnail, small, large, tmp_output_small, tmp_output_large)
             # Debug, conserver images dans /tmp
             # with open('/home/mathieu/tmp/a_thumb.jpg', 'wb') as fichier:
             #     fichier.write(thumbnail)
@@ -113,10 +115,31 @@ def chiffrer_image(img: Image, cle_bytes: bytes, tmp_out: Optional[tempfile.Temp
     return info_fichier
 
 
-async def traiter_poster_video(tmp_file, cle_bytes: bytes):
+async def traiter_poster_video(tmp_file_video: tempfile.TemporaryFile, clecert: CleCertificat, cle: dict):
     """
     Genere un thumbnail/small jpg et poster webp
-    :param tmp_file:
+    :param tmp_file_video:
+    :param clecert:
+    :param cle:
     :return:
     """
+    loop = asyncio.get_running_loop()
+
+    # Extraire un snapshot de reference du video
+    with tempfile.NamedTemporaryFile(suffix='.jpg') as tmp_file_snapshot:
+        probe = ffmpeg.probe(tmp_file_video.name)
+        duration = float(probe['format']['duration'])
+        snapshot_position = duration * 0.2
+        stream = ffmpeg \
+            .input(tmp_file_video.name, ss=snapshot_position) \
+            .overwrite_output() \
+            .output(tmp_file_snapshot.name, vframes=1)
+
+        await loop.run_in_executor(None, stream.run)
+
+        # Traiter et uploader le snapshot
+        await traiter_image(tmp_file_snapshot, clecert, cle)
+
+
+async def uploader_images(thumbnail, small, large, tmpfile_small: tempfile.TemporaryFile, tmpfile_large: tempfile.TemporaryFile):
     pass

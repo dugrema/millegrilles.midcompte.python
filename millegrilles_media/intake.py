@@ -63,9 +63,16 @@ class IntakeHandler:
                 if job is not None:
                     # Downloader/dechiffrer
                     fuuid = job['fuuid']
+                    mimetype = job['mimetype']
+
+                    # Les videos (ffmpeg) utilisent un fichier avec nom
+                    if mimetype.lower().startswith('video/'):
+                        class_tempfile = tempfile.NamedTemporaryFile
+                    else:
+                        class_tempfile = tempfile.TemporaryFile
 
                     self.__logger.debug("Downloader %s" % fuuid)
-                    with tempfile.TemporaryFile() as tmp_file:
+                    with class_tempfile() as tmp_file:
                         await self.downloader_dechiffrer_fichier(job, tmp_file)
                         tmp_file.seek(0)  # Rewind pour traitement
                         self.__logger.debug("Fichier a indexer est dechiffre (fp tmp)")
@@ -134,9 +141,13 @@ class IntakeJobImage(IntakeHandler):
 
         return None
 
-    async def traiter_fichier(self, job, tmp_file) -> dict:
+    async def traiter_fichier(self, job, tmp_file):
         self.__logger.debug("Traiter image %s" % job)
-        await traiter_image(tmp_file, self._etat_media.clecertificat, job['cle'])
+        mimetype: str = job['mimetype']
+        if mimetype.lower().startswith('video/'):
+            await traiter_poster_video(tmp_file, self._etat_media.clecertificat, job['cle'])
+        else:
+            await traiter_image(tmp_file, self._etat_media.clecertificat, job['cle'])
 
     async def annuler_job(self, job):
         reponse = {
