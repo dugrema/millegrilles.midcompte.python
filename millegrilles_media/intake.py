@@ -66,14 +66,15 @@ class IntakeHandler:
                     mimetype = job['mimetype']
 
                     # Les videos (ffmpeg) utilisent un fichier avec nom
-                    # if mimetype.lower().startswith('video/'):
-                    #     class_tempfile = tempfile.NamedTemporaryFile
-                    # else:
-                    #     class_tempfile = tempfile.TemporaryFile
+                    if mimetype.lower().startswith('video/'):
+                        class_tempfile = tempfile.NamedTemporaryFile
+                    else:
+                        class_tempfile = tempfile.TemporaryFile
 
                     self.__logger.debug("Downloader %s" % fuuid)
                     # with class_tempfile() as tmp_file:
-                    tmp_file = tempfile.NamedTemporaryFile()
+                    # tmp_file = tempfile.NamedTemporaryFile()
+                    tmp_file = class_tempfile()
                     try:
                         await self.downloader_dechiffrer_fichier(job, tmp_file)
                         tmp_file.seek(0)  # Rewind pour traitement

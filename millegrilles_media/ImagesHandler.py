@@ -23,7 +23,6 @@ async def traiter_image(job, tmp_file, etat_media: EtatMedia, info_video: Option
     :param info_video:
     :return:
     """
-    tmp_file.seek(0)  # Rewind pour traitement
     loop = asyncio.get_running_loop()
 
     clecert = etat_media.clecertificat
@@ -32,7 +31,10 @@ async def traiter_image(job, tmp_file, etat_media: EtatMedia, info_video: Option
 
     with tempfile.TemporaryFile() as tmp_output_large:
         with tempfile.TemporaryFile() as tmp_output_small:
-            with Image(filename=f'{tmp_file.name}') as original:
+            tmp_file.seek(0)  # Rewind pour traitement
+            with Image(file=tmp_file) as original:
+                tmp_file.close()  # Liberer fichier (supprime le fichier temporaire)
+
                 frames = len(original.sequence)
                 for i in range(frames - 1, 0, -1):
                     original.sequence.pop(i)
