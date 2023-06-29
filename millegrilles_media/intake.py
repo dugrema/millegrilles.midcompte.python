@@ -66,13 +66,15 @@ class IntakeHandler:
                     mimetype = job['mimetype']
 
                     # Les videos (ffmpeg) utilisent un fichier avec nom
-                    if mimetype.lower().startswith('video/'):
-                        class_tempfile = tempfile.NamedTemporaryFile
-                    else:
-                        class_tempfile = tempfile.TemporaryFile
+                    # if mimetype.lower().startswith('video/'):
+                    #     class_tempfile = tempfile.NamedTemporaryFile
+                    # else:
+                    #     class_tempfile = tempfile.TemporaryFile
 
                     self.__logger.debug("Downloader %s" % fuuid)
-                    with class_tempfile() as tmp_file:
+                    # with class_tempfile() as tmp_file:
+                    tmp_file = tempfile.NamedTemporaryFile()
+                    try:
                         await self.downloader_dechiffrer_fichier(job, tmp_file)
                         tmp_file.seek(0)  # Rewind pour traitement
                         self.__logger.debug("Fichier a indexer est dechiffre (fp tmp)")
@@ -81,7 +83,11 @@ class IntakeHandler:
                             await self.traiter_fichier(job, tmp_file)
                         except Exception as e:
                             self.__logger.exception("Erreur traitement - annuler pour %s : %s" % (job, e))
-                            # await self.annuler_job(job)
+                            await self.annuler_job(job)
+                    finally:
+                        if tmp_file.closed is False:
+                            tmp_file.close()
+
                 else:
                     self.__event_fichiers.clear()
             except Exception as e:

@@ -7,6 +7,7 @@ from typing import Optional
 
 import ffmpeg
 from wand.image import Image
+from wand.color import Color
 
 from millegrilles_messages.messages.CleCertificat import CleCertificat
 from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4WithSecret
@@ -31,20 +32,23 @@ async def traiter_image(job, tmp_file, etat_media: EtatMedia, info_video: Option
 
     with tempfile.TemporaryFile() as tmp_output_large:
         with tempfile.TemporaryFile() as tmp_output_small:
-            with Image(file=tmp_file) as original:
-                if original.alpha_channel:
-                    original.alpha_channel = False
-
-                sequence = original.sequence
+            with Image(filename=f'{tmp_file.name}') as original:
+                frames = len(original.sequence)
+                for i in range(frames - 1, 0, -1):
+                    original.sequence.pop(i)
 
                 info_original = {
                     'width': original.size[0],
                     'height': original.size[1],
                     'mimetype': original.mimetype,
-                    'frames': len(sequence),
+                    'frames': frames,
                 }
 
                 with await loop.run_in_executor(None, original.convert, 'jpeg') as img:
+                    if img.alpha_channel:
+                        img.background_color = Color('white')
+                        img.alpha_channel = 'remove'
+
                     conversions = [
                         loop.run_in_executor(None, convertir_thumbnail, img.clone(), cle_bytes),
                         loop.run_in_executor(None, convertir_small, img.clone(), tmp_output_small, cle_bytes),
@@ -56,13 +60,22 @@ async def traiter_image(job, tmp_file, etat_media: EtatMedia, info_video: Option
 
 
 def convertir_thumbnail(img: Image, cle_bytes: bytes) -> dict:
+    taille = min(*img.size)
     img.compression_quality = 25
-    img.thumbnail(128, 128)
+    img.crop(width=taille, height=taille, gravity='center')
+    img.resize(128, 128)
+    img.strip()
+    # img.thumbnail(128, 128)
     return chiffrer_image(img, cle_bytes)
 
 
 def convertir_small(img: Image, tmp_out: tempfile.TemporaryFile, cle_bytes: bytes) -> dict:
-    img.thumbnail(200, 200)
+    taille = min(*img.size)
+    # img.compression_quality = 25
+    img.crop(width=taille, height=taille, gravity='center')
+    img.resize(200, 200)
+    img.strip()
+    # img.thumbnail(200, 200)
     return chiffrer_image(img, cle_bytes, tmp_out)
 
 
@@ -133,7 +146,9 @@ async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, etat
     loop = asyncio.get_running_loop()
 
     # Extraire un snapshot de reference du video
-    with tempfile.NamedTemporaryFile(suffix='.jpg') as tmp_file_snapshot:
+    # with tempfile.NamedTemporaryFile(suffix='.jpg') as tmp_file_snapshot:
+    tmp_file_snapshot = tempfile.NamedTemporaryFile(suffix='.jpg')
+    try:
         probe = ffmpeg.probe(tmp_file_video.name)
         duration = float(probe['format']['duration'])
         snapshot_position = duration * 0.2
@@ -144,8 +159,14 @@ async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, etat
 
         await loop.run_in_executor(None, stream.run)
 
+        # Fermer/supprimer fichier original (dechiffre)
+        tmp_file_video.close()
+
         # Traiter et uploader le snapshot
         await traiter_image(job, tmp_file_snapshot, etat_media, info_video=probe)
+    finally:
+        if tmp_file_snapshot.closed is False:
+            tmp_file_snapshot.close()
 
 
 async def uploader_images(
