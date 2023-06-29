@@ -10,6 +10,8 @@ from asyncio import Event, TimeoutError, wait, FIRST_COMPLETED, gather
 
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher
 from millegrilles_media.EtatMedia import EtatMedia
+from millegrilles_media.ImagesHandler import traiter_image, traiter_poster_video
+from millegrilles_media.VideosHandler import traiter_video
 
 
 class IntakeHandler:
@@ -134,17 +136,7 @@ class IntakeJobImage(IntakeHandler):
 
     async def traiter_fichier(self, job, tmp_file) -> dict:
         self.__logger.debug("Traiter image %s" % job)
-
-        reponse = {
-            'mimetype': job['mimetype'],
-            'tuuid': job['tuuid'],
-            'fuuid': job['fuuid'],
-            'user_id': job['user_id'],
-        }
-
-        producer = self._etat_media.producer
-
-        raise NotImplementedError('todo - convertir image')
+        await traiter_image(tmp_file)
 
     async def annuler_job(self, job):
         reponse = {

@@ -40,8 +40,8 @@ def thumbnail():
             # img.crop(width=128, height=128, gravity='center')
             # img.transform(resize='128x128')
 
-            img.compression_quality = 25
-            img.thumbnail(128, 128)
+            #img.compression_quality = 25
+            #img.thumbnail(128, 128)
 
             img.format = 'jpeg'
             jpeg_bin = img.make_blob()
