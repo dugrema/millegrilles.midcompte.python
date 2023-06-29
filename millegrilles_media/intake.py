@@ -81,7 +81,7 @@ class IntakeHandler:
                             await self.traiter_fichier(job, tmp_file)
                         except Exception as e:
                             self.__logger.exception("Erreur traitement - annuler pour %s : %s" % (job, e))
-                            await self.annuler_job(job)
+                            # await self.annuler_job(job)
                 else:
                     self.__event_fichiers.clear()
             except Exception as e:
@@ -144,10 +144,11 @@ class IntakeJobImage(IntakeHandler):
     async def traiter_fichier(self, job, tmp_file):
         self.__logger.debug("Traiter image %s" % job)
         mimetype: str = job['mimetype']
+
         if mimetype.lower().startswith('video/'):
-            await traiter_poster_video(tmp_file, self._etat_media.clecertificat, job['cle'])
+            await traiter_poster_video(job, tmp_file, self._etat_media)
         else:
-            await traiter_image(tmp_file, self._etat_media.clecertificat, job['cle'])
+            await traiter_image(job, tmp_file, self._etat_media)
 
     async def annuler_job(self, job):
         reponse = {

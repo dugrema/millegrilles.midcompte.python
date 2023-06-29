@@ -9,17 +9,23 @@ from wand.image import Image
 
 from millegrilles_messages.messages.CleCertificat import CleCertificat
 from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4WithSecret
+from millegrilles_media.EtatMedia import EtatMedia
 
 
-async def traiter_image(tmp_file, clecert: CleCertificat, cle):
+async def traiter_image(job, tmp_file, etat_media: EtatMedia, info_video: Optional[dict] = None):
     """
     Converti une image en jpg thumbnail, small et webp large
     :param tmp_file:
+    :param etat_media:
+    :param cle:
+    :param info_video:
     :return:
     """
     tmp_file.seek(0)  # Rewind pour traitement
     loop = asyncio.get_running_loop()
 
+    clecert = etat_media.clecertificat
+    cle = job['cle']
     cle_bytes = clecert.dechiffrage_asymmetrique(cle['cle'])
 
     with tempfile.TemporaryFile() as tmp_output_large:
@@ -27,6 +33,15 @@ async def traiter_image(tmp_file, clecert: CleCertificat, cle):
             with Image(file=tmp_file) as original:
                 if original.alpha_channel:
                     original.alpha_channel = False
+
+                sequence = original.sequence
+
+                info_original = {
+                    'width': original.size[0],
+                    'height': original.size[1],
+                    'mimetype': original.mimetype,
+                    'frames': len(sequence),
+                }
 
                 with await loop.run_in_executor(None, original.convert, 'jpeg') as img:
                     conversions = [
@@ -36,16 +51,7 @@ async def traiter_image(tmp_file, clecert: CleCertificat, cle):
                     ]
                     thumbnail, small, large = await asyncio.gather(*conversions)
 
-            await uploader_images(thumbnail, small, large, tmp_output_small, tmp_output_large)
-            # Debug, conserver images dans /tmp
-            # with open('/home/mathieu/tmp/a_thumb.jpg', 'wb') as fichier:
-            #     fichier.write(thumbnail)
-            # with open('/home/mathieu/tmp/a_small.jpg', 'wb') as fichier:
-            #     fichier.write(tmp_output_small.read())
-            # with open('/home/mathieu/tmp/a_large.webp', 'wb') as fichier:
-            #     fichier.write(tmp_output_large.read())
-
-    pass
+            await uploader_images(job, info_original, thumbnail, small, large, tmp_output_small, tmp_output_large, info_video)
 
 
 def convertir_thumbnail(img: Image, cle_bytes: bytes) -> dict:
@@ -115,11 +121,11 @@ def chiffrer_image(img: Image, cle_bytes: bytes, tmp_out: Optional[tempfile.Temp
     return info_fichier
 
 
-async def traiter_poster_video(tmp_file_video: tempfile.TemporaryFile, clecert: CleCertificat, cle: dict):
+async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, etat_media: EtatMedia):
     """
     Genere un thumbnail/small jpg et poster webp
     :param tmp_file_video:
-    :param clecert:
+    :param etat_media:
     :param cle:
     :return:
     """
@@ -132,14 +138,70 @@ async def traiter_poster_video(tmp_file_video: tempfile.TemporaryFile, clecert: 
         snapshot_position = duration * 0.2
         stream = ffmpeg \
             .input(tmp_file_video.name, ss=snapshot_position) \
-            .overwrite_output() \
-            .output(tmp_file_snapshot.name, vframes=1)
+            .output(tmp_file_snapshot.name, vframes=1) \
+            .overwrite_output()
 
         await loop.run_in_executor(None, stream.run)
 
         # Traiter et uploader le snapshot
-        await traiter_image(tmp_file_snapshot, clecert, cle)
+        await traiter_image(job, tmp_file_snapshot, etat_media, info_video=probe)
 
 
-async def uploader_images(thumbnail, small, large, tmpfile_small: tempfile.TemporaryFile, tmpfile_large: tempfile.TemporaryFile):
+async def uploader_images(
+        job: dict, info_original: dict, thumbnail, small, large,
+        tmpfile_small: tempfile.TemporaryFile, tmpfile_large: tempfile.TemporaryFile,
+        info_video: Optional[dict] = None):
+
+    commande_associer = preparer_commande_associer(job, info_original, thumbnail, small, large, info_video)
+
+    # Uploader les fichiers temporaires
+
+    # Transmettre commande associer
+
     pass
+
+
+def preparer_commande_associer(
+        job: dict, info_original: dict, thumbnail, small, large,
+        info_video: Optional[dict] = None) -> dict:
+
+    label_large = '%s;%s' % (large['mimetype'], large['resolution'])
+
+    anime = info_video is not None or info_original['frames'] > 1
+
+    images = {
+        'thumb': thumbnail,
+        'small': small,
+        label_large: large,
+    }
+
+    commande_associer = {
+        'tuuid': job['tuuid'],
+        'fuuid': job['fuuid'],
+        'width': info_original['width'],
+        'height': info_original['height'],
+        'mimetype': info_original['mimetype'],
+        'images': images
+    }
+
+    if anime:
+        commande_associer['anime'] = True
+
+    if info_video is not None:
+        video_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'video'].__iter__())
+        audio_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'audio'].__iter__())
+        commande_associer['mimetype'] = job['mimetype']  # Override mimetype image snapshot
+        commande_associer['duration'] = info_video['format']['duration']
+
+        if video_stream is not None:
+            codec_video = video_stream['codec_name']
+            nb_frames = video_stream['nb_frames']
+            commande_associer['videoCodec'] = codec_video
+            commande_associer['metadata'] = {'nbFrames': nb_frames}
+
+        if audio_stream is not None:
+            codec_audio = audio_stream['codec_name']
+            commande_associer['audioCodec'] = codec_audio
+
+
+    return commande_associer
