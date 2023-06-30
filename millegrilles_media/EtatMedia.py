@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from ssl import SSLContext
 
@@ -79,7 +80,12 @@ class EtatMedia:
         while stop_event.is_set() is False:
 
             # Charger configuration consignation via topologie
-            await self.charger_url_consignation(rabbitmq_dao)
+            try:
+                await self.charger_url_consignation(rabbitmq_dao)
+            except asyncio.TimeoutError:
+                self.__logger.info("Timeout error pour rafraichir url consignation")
+            except Exception:
+                self.__logger.exception("Exception rafraichissement url consignation")
 
             await wait([stop_event.wait()], timeout=30)
 

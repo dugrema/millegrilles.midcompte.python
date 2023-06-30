@@ -84,13 +84,18 @@ def convertir_vp9():
 
 def convertir_hevc():
     width, height, resolution = probe(VIDEO_FILE)
-    resolution = min(resolution, 1080)
-    width_resized, height_resized = calculer_resize(width, height, resolution)
+    resolution = min(resolution, 480)
+    # width_resized, height_resized = calculer_resize(width, height, resolution)
+
+    if width < height:
+        scaling = f'scale=-2:{resolution}'
+    else:
+        scaling = f'scale={resolution}:-2'
 
     params_output = {
         'format': 'mp4',
         'vcodec': 'libx265',
-        'vf': f'scale={width_resized}:{height_resized}',
+        'vf': scaling,
         'acodec': 'eac3',
         'b:a': '128k',
         'preset': 'medium',
@@ -293,11 +298,11 @@ def main():
     # thumbnail()
     # convertir_h264_270p()
     # convertir_vp9()
-    # convertir_hevc()
+    convertir_hevc()
     # convertir_av1()
     # convertir_pipe_out()
     # asyncio.run(convertir_progress())
-    asyncio.run(temp_play())
+    # asyncio.run(temp_play())
 
 
 if __name__ == '__main__':

@@ -315,10 +315,16 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
             height = probe_info['height']
             width = probe_info['width']
             resolution = job.get('resolutionVideo') or probe_info['resolution']
-            width_resized, height_resized = calculer_resize(width, height, resolution)
+            # width_resized, height_resized = calculer_resize(width, height, resolution)
+
+            if width > height:
+                scaling = f'scale=-2:{resolution}'
+            else:
+                scaling = f'scale={resolution}:-2'
 
             params_output = get_profil(job)
-            params_output['vf'] = f'scale={width_resized}:{height_resized}'
+            # params_output['vf'] = f'scale={width_resized}:{height_resized}'
+            params_output['vf'] = scaling
 
             LOGGER.debug("Params output ffmpeg : %s" % params_output)
             # params_output = {
