@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import os
 import sys
 import tempfile
@@ -151,6 +152,8 @@ async def convertir_progress():
     loop = asyncio.get_running_loop()
     event = asyncio.Event()
 
+    probe_info = ffmpeg.probe(VIDEO_FILE)
+
     with tempfile.TemporaryDirectory() as tmpdir:
         socket_filename = os.path.join(tmpdir, 'sock')
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock1:
@@ -172,15 +175,15 @@ async def convertir_progress():
                 'threads': 3,
             }
             stream = ffmpeg.input(VIDEO_FILE)
-            stream = stream.output('/home/mathieu/tmp/output.webm', **params_output)
+            stream = stream.output('/home/mathieu/tmp/output_progress.webm', **params_output)
             stream = stream.global_args('-progress', f'unix://{socket_filename}')
             stream = stream.overwrite_output()
             ffmpeg_process = stream.run_async(pipe_stdout=True, pipe_stderr=True)
             try:
                 run_ffmpeg = loop.run_in_executor(None, run_stream, ffmpeg_process)
                 # run_ffmpeg = stream.run_async(quiet=True)
-                watcher = loop.run_in_executor(None, _do_watch_progress, sock1, progress_handler)
-                wait_event = asyncio.create_task(run_event(event))
+                watcher = loop.run_in_executor(None, _do_watch_progress, probe_info, sock1, progress_handler)
+                wait_event = asyncio.create_task(run_event(event, 300))
                 done, pending = await asyncio.wait([run_ffmpeg, watcher, wait_event], return_when=asyncio.FIRST_COMPLETED)
 
                 for t in done:
@@ -199,6 +202,7 @@ async def convertir_progress():
                     print("Cancelling ffmpeg")
                     os.kill(ffmpeg_process.pid, signal.SIGINT)
 
+
 async def run_event(event, timeout=5):
     await asyncio.wait([event.wait()], timeout=timeout)
     event.set()
@@ -214,16 +218,29 @@ def run_stream(process):
         raise ffmpeg.Error('error', out, err)
     return out, err
 
-def progress_handler(key, value):
+
+def progress_handler(etat, probe_info, key, value):
+    # print("%s = %s" % (key, value))
     if key == 'frame':
-        print("%s = %s" % (key, value))
+        now = datetime.datetime.now().timestamp()
+        if etat['dernier_update'] + etat['intervalle_update'] < now:
+            progres = round(float(value) / etat['frames'] * 100)
+            print(f'Progres : {progres}%')
+            etat['dernier_update'] = now
 
 
-def _do_watch_progress(sock, handler):
+def _do_watch_progress(probe_info, sock, handler):
     """Function to run in a separate gevent greenlet to read progress
     events from a unix-domain socket."""
     connection, client_address = sock.accept()
     data = b''
+
+    video_stream = next((stream for stream in probe_info['streams'] if stream['codec_type'] == 'video'), None)
+    etat = {
+        'dernier_update': 0,
+        'intervalle_update': 3,
+        'frames': float(video_stream['nb_frames']),
+    }
     try:
         while True:
             more_data = connection.recv(16)
@@ -236,7 +253,7 @@ def _do_watch_progress(sock, handler):
                 parts = line.split('=')
                 key = parts[0] if len(parts) > 0 else None
                 value = parts[1] if len(parts) > 1 else None
-                handler(key, value)
+                handler(etat, probe_info, key, value)
             data = lines[-1]
     finally:
         connection.close()
