@@ -279,7 +279,12 @@ async def temp_play():
         tmp.write(b'tata titi toto\ntoutou\n')
 
         tmp.seek(0)
-        print('Reading : %s' % tmp.read())
+
+        val = b''
+        async for chunk in tmp.iter_chunked(1):
+            val += chunk
+
+        print('Reading : %s' % val)
         pass
 
 
