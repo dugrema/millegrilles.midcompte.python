@@ -1,6 +1,8 @@
 import aiohttp
 import tempfile
 
+from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4WithSecret
+
 BATCH_UPLOAD_DEFAULT = 100_000_000
 
 
@@ -18,3 +20,16 @@ async def uploader_fichier(session: aiohttp.ClientSession, etat_media, fuuid,
     async with session.post(url_fichier, ssl=ssl_context, headers=headers) as resp:
         resp.raise_for_status()
 
+
+async def chiffrer_fichier(cle_bytes: bytes, src: tempfile.TemporaryFile, dest: tempfile.TemporaryFile) -> dict:
+    cipher = CipherMgs4WithSecret(cle_bytes)
+    async for chunk in src.iter_chunked(64 * 1024):
+        dest.write(cipher.update(chunk))
+    dest.write(cipher.finalize())
+
+    return {
+        'hachage': cipher.hachage,
+        'header': cipher.header,
+        'taille_chiffree': cipher.taille_chiffree,
+        'taille_dechiffree': cipher.taille_dechiffree,
+    }

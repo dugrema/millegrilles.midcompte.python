@@ -10,7 +10,7 @@ CONST_MEDIA_PARAMS = [
     ConstantesMessages.ENV_KEY_PEM,
     ConstantesMessages.ENV_MQ_HOSTNAME,
     ConstantesMessages.ENV_MQ_PORT,
-    ConstantesMessages.ENV_SOLR_URL,
+    ConstantesMessages.ENV_DIR_STAGING,
 ]
 
 
@@ -22,6 +22,7 @@ class ConfigurationMedia:
         self.key_pem_path = '/var/opt/millegrilles/secrets/pki.media.cle'
         self.mq_host = 'localhost'
         self.mq_port = 5673
+        self.dir_staging = '/var/opt/millegrilles/staging'
 
     def get_env(self) -> dict:
         """
@@ -51,3 +52,4 @@ class ConfigurationMedia:
         self.key_pem_path = dict_params.get(ConstantesMessages.ENV_KEY_PEM) or self.key_pem_path
         self.mq_host = dict_params.get(ConstantesMessages.ENV_MQ_HOSTNAME) or self.mq_host
         self.mq_port = dict_params.get(ConstantesMessages.ENV_MQ_PORT) or self.mq_port
+        self.dir_staging = dict_params.get(ConstantesMessages.ENV_DIR_STAGING) or self.dir_staging

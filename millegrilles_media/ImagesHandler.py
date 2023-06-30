@@ -29,8 +29,10 @@ async def traiter_image(job, tmp_file, etat_media: EtatMedia, info_video: Option
     cle = job['cle']
     cle_bytes = clecert.dechiffrage_asymmetrique(cle['cle'])
 
-    with tempfile.TemporaryFile() as tmp_output_large:
-        with tempfile.TemporaryFile() as tmp_output_small:
+    dir_staging = etat_media.configuration.dir_staging
+
+    with tempfile.TemporaryFile(dir=dir_staging) as tmp_output_large:
+        with tempfile.TemporaryFile(dir=dir_staging) as tmp_output_small:
             tmp_file.seek(0)  # Rewind pour traitement
             with Image(file=tmp_file) as original:
                 tmp_file.close()  # Liberer fichier (supprime le fichier temporaire)
@@ -145,7 +147,8 @@ async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, etat
     loop = asyncio.get_running_loop()
 
     # Extraire un snapshot de reference du video
-    tmp_file_snapshot = tempfile.NamedTemporaryFile(suffix='.jpg')
+    dir_staging = etat_media.configuration.dir_staging
+    tmp_file_snapshot = tempfile.NamedTemporaryFile(dir=dir_staging, suffix='.jpg')
     try:
         probe = ffmpeg.probe(tmp_file_video.name)
         duration = float(probe['format']['duration'])
@@ -182,7 +185,8 @@ async def uploader_images(
 
     # Transmettre commande associer
     producer = etat_media.producer
-    await producer.executer_commande(commande_associer, domaine='GrosFichiers', action='associerConversions', exchange='2.prive')
+    await producer.executer_commande(commande_associer,
+                                     domaine='GrosFichiers', action='associerConversions', exchange='2.prive')
 
 
 def preparer_commande_associer(

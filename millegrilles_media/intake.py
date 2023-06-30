@@ -40,6 +40,7 @@ class IntakeHandler:
         await gather(self.traiter_fichiers())
 
     async def traiter_fichiers(self):
+
         while not self.__stop_event.is_set():
             try:
                 if self.__event_fichiers.is_set() is False:
@@ -61,6 +62,8 @@ class IntakeHandler:
                 job = await self.get_prochain_fichier()
 
                 if job is not None:
+                    dir_staging = self._etat_media.configuration.dir_staging
+
                     # Downloader/dechiffrer
                     fuuid = job['fuuid']
                     mimetype = job['mimetype']
@@ -74,7 +77,7 @@ class IntakeHandler:
                     self.__logger.debug("Downloader %s" % fuuid)
                     # with class_tempfile() as tmp_file:
                     # tmp_file = tempfile.NamedTemporaryFile()
-                    tmp_file = class_tempfile()
+                    tmp_file = class_tempfile(dir=dir_staging)
                     try:
                         await self.downloader_dechiffrer_fichier(job, tmp_file)
                         tmp_file.seek(0)  # Rewind pour traitement
@@ -193,19 +196,9 @@ class IntakeJobVideo(IntakeHandler):
 
         return None
 
-    async def traiter_fichier(self, job, tmp_file) -> dict:
+    async def traiter_fichier(self, job, tmp_file):
         self.__logger.debug("Traiter video %s" % job)
-
-        reponse = {
-            'mimetype': job['mimetype'],
-            'tuuid': job['tuuid'],
-            'fuuid': job['fuuid'],
-            'user_id': job['user_id'],
-        }
-
-        producer = self._etat_media.producer
-
-        raise NotImplementedError('todo -- transcoder video')
+        await traiter_video(self._etat_media, job, tmp_file)
 
     async def annuler_job(self, job):
         reponse = {

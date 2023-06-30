@@ -11,12 +11,14 @@ import ffmpeg
 
 VIDEO_1 = '/home/mathieu/Videos/SaveOurLake/005.MOV'
 VIDEO_2 = '/home/mathieu/Videos/SaveOurLake/DSC_0751[1].MOV'
+OUTPUT_WEBM = '/home/mathieu/tmp/output.webm'
 VIDEO_FILE = VIDEO_2
+VIDEO_PROBE = OUTPUT_WEBM
 
-
-def probe(file=VIDEO_FILE):
+def probe(file=VIDEO_PROBE):
     probe = ffmpeg.probe(file)
     video_stream = next((stream for stream in probe['streams'] if stream['codec_type'] == 'video'), None)
+    audio_stream = next((stream for stream in probe['streams'] if stream['codec_type'] == 'audio'), None)
     width = int(video_stream['width'])
     height = int(video_stream['height'])
     resolution = min(width, height)
@@ -272,6 +274,15 @@ def calculer_resize(width, height, resolution=270):
     return width_resized, height_resized
 
 
+async def temp_play():
+    with tempfile.TemporaryFile(dir='/mnt/testtmp') as tmp:
+        tmp.write(b'tata titi toto\ntoutou\n')
+
+        tmp.seek(0)
+        print('Reading : %s' % tmp.read())
+        pass
+
+
 def main():
     # probe()
     # thumbnail()
@@ -280,7 +291,8 @@ def main():
     # convertir_hevc()
     # convertir_av1()
     # convertir_pipe_out()
-    asyncio.run(convertir_progress())
+    # asyncio.run(convertir_progress())
+    asyncio.run(temp_play())
 
 
 if __name__ == '__main__':
