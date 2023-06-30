@@ -60,6 +60,9 @@ async def traiter_video(etat_media: EtatMedia, job: dict, tmp_file: tempfile.Nam
 async def chiffrer_video(etat_media, job: dict, tmp_input: tempfile.NamedTemporaryFile, tmp_output: tempfile.TemporaryFile) -> Optional[dict]:
     loop = asyncio.get_running_loop()
 
+    LOGGER.debug("probe fichier video transcode : %s" % tmp_input.name)
+    tmp_input.seek(0)
+    tmp_input.flush()
     info_video = await loop.run_in_executor(None, probe_video, tmp_input.name)
 
     clecert = etat_media.clecertificat
@@ -96,9 +99,12 @@ def probe_video(filepath) -> dict:
 
     if video_stream is not None:
         codec_video = video_stream['codec_name']
-        nb_frames = video_stream['nb_frames']
         info_video['videoCodec'] = codec_video
-        info_video['metadata'] = {'nbFrames': nb_frames}
+        try:
+            nb_frames = video_stream['nb_frames']
+            info_video['metadata'] = {'nbFrames': nb_frames}
+        except KeyError:
+            pass
 
     if audio_stream is not None:
         codec_audio = audio_stream['codec_name']
@@ -108,8 +114,11 @@ def probe_video(filepath) -> dict:
     height = int(video_stream['height'])
     info_video['width'] = width
     info_video['height'] = height
-    info_video['frames'] = int(video_stream['nb_frames'])
     info_video['resolution'] = min(width, height)
+    try:
+        info_video['frames'] = int(video_stream['nb_frames'])
+    except KeyError:
+        pass
 
     return info_video
 
@@ -119,7 +128,10 @@ def run_stream(process):
     out, err = process.communicate(None)
     retcode = process.poll()
     if retcode:
+        print("Erreur ffmpeg %d : %s" % (retcode, err.decode('utf-8')), file=sys.stderr)
         raise ffmpeg.Error('error', out, err)
+
+    LOGGER.debug("*** Output ffmpeg *** \n%s\n*******" % out)
     return out, err
 
 
@@ -248,6 +260,14 @@ MAPPING_PARAMS = {
 def get_profil(job: dict) -> dict:
 
     codec_video = job['codecVideo']
+    try:
+        codec_audio = job['codecAudio']
+        if codec_audio == 'opus':
+            # Patch - utiliser libopus
+            codec_audio = 'libopus'
+    except KeyError:
+        codec_audio = None
+
     profil = PROFIL_DEFAUT[codec_video].copy()
 
     for key, mapping in MAPPING_PARAMS.items():
@@ -255,6 +275,9 @@ def get_profil(job: dict) -> dict:
             profil[mapping] = job[key]
         except KeyError:
             pass
+
+    if codec_audio is not None:
+        profil['acodec'] = codec_audio
 
     return profil
 
@@ -291,7 +314,7 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
 
             height = probe_info['height']
             width = probe_info['width']
-            resolution = job.get('resolution') or probe_info['resolution']
+            resolution = job.get('resolutionVideo') or probe_info['resolution']
             width_resized, height_resized = calculer_resize(width, height, resolution)
 
             params_output = get_profil(job)
