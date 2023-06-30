@@ -9,9 +9,9 @@ import ffmpeg
 from wand.image import Image
 from wand.color import Color
 
-from millegrilles_messages.messages.CleCertificat import CleCertificat
 from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4WithSecret
 from millegrilles_media.EtatMedia import EtatMedia
+from millegrilles_media.TransfertFichiers import uploader_fichier
 
 
 async def traiter_image(job, tmp_file, etat_media: EtatMedia, info_video: Optional[dict] = None):
@@ -67,17 +67,14 @@ def convertir_thumbnail(img: Image, cle_bytes: bytes) -> dict:
     img.crop(width=taille, height=taille, gravity='center')
     img.resize(128, 128)
     img.strip()
-    # img.thumbnail(128, 128)
     return chiffrer_image(img, cle_bytes)
 
 
 def convertir_small(img: Image, tmp_out: tempfile.TemporaryFile, cle_bytes: bytes) -> dict:
     taille = min(*img.size)
-    # img.compression_quality = 25
     img.crop(width=taille, height=taille, gravity='center')
     img.resize(200, 200)
     img.strip()
-    # img.thumbnail(200, 200)
     return chiffrer_image(img, cle_bytes, tmp_out)
 
 
@@ -148,7 +145,6 @@ async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, etat
     loop = asyncio.get_running_loop()
 
     # Extraire un snapshot de reference du video
-    # with tempfile.NamedTemporaryFile(suffix='.jpg') as tmp_file_snapshot:
     tmp_file_snapshot = tempfile.NamedTemporaryFile(suffix='.jpg')
     try:
         probe = ffmpeg.probe(tmp_file_video.name)
@@ -187,19 +183,6 @@ async def uploader_images(
     # Transmettre commande associer
     producer = etat_media.producer
     await producer.executer_commande(commande_associer, domaine='GrosFichiers', action='associerConversions', exchange='2.prive')
-
-
-async def uploader_fichier(session: aiohttp.ClientSession, etat_media, fuuid, tmp_file: tempfile.TemporaryFile):
-    ssl_context = etat_media.ssl_context
-    url_fichier = f'{etat_media.url_consignation}/fichiers_transfert/{fuuid}'
-
-    tmp_file.seek(0)
-    headers = {'x-fuuid': fuuid}
-    async with session.put(f'{url_fichier}/0', ssl=ssl_context, headers=headers, data=tmp_file) as resp:
-        resp.raise_for_status()
-
-    async with session.post(url_fichier, ssl=ssl_context, headers=headers) as resp:
-        resp.raise_for_status()
 
 
 def preparer_commande_associer(
