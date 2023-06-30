@@ -135,31 +135,72 @@ def run_stream(process):
     return out, err
 
 
-def progress_handler(etat, video_info, key, value):
-    # print("%s = %s" % (key, value))
-    if key == 'frame':
-        now = datetime.datetime.now().timestamp()
-        if etat['dernier_update'] + etat['intervalle_update'] < now:
-            progres = round(float(value) / etat['frames'] * 100)
-            print(f'Progres : {progres}%')
-            etat['dernier_update'] = now
+class ProgressHandler:
+
+    def __init__(self, etat_media: EtatMedia, job: dict, video_info: dict):
+        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+        self.__etat_media = etat_media
+        self.job = job
+        self.video_info = video_info
+        self.frames = video_info['frames']
+
+        self.dernier_update = 0
+        self.intervalle_update = 3
+
+    async def traiter_event(self, key, value):
+        # print("%s = %s" % (key, value))
+        if key == 'frame':
+            now = datetime.datetime.now().timestamp()
+            if self.dernier_update + self.intervalle_update < now:
+                progres = round(float(value) / self.frames * 100)
+                self.dernier_update = now
+                # self.queue_events.put({key: value, 'progres': progres})
+                await self.emettre_progres(progres)
+
+    async def emettre_progres(self, progres_pct, etat='transcodage'):
+        # {tuuid, fuuid, mimetype, videoCodec, videoQuality, videoBitrate, height, user_id, pctProgres}
+        # domaine: fichiers, action: transcodageProgres, partition: user_id
+        self.__logger.debug(f'Progres {progres_pct}%')
+        user_id = self.job['user_id']
+        fuuid = self.job['fuuid']
+        evenement = {
+            'tuuid': self.job['tuuid'],
+            'fuuid': fuuid,
+            'user_id': user_id,
+            'videoCodec': self.job['codecVideo'],
+            'videoQuality': self.job['qualityVideo'],
+            # 'videoBitrate': self.job['videoBitrate'],
+            'resolution': self.job['resolutionVideo'],
+            'height': self.job['resolutionVideo'],
+            'pctProgres': progres_pct,
+            'etat': etat,
+        }
+
+        producer = self.__etat_media.producer
+        await producer.emettre_evenement(evenement,
+                                         domaine='fichiers', action='transcodageProgres',
+                                         partition=user_id, exchanges='2.prive')
 
 
-def _do_watch_progress(video_info, sock, handler):
+async def _do_watch_progress(sock, handler):
     """Function to run in a separate gevent greenlet to read progress
     events from a unix-domain socket."""
-    connection, client_address = sock.accept()
+    loop = asyncio.get_running_loop()
+
+    connection, client_address = await loop.sock_accept(sock)
     data = b''
 
     # video_stream = next((stream for stream in probe_info['streams'] if stream['codec_type'] == 'video'), None)
-    etat = {
-        'dernier_update': 0,
-        'intervalle_update': 3,
-        'frames': float(video_info['frames']),
-    }
+    # etat = {
+    #     'dernier_update': 0,
+    #     'intervalle_update': 3,
+    #     'frames': float(video_info['frames']),
+    # }
     try:
+        await handler(0, 'transcodageDebut')
+
         while True:
-            more_data = connection.recv(16)
+            more_data = await loop.sock_recv(connection, 16)
             if not more_data:
                 break
             data += more_data
@@ -169,7 +210,7 @@ def _do_watch_progress(video_info, sock, handler):
                 parts = line.split('=')
                 key = parts[0] if len(parts) > 0 else None
                 value = parts[1] if len(parts) > 1 else None
-                handler(etat, video_info, key, value)
+                await handler(key, value)
             data = lines[-1]
     finally:
         connection.close()
@@ -344,7 +385,8 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
             ffmpeg_process = stream.run_async(pipe_stdout=True, pipe_stderr=True)
             try:
                 run_ffmpeg = loop.run_in_executor(None, run_stream, ffmpeg_process)
-                watcher = loop.run_in_executor(None, _do_watch_progress, probe_info, sock1, progress_handler)
+                progress_handler = ProgressHandler(etat_media, job, probe_info)
+                watcher = _do_watch_progress(sock1, progress_handler.traiter_event)
                 jobs = [run_ffmpeg, watcher]
                 if cancel_event is not None:
                     jobs.append(asyncio.create_task(cancel_event.wait()))
@@ -353,13 +395,17 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
                 # Verifier si on a au moins une exception
                 for t in done:
                     if t.exception():
+                        await progress_handler.emettre_progres(-1, 'erreur')
                         raise t.exception()
 
                 # Verifier si on a un evenement cancel - va forcer l'arret de la job ffmpeg
                 if cancel_event is not None and cancel_event.is_set():
+                    await progress_handler.emettre_progres(-1, 'erreur')
                     raise Exception('job ffmpeg annulee')
 
                 ffmpeg_process = None
+
+                await progress_handler.emettre_progres(100, 'termine')
 
                 return params_output
 

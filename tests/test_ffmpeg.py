@@ -188,7 +188,8 @@ async def convertir_progress():
             ffmpeg_process = stream.run_async(pipe_stdout=True, pipe_stderr=True)
             try:
                 run_ffmpeg = loop.run_in_executor(None, run_stream, ffmpeg_process)
-                watcher = loop.run_in_executor(None, _do_watch_progress, probe_info, sock1, progress_handler)
+                # watcher = loop.run_in_executor(None, _do_watch_progress, probe_info, sock1, progress_handler)
+                watcher = _do_watch_progress(probe_info, sock1, progress_handler)
                 wait_event = asyncio.create_task(run_event(event, 300))
                 done, pending = await asyncio.wait([run_ffmpeg, watcher, wait_event], return_when=asyncio.FIRST_COMPLETED)
 
@@ -225,7 +226,7 @@ def run_stream(process):
     return out, err
 
 
-def progress_handler(etat, probe_info, key, value):
+async def progress_handler(etat, probe_info, key, value):
     # print("%s = %s" % (key, value))
     if key == 'frame':
         now = datetime.datetime.now().timestamp()
@@ -235,21 +236,20 @@ def progress_handler(etat, probe_info, key, value):
             etat['dernier_update'] = now
 
 
-def _do_watch_progress(probe_info, sock, handler):
-    """Function to run in a separate gevent greenlet to read progress
-    events from a unix-domain socket."""
-    connection, client_address = sock.accept()
-    data = b''
-
+async def _run_connection(connection, probe_info, handler):
+    loop = asyncio.get_running_loop()
     video_stream = next((stream for stream in probe_info['streams'] if stream['codec_type'] == 'video'), None)
     etat = {
         'dernier_update': 0,
         'intervalle_update': 3,
         'frames': float(video_stream['nb_frames']),
     }
+
+    data = b''
+
     try:
         while True:
-            more_data = connection.recv(16)
+            more_data = await loop.sock_recv(connection, 16)
             if not more_data:
                 break
             data += more_data
@@ -259,10 +259,19 @@ def _do_watch_progress(probe_info, sock, handler):
                 parts = line.split('=')
                 key = parts[0] if len(parts) > 0 else None
                 value = parts[1] if len(parts) > 1 else None
-                handler(etat, probe_info, key, value)
+                await handler(etat, probe_info, key, value)
             data = lines[-1]
     finally:
         connection.close()
+
+
+async def _do_watch_progress(probe_info, sock, handler):
+    """Function to run in a separate gevent greenlet to read progress
+    events from a unix-domain socket."""
+    # connection, client_address = sock.accept()
+    loop = asyncio.get_running_loop()
+    connection, _ = await loop.sock_accept(sock)
+    await _run_connection(connection, probe_info, handler)
 
 
 def calculer_resize(width, height, resolution=270):
@@ -298,10 +307,10 @@ def main():
     # thumbnail()
     # convertir_h264_270p()
     # convertir_vp9()
-    convertir_hevc()
+    # convertir_hevc()
     # convertir_av1()
     # convertir_pipe_out()
-    # asyncio.run(convertir_progress())
+    asyncio.run(convertir_progress())
     # asyncio.run(temp_play())
 
 
