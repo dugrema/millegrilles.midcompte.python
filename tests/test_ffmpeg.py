@@ -181,7 +181,6 @@ async def convertir_progress():
             ffmpeg_process = stream.run_async(pipe_stdout=True, pipe_stderr=True)
             try:
                 run_ffmpeg = loop.run_in_executor(None, run_stream, ffmpeg_process)
-                # run_ffmpeg = stream.run_async(quiet=True)
                 watcher = loop.run_in_executor(None, _do_watch_progress, probe_info, sock1, progress_handler)
                 wait_event = asyncio.create_task(run_event(event, 300))
                 done, pending = await asyncio.wait([run_ffmpeg, watcher, wait_event], return_when=asyncio.FIRST_COMPLETED)
