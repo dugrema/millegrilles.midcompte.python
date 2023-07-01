@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import logging
+import os
 import signal
 
 from typing import Optional
@@ -47,6 +48,10 @@ class ESMain:
         await self.__intake_images.configurer()
         if self.__intake_videos is not None:
             await self.__intake_videos.configurer()
+
+        # S'assurer d'avoir le repertoire de staging
+        dir_staging = self._etat_media.configuration.dir_staging
+        os.makedirs(dir_staging, exist_ok=True)
 
     async def run(self):
 
