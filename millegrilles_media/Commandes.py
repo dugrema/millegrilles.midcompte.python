@@ -1,6 +1,4 @@
-import asyncio
 import logging
-import requests
 
 from cryptography.x509.extensions import ExtensionNotFound
 
@@ -57,6 +55,8 @@ class CommandHandler:
                         if self._intake_videos is not None:
                             await self._intake_videos.trigger_traitement()
                         return
+                    elif action == ConstantesMedia.EVENEMENT_ANNULER_JOB_VIDEO:
+                        await self._intake_videos.annuler_job(message.parsed, False)
             if reponse is None:
                 reponse = {'ok': False, 'err': 'Commande inconnue ou acces refuse'}
 

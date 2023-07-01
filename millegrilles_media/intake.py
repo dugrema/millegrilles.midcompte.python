@@ -12,7 +12,7 @@ from asyncio import Event, TimeoutError, wait, FIRST_COMPLETED, gather
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher
 from millegrilles_media.EtatMedia import EtatMedia
 from millegrilles_media.ImagesHandler import traiter_image, traiter_poster_video
-from millegrilles_media.VideosHandler import traiter_video
+from millegrilles_media.VideosHandler import VideoConversionJob
 
 
 class IntakeHandler:
@@ -182,8 +182,9 @@ class IntakeJobVideo(IntakeHandler):
     def __init__(self, stop_event: Event, etat_media: EtatMedia):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         super().__init__(stop_event, etat_media)
-        self.__cancel_event = None
-        self.__job_courante = None
+        # self.__cancel_event = None
+        # self.__job_courante = None
+        self.__job_handler = None
 
     async def get_prochain_fichier(self) -> Optional[dict]:
         try:
@@ -204,27 +205,39 @@ class IntakeJobVideo(IntakeHandler):
 
     async def traiter_fichier(self, job, tmp_file):
         self.__logger.debug("Traiter video %s" % job)
-        if self.__cancel_event is not None:
+        if self.__job_handler is not None:
             raise Exception('1 seule thread permise a la fois')
+
         try:
-            self.__job_courante = job
-            self.__cancel_event = asyncio.Event()
-            await traiter_video(self._etat_media, job, tmp_file, cancel_event=self.__cancel_event)
+            self.__job_handler = VideoConversionJob(self._etat_media, job, tmp_file)
+            await self.__job_handler.traiter_video()
         finally:
-            self.__job_courante = None
-            self.__cancel_event.set()
-            self.__cancel_event = None
+            job_handler = self.__job_handler
+            self.__job_handler = None
+            await job_handler.annuler()  # Aucun effet si la job s'est terminee correctement
+
+        # if self.__cancel_event is not None:
+        #     raise Exception('1 seule thread permise a la fois')
+        #
+        # try:
+        #     self.__job_courante = job
+        #     self.__cancel_event = asyncio.Event()
+        #     await traiter_video(self._etat_media, job, tmp_file, cancel_event=self.__cancel_event)
+        # finally:
+        #     self.__job_courante = None
+        #     self.__cancel_event.set()
+        #     self.__cancel_event = None
 
     async def annuler_job(self, job, emettre_commande=False):
-        if self.__job_courante is not None:
+        if self.__job_handler is not None:
+            job_courante = self.__job_handler.job
             # Verifier si on doit annuler la job en cours
             try:
-                if job['fuuid'] == self.__job_courante['fuuid'] and \
-                      job['user_id'] == self.__job_courante['user_id'] and \
-                      job['cle_conversion'] == self.__job_courante['cle_conversion']:
+                if job['fuuid'] == job_courante['fuuid'] and \
+                      job['user_id'] == job_courante['user_id'] and \
+                      job['cle_conversion'] == job_courante['cle_conversion']:
                     self.__logger.info("Annuler job courante %s %s" % (job['fuuid'], job['cle_conversion']))
-                    if self.__cancel_event is not None:
-                        self.__cancel_event.set()
+                    await self.__job_handler.annuler()
                 else:
                     self.__logger.debug("annuler_job courante : mismatch, on ne fait rien")
             except KeyError:

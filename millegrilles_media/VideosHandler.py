@@ -21,41 +21,129 @@ from millegrilles_media.TransfertFichiers import uploader_fichier, chiffrer_fich
 LOGGER = logging.getLogger(__name__)
 
 
-async def traiter_video(etat_media: EtatMedia, job: dict, tmp_file: tempfile.NamedTemporaryFile(),
-                        cancel_event: Optional[asyncio.Event] = None):
-    """
-    Converti une image en jpg thumbnail, small et webp large
-    :param etat_media:
-    :param job:
-    :param tmp_file:
-    :param cancel_event:
-    :return:
-    """
-    dir_staging = etat_media.configuration.dir_staging
-    tmp_transcode = tempfile.NamedTemporaryFile(dir=dir_staging)
-    try:
-        # Convertir le video
-        params_conversion = await convertir_progress(etat_media, job, tmp_file, tmp_transcode, cancel_event)
-        mimetype_output = 'video/%s' % params_conversion['format']
-        job['mimetype_output'] = mimetype_output
+class ProgressHandler:
 
-        # Fermer le fichier original (supprime le tmp file)
-        tmp_file.close()
+    def __init__(self, etat_media: EtatMedia, job: dict):
+        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+        self.__etat_media = etat_media
+        self.job = job
+        self.__frames = None  # video_info['frames']
 
-        with tempfile.TemporaryFile(dir=dir_staging) as tmp_output_chiffre:
-            # Chiffrer output
-            info_chiffrage = await chiffrer_video(etat_media, job, tmp_transcode, tmp_output_chiffre)
+        self.dernier_update = 0
+        self.intervalle_update = 3
+        self.__stop_emission = False
 
-            # Fermer fichier dechiffre
-            tmp_transcode.close()
-            tmp_transcode = None
+    @property
+    def frames(self):
+        return self.__frames
 
-            # Uploader fichier chiffre
-            tmp_output_chiffre.seek(0)
-            await uploader_video(etat_media, job, info_chiffrage, tmp_output_chiffre)
-    finally:
-        if tmp_transcode is not None:
-            tmp_transcode.close()
+    @frames.setter
+    def frames(self, frames):
+        self.__frames = frames
+
+    async def annuler(self):
+        self.__stop_emission = True
+        await self.__emettre_progres(-1, 'annule')
+
+    async def traiter_event(self, key, value):
+        # print("%s = %s" % (key, value))
+        if key == 'frame':
+            now = datetime.datetime.now().timestamp()
+            if self.dernier_update + self.intervalle_update < now:
+                progres = round(float(value) / self.frames * 100)
+                self.dernier_update = now
+                # self.queue_events.put({key: value, 'progres': progres})
+                await self.emettre_progres(progres)
+
+    async def emettre_progres(self, progres_pct, etat='transcodage'):
+        if self.__stop_emission:
+            return
+        await self.__emettre_progres(progres_pct, etat)
+
+    async def __emettre_progres(self, progres_pct, etat='transcodage'):
+        self.__logger.debug(f'Progres {progres_pct}%')
+        user_id = self.job['user_id']
+        fuuid = self.job['fuuid']
+        mimetype_conversion = self.job['cle_conversion'].split(';')[0]
+        evenement = {
+            'tuuid': self.job['tuuid'],
+            'fuuid': fuuid,
+            'user_id': user_id,
+            'mimetype': mimetype_conversion,
+            'videoCodec': self.job['codecVideo'],
+            'videoQuality': self.job['qualityVideo'],
+            'resolution': self.job['resolutionVideo'],
+            'height': self.job['resolutionVideo'],
+            'pctProgres': progres_pct,
+            'etat': etat,
+        }
+
+        producer = self.__etat_media.producer
+        await producer.emettre_evenement(evenement,
+                                         domaine='fichiers', action='transcodageProgres',
+                                         partition=user_id, exchanges='2.prive')
+
+
+class VideoConversionJob:
+
+    def __init__(self, etat_media: EtatMedia, job: dict, tmp_file: tempfile.NamedTemporaryFile):
+        self.etat_media = etat_media
+        self.job = job
+        self.tmp_file = tmp_file
+
+        self.progress_handler: Optional[ProgressHandler] = None
+        self.cancel_event: Optional[asyncio.Event] = None
+        self.termine = False
+
+    async def traiter_video(self):
+        self.cancel_event = asyncio.Event()
+        self.progress_handler = ProgressHandler(self.etat_media, self.job)
+
+        # await traiter_video(self.etat_media, self.job, self.tmp_file, self.progress_handler, self.cancel_event)
+        await self.__process()
+
+    async def annuler(self):
+        if not self.termine:
+            self.cancel_event.set()
+            await self.progress_handler.annuler()
+
+    async def __process(self):
+        """
+        Converti une image en jpg thumbnail, small et webp large
+        :param etat_media:
+        :param job:
+        :param tmp_file:
+        :param progress_handler:
+        :param cancel_event:
+        :return:
+        """
+        dir_staging = self.etat_media.configuration.dir_staging
+        tmp_transcode = tempfile.NamedTemporaryFile(dir=dir_staging)
+        try:
+            # Convertir le video
+            params_conversion = await convertir_progress(self.etat_media, self.job, self.tmp_file, tmp_transcode, self.progress_handler, self.cancel_event)
+            mimetype_output = 'video/%s' % params_conversion['format']
+            self.job['mimetype_output'] = mimetype_output
+
+            # Fermer le fichier original (supprime le tmp file)
+            self.tmp_file.close()
+
+            with tempfile.TemporaryFile(dir=dir_staging) as tmp_output_chiffre:
+                # Chiffrer output
+                info_chiffrage = await chiffrer_video(self.etat_media, self.job, tmp_transcode, tmp_output_chiffre)
+
+                # Fermer fichier dechiffre
+                tmp_transcode.close()
+                tmp_transcode = None
+
+                # Uploader fichier chiffre
+                tmp_output_chiffre.seek(0)
+                await uploader_video(self.etat_media, self.job, info_chiffrage, tmp_output_chiffre)
+
+            self.termine = True
+        finally:
+            if tmp_transcode is not None:
+                tmp_transcode.close()
 
 
 async def chiffrer_video(etat_media, job: dict, tmp_input: tempfile.NamedTemporaryFile, tmp_output: tempfile.TemporaryFile) -> Optional[dict]:
@@ -134,52 +222,6 @@ def run_stream(process):
 
     LOGGER.debug("*** Output ffmpeg *** \n%s\n*******" % out)
     return out, err
-
-
-class ProgressHandler:
-
-    def __init__(self, etat_media: EtatMedia, job: dict, video_info: dict):
-        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-        self.__etat_media = etat_media
-        self.job = job
-        self.video_info = video_info
-        self.frames = video_info['frames']
-
-        self.dernier_update = 0
-        self.intervalle_update = 3
-
-    async def traiter_event(self, key, value):
-        # print("%s = %s" % (key, value))
-        if key == 'frame':
-            now = datetime.datetime.now().timestamp()
-            if self.dernier_update + self.intervalle_update < now:
-                progres = round(float(value) / self.frames * 100)
-                self.dernier_update = now
-                # self.queue_events.put({key: value, 'progres': progres})
-                await self.emettre_progres(progres)
-
-    async def emettre_progres(self, progres_pct, etat='transcodage'):
-        self.__logger.debug(f'Progres {progres_pct}%')
-        user_id = self.job['user_id']
-        fuuid = self.job['fuuid']
-        mimetype_conversion = self.job['cle_conversion'].split(';')[0]
-        evenement = {
-            'tuuid': self.job['tuuid'],
-            'fuuid': fuuid,
-            'user_id': user_id,
-            'mimetype': mimetype_conversion,
-            'videoCodec': self.job['codecVideo'],
-            'videoQuality': self.job['qualityVideo'],
-            'resolution': self.job['resolutionVideo'],
-            'height': self.job['resolutionVideo'],
-            'pctProgres': progres_pct,
-            'etat': etat,
-        }
-
-        producer = self.__etat_media.producer
-        await producer.emettre_evenement(evenement,
-                                         domaine='fichiers', action='transcodageProgres',
-                                         partition=user_id, exchanges='2.prive')
 
 
 async def _do_watch_progress(sock, handler):
@@ -340,12 +382,14 @@ def calculer_resize(width, height, resolution=270):
 async def convertir_progress(etat_media: EtatMedia, job: dict,
                              src_file: tempfile.NamedTemporaryFile,
                              dest_file: tempfile.NamedTemporaryFile,
+                             progress_handler: ProgressHandler,
                              cancel_event: Optional[asyncio.Event] = None) -> Optional[dict]:
 
     loop = asyncio.get_running_loop()
     dir_staging = etat_media.configuration.dir_staging
 
     probe_info = await loop.run_in_executor(None, probe_video, src_file.name)
+    progress_handler.frames = probe_info['frames']
 
     with tempfile.TemporaryDirectory(dir=dir_staging) as tmpdir:
         socket_filename = os.path.join(tmpdir, 'sock')
@@ -385,7 +429,6 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
             ffmpeg_process = stream.run_async(pipe_stdout=True, pipe_stderr=True)
             try:
                 run_ffmpeg = loop.run_in_executor(None, run_stream, ffmpeg_process)
-                progress_handler = ProgressHandler(etat_media, job, probe_info)
                 watcher = _do_watch_progress(sock1, progress_handler.traiter_event)
                 jobs = [run_ffmpeg, watcher]
                 if cancel_event is not None:
