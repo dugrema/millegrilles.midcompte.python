@@ -119,6 +119,7 @@ class RabbitMQDao:
 
         if self.__etat_media.video_desactive is not True:
             routing_keys.append('evenement.GrosFichiers.*.jobVideoDisponible')
+            routing_keys.append('evenement.collections.annulerJobVideo')
 
         return MqThread(self.__event_stop, self.__etat_media, self.__command_handler, routing_keys)
 

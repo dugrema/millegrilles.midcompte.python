@@ -1,5 +1,6 @@
 # Intake de fichiers a indexer
 import aiohttp
+import asyncio
 import logging
 import tempfile
 
@@ -87,7 +88,7 @@ class IntakeHandler:
                             await self.traiter_fichier(job, tmp_file)
                         except Exception as e:
                             self.__logger.exception("Erreur traitement - annuler pour %s : %s" % (job, e))
-                            await self.annuler_job(job)
+                            await self.annuler_job(job, True)
                     finally:
                         if tmp_file.closed is False:
                             tmp_file.close()
@@ -105,7 +106,7 @@ class IntakeHandler:
     async def get_prochain_fichier(self) -> Optional[dict]:
         raise NotImplementedError('must override')
 
-    async def annuler_job(self, job):
+    async def annuler_job(self, job, emettre_evenement=False):
         raise NotImplementedError('must override')
 
     async def downloader_dechiffrer_fichier(self, job, tmp_file):
@@ -160,7 +161,10 @@ class IntakeJobImage(IntakeHandler):
         else:
             await traiter_image(job, tmp_file, self._etat_media)
 
-    async def annuler_job(self, job):
+    async def annuler_job(self, job, emettre_evenement=False):
+        if not emettre_evenement:
+            return
+
         reponse = {
             'fuuid': job['fuuid'],
             'user_id': job['user_id'],
@@ -178,6 +182,8 @@ class IntakeJobVideo(IntakeHandler):
     def __init__(self, stop_event: Event, etat_media: EtatMedia):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         super().__init__(stop_event, etat_media)
+        self.__cancel_event = None
+        self.__job_courante = None
 
     async def get_prochain_fichier(self) -> Optional[dict]:
         try:
@@ -198,39 +204,65 @@ class IntakeJobVideo(IntakeHandler):
 
     async def traiter_fichier(self, job, tmp_file):
         self.__logger.debug("Traiter video %s" % job)
-        await traiter_video(self._etat_media, job, tmp_file)
+        if self.__cancel_event is not None:
+            raise Exception('1 seule thread permise a la fois')
+        try:
+            self.__job_courante = job
+            self.__cancel_event = asyncio.Event()
+            await traiter_video(self._etat_media, job, tmp_file, cancel_event=self.__cancel_event)
+        finally:
+            self.__job_courante = None
+            self.__cancel_event.set()
+            self.__cancel_event = None
 
-    async def annuler_job(self, job):
-        reponse = {
-            'ok': False,
-            'fuuid': job['fuuid'],
-            'cle_conversion': job['cle_conversion'],
-            'user_id': job['user_id'],
-        }
+    async def annuler_job(self, job, emettre_commande=False):
+        if self.__job_courante is not None:
+            # Verifier si on doit annuler la job en cours
+            try:
+                if job['fuuid'] == self.__job_courante['fuuid'] and \
+                      job['user_id'] == self.__job_courante['user_id'] and \
+                      job['cle_conversion'] == self.__job_courante['cle_conversion']:
+                    self.__logger.info("Annuler job courante %s %s" % (job['fuuid'], job['cle_conversion']))
+                    if self.__cancel_event is not None:
+                        self.__cancel_event.set()
+                else:
+                    self.__logger.debug("annuler_job courante : mismatch, on ne fait rien")
+            except KeyError:
+                self.__logger.debug("annuler_job courante : mismatch keys, on ne fait rien")
+        else:
+            self.__logger.debug("annuler_job courante : aucune job courante - emettre message d'annulation")
 
-        producer = self._etat_media.producer
-        await producer.executer_commande(
-            reponse, 'GrosFichiers', 'supprimerJobVideo', exchange='4.secure',
-            nowait=True
-        )
+        if emettre_commande:
+            reponse = {
+                'ok': False,
+                'fuuid': job['fuuid'],
+                'cle_conversion': job['cle_conversion'],
+                'user_id': job['user_id'],
+            }
+
+            producer = self._etat_media.producer
+            await producer.executer_commande(
+                reponse, 'GrosFichiers', 'supprimerJobVideo', exchange='4.secure',
+                nowait=True
+            )
 
 
-MIMETYPES_FULLTEXT = [
-    'application/pdf',
-    'application/vnd.ms-powerpoint',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-]
-BASE_FULLTEXT = ['text']
-
-
-def mimetype_supporte_video(mimetype) -> bool:
-
-    if mimetype in MIMETYPES_FULLTEXT:
-        return True
-    else:
-        prefix = mimetype.split('/')[0]
-        if prefix in BASE_FULLTEXT:
-            return True
-
-    return False
+# MIMETYPES_FULLTEXT = [
+#     'application/pdf',
+#     'application/vnd.ms-powerpoint',
+#     'application/msword',
+#     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+# ]
+# BASE_FULLTEXT = ['text']
+#
+#
+# def mimetype_supporte_video(mimetype) -> bool:
+#
+#     if mimetype in MIMETYPES_FULLTEXT:
+#         return True
+#     else:
+#         prefix = mimetype.split('/')[0]
+#         if prefix in BASE_FULLTEXT:
+#             return True
+#
+#     return False

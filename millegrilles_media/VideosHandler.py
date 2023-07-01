@@ -21,13 +21,14 @@ from millegrilles_media.TransfertFichiers import uploader_fichier, chiffrer_fich
 LOGGER = logging.getLogger(__name__)
 
 
-async def traiter_video(etat_media: EtatMedia, job: dict, tmp_file: tempfile.NamedTemporaryFile(), cancel_event: Optional[asyncio.Event] = None):
+async def traiter_video(etat_media: EtatMedia, job: dict, tmp_file: tempfile.NamedTemporaryFile(),
+                        cancel_event: Optional[asyncio.Event] = None):
     """
     Converti une image en jpg thumbnail, small et webp large
     :param etat_media:
     :param job:
     :param tmp_file:
-    :param event:
+    :param cancel_event:
     :return:
     """
     dir_staging = etat_media.configuration.dir_staging
@@ -158,18 +159,17 @@ class ProgressHandler:
                 await self.emettre_progres(progres)
 
     async def emettre_progres(self, progres_pct, etat='transcodage'):
-        # {tuuid, fuuid, mimetype, videoCodec, videoQuality, videoBitrate, height, user_id, pctProgres}
-        # domaine: fichiers, action: transcodageProgres, partition: user_id
         self.__logger.debug(f'Progres {progres_pct}%')
         user_id = self.job['user_id']
         fuuid = self.job['fuuid']
+        mimetype_conversion = self.job['cle_conversion'].split(';')[0]
         evenement = {
             'tuuid': self.job['tuuid'],
             'fuuid': fuuid,
             'user_id': user_id,
+            'mimetype': mimetype_conversion,
             'videoCodec': self.job['codecVideo'],
             'videoQuality': self.job['qualityVideo'],
-            # 'videoBitrate': self.job['videoBitrate'],
             'resolution': self.job['resolutionVideo'],
             'height': self.job['resolutionVideo'],
             'pctProgres': progres_pct,
@@ -400,7 +400,7 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
 
                 # Verifier si on a un evenement cancel - va forcer l'arret de la job ffmpeg
                 if cancel_event is not None and cancel_event.is_set():
-                    await progress_handler.emettre_progres(-1, 'erreur')
+                    await progress_handler.emettre_progres(-1, 'cancelled')
                     raise Exception('job ffmpeg annulee')
 
                 ffmpeg_process = None
