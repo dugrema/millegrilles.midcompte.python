@@ -1,7 +1,10 @@
 # Fichier d'information pour le build Docker
 
 REPO=docker.maple.maceroc.com:5000
-NAME=millegrilles_midcompte_python
+
+if [ -z "${NAME}" ]; then
+  NAME=millegrilles_midcompte_python
+fi
 BRANCH=`git rev-parse --abbrev-ref HEAD`
 ARCH_SUPPORTEES=( x86_64 aarch64 )
 BUILD=`cat build.txt`
