@@ -220,15 +220,21 @@ def preparer_commande_associer(
 
     if info_video is not None:
         video_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'video'].__iter__())
-        audio_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'audio'].__iter__())
+        try:
+            audio_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'audio'].__iter__())
+        except StopIteration:
+            audio_stream = None
         commande_associer['mimetype'] = job['mimetype']  # Override mimetype image snapshot
         commande_associer['duration'] = float(info_video['format']['duration'])
 
         if video_stream is not None:
             codec_video = video_stream['codec_name']
-            nb_frames = video_stream['nb_frames']
             commande_associer['videoCodec'] = codec_video
-            commande_associer['metadata'] = {'nbFrames': nb_frames}
+            try:
+                nb_frames = video_stream['nb_frames']
+                commande_associer['metadata'] = {'nbFrames': nb_frames}
+            except KeyError:
+                pass
 
         if audio_stream is not None:
             codec_audio = audio_stream['codec_name']

@@ -11,9 +11,11 @@ import ffmpeg
 
 VIDEO_1 = '/home/mathieu/Videos/SaveOurLake/005.MOV'
 VIDEO_2 = '/home/mathieu/Videos/SaveOurLake/DSC_0751[1].MOV'
+VIDEO_3 = '/home/mathieu/tas/tmp/101.mpeg'
 OUTPUT_WEBM = '/home/mathieu/tmp/output.webm'
-VIDEO_FILE = VIDEO_2
-VIDEO_PROBE = OUTPUT_WEBM
+VIDEO_FILE = VIDEO_3
+VIDEO_PROBE = VIDEO_3
+
 
 def probe(file=VIDEO_PROBE):
     probe = ffmpeg.probe(file)
@@ -304,13 +306,13 @@ async def temp_play():
 
 def main():
     # probe()
-    # thumbnail()
+    thumbnail()
     # convertir_h264_270p()
     # convertir_vp9()
     # convertir_hevc()
     # convertir_av1()
     # convertir_pipe_out()
-    asyncio.run(convertir_progress())
+    # asyncio.run(convertir_progress())
     # asyncio.run(temp_play())
 
 

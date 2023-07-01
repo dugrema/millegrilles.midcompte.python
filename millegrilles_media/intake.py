@@ -210,11 +210,13 @@ class IntakeJobVideo(IntakeHandler):
 
         try:
             self.__job_handler = VideoConversionJob(self._etat_media, job, tmp_file)
+            self.__logger.debug("Debut traiter video de job_handler")
             await self.__job_handler.traiter_video()
         finally:
             job_handler = self.__job_handler
             self.__job_handler = None
             await job_handler.annuler()  # Aucun effet si la job s'est terminee correctement
+        self.__logger.debug("Fin traiter video de job_handler")
 
         # if self.__cancel_event is not None:
         #     raise Exception('1 seule thread permise a la fois')

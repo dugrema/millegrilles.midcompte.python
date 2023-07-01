@@ -50,7 +50,11 @@ class ProgressHandler:
         if key == 'frame':
             now = datetime.datetime.now().timestamp()
             if self.dernier_update + self.intervalle_update < now:
-                progres = round(float(value) / self.frames * 100)
+                if self.frames is not None:
+                    progres = round(float(value) / self.frames * 100)
+                else:
+                    progres = 1  # Progres n'est pas calcule
+
                 self.dernier_update = now
                 # self.queue_events.put({key: value, 'progres': progres})
                 await self.emettre_progres(progres)
@@ -183,7 +187,10 @@ def probe_video(filepath) -> dict:
     info_video = dict()
 
     video_stream = next((stream for stream in info_probe['streams'] if stream['codec_type'] == 'video'), None)
-    audio_stream = next([s for s in info_probe['streams'] if s['codec_type'] == 'audio'].__iter__())
+    try:
+        audio_stream = next([s for s in info_probe['streams'] if s['codec_type'] == 'audio'].__iter__())
+    except StopIteration:
+        audio_stream = None
     info_video['duration'] = float(info_probe['format']['duration'])
 
     if video_stream is not None:
@@ -388,8 +395,14 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
     loop = asyncio.get_running_loop()
     dir_staging = etat_media.configuration.dir_staging
 
-    probe_info = await loop.run_in_executor(None, probe_video, src_file.name)
-    progress_handler.frames = probe_info['frames']
+    LOGGER.debug("convertir_progress executer probe")
+    # probe_info = await loop.run_in_executor(None, probe_video, src_file.name)
+    probe_info = probe_video(src_file.name)
+    LOGGER.debug("convertir_progress probe info %s" % probe_info)
+    try:
+        progress_handler.frames = probe_info['frames']
+    except KeyError:
+        LOGGER.info("Nombre de frames non disponible pour video, progres ne sera pas montre")
 
     with tempfile.TemporaryDirectory(dir=dir_staging) as tmpdir:
         socket_filename = os.path.join(tmpdir, 'sock')
@@ -400,7 +413,6 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
             height = probe_info['height']
             width = probe_info['width']
             resolution = job.get('resolutionVideo') or probe_info['resolution']
-            # width_resized, height_resized = calculer_resize(width, height, resolution)
 
             if width > height:
                 scaling = f'scale=-2:{resolution}'
@@ -408,20 +420,9 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
                 scaling = f'scale={resolution}:-2'
 
             params_output = get_profil(job)
-            # params_output['vf'] = f'scale={width_resized}:{height_resized}'
             params_output['vf'] = scaling
 
             LOGGER.debug("Params output ffmpeg : %s" % params_output)
-            # params_output = {
-            #     'format': 'webm',
-            #     'vcodec': 'libvpx-vp9',
-            #     'vf': f'scale={width_resized}:{height_resized}',
-            #     'acodec': 'libopus',
-            #     'b:a': '128k',
-            #     'preset': 'medium',
-            #     'crf': 36,  # Quality video
-            #     'threads': 3,
-            # }
             stream = ffmpeg.input(src_file.name)
             stream = stream.output(dest_file.name, **params_output)
             stream = stream.global_args('-progress', f'unix://{socket_filename}')
@@ -433,7 +434,10 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
                 jobs = [run_ffmpeg, watcher]
                 if cancel_event is not None:
                     jobs.append(asyncio.create_task(cancel_event.wait()))
+
+                LOGGER.debug("Running ffmpeg")
                 done, pending = await asyncio.wait(jobs, return_when=asyncio.FIRST_COMPLETED)
+                LOGGER.debug("Running ffmpeg done")
 
                 # Verifier si on a au moins une exception
                 for t in done:
