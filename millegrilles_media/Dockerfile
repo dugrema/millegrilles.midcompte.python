@@ -25,4 +25,4 @@ RUN apt update && \
 
 WORKDIR /opt/millegrilles/dist
 
-CMD ["-m", "millegrilles_solr", "--verbose"]
+CMD ["-m", "millegrilles_media", "--verbose"]

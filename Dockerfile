@@ -12,14 +12,13 @@ ENV BUILD_FOLDER=/opt/millegrilles/build \
     CERT_PEM=/run/secrets/cert.pem \
     KEY_PEM=/run/secrets/key.pem
 
-WORKDIR /opt/millegrilles/build
-
 COPY . $BUILD_FOLDER
 
-RUN bin/install_media.sh && \
-    pip3 install --no-cache-dir -r $BUILD_FOLDER/millegrilles_media/requirements.txt && \
-    python3 $BUILD_FOLDER/millegrilles_media/setup.py install
+WORKDIR /opt/millegrilles/build
+
+RUN pip3 install --no-cache-dir -r $BUILD_FOLDER/requirements.txt && \
+    python3 ./setup.py install
 
 WORKDIR /opt/millegrilles/dist
 
-CMD ["-m", "millegrilles_media", "--verbose"]
+CMD ["-m", "millegrilles_solr", "--verbose"]
