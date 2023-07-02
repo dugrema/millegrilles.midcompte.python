@@ -32,9 +32,9 @@ class ConfigurationMidcompte:
         self.mongo_port = 27017
         self.mq_url = 'https://mq:8443'
 
-        self.cert_pem_path = '/run/secrets/pki.midcompte.cert'
-        self.key_pem_path = '/run/secrets/pki.midcompte.key'
-        self.ca_pem_path = '/run/secrets/pki.millegrille'
+        self.cert_pem_path = '/run/secrets/cert.pem'
+        self.key_pem_path = '/run/secrets/key.pem'
+        self.ca_pem_path = '/run/secrets/pki.millegrille.cert'
         self.password_mq_path = '/run/secrets/passwd.mqadmin.txt'
         self.password_mongo_path = '/run/secrets/passwd.mongo.txt'
 
@@ -84,9 +84,9 @@ class ConfigurationMidcompte:
 class ConfigurationWeb:
 
     def __init__(self):
-        self.ca_pem_path = '/run/secrets/pki.millegrille'
-        self.web_cert_pem_path = '/run/secrets/pki.midcompte.cert'
-        self.web_key_pem_path = '/run/secrets/pki.midcompte.key'
+        self.ca_pem_path = '/run/secrets/pki.millegrille.pem'
+        self.web_cert_pem_path = '/run/secrets/cert.pem'
+        self.web_key_pem_path = '/run/secrets/key.pem'
         self.port = 2444
 
     def get_env(self) -> dict:
@@ -113,6 +113,6 @@ class ConfigurationWeb:
             dict_params.update(configuration)
 
         self.ca_pem_path = dict_params.get(ConstantesMessages.ENV_CA_PEM) or self.ca_pem_path
-        self.web_cert_pem_path = dict_params.get(Constantes.PARAM_CERT_PATH) or self.web_cert_pem_path
-        self.web_key_pem_path = dict_params.get(Constantes.PARAM_KEY_PATH) or self.web_key_pem_path
+        self.web_cert_pem_path = dict_params.get(ConstantesMessages.ENV_CERT_PEM) or self.web_cert_pem_path
+        self.web_key_pem_path = dict_params.get(ConstantesMessages.ENV_KEY_PEM) or self.web_key_pem_path
         self.port = int(dict_params.get(Constantes.ENV_WEB_PORT) or self.port)

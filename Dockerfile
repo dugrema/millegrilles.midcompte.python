@@ -4,9 +4,10 @@ ENV BUILD_FOLDER=/opt/millegrilles/build \
     BUNDLE_FOLDER=/opt/millegrilles/dist \
     PYTHONPATH=/opt/millegrilles/dist \
     SRC_FOLDER=/opt/millegrilles/build/src \
-    CERT_PEM=/run/secrets/pki.midcompte.cert \
-    KEY_PEM=/run/secrets/pki.midcompte.key \
-    CA_PEM=/run/secrets/pki.millegrille \
+    CERT_PEM=/run/secrets/cert.pem \
+    KEY_PEM=/run/secrets/key.pem \
+    CA_PEM=/run/secrets/pki.millegrille.cert \
+    MQ_URL=https://mq:8443 \
     MQ_HOSTNAME=mq \
     MQ_PORT=5673 \
     MG_REDIS_HOST=redis \
@@ -21,4 +22,4 @@ RUN pip3 install --no-cache-dir -r $BUILD_FOLDER/requirements.txt && \
 
 WORKDIR /opt/millegrilles/dist
 
-CMD ["-m", "millegrilles_solr", "--verbose"]
+CMD ["-m", "millegrilles_midcompte", "--verbose"]
