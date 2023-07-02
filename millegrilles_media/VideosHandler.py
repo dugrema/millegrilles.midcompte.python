@@ -386,6 +386,13 @@ def calculer_resize(width, height, resolution=270):
     return width_resized, height_resized
 
 
+ARGS_OVERRIDE_GEOLOC = [
+  '-movflags', 'faststart',
+  '-metadata', 'COM.APPLE.QUICKTIME.LOCATION.ISO6709=',
+  '-metadata', 'location=',
+  '-metadata', 'location-eng='
+]
+
 async def convertir_progress(etat_media: EtatMedia, job: dict,
                              src_file: tempfile.NamedTemporaryFile,
                              dest_file: tempfile.NamedTemporaryFile,
@@ -421,12 +428,20 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
 
             params_output = get_profil(job)
             params_output['vf'] = scaling
+            if params_output['vcodec'] == 'hevc':
+                # Metatadata pour ios
+                params_output['tag:v'] = 'hvc1'
+
+            args_output = ARGS_OVERRIDE_GEOLOC.copy()
+            args_output.append('-progress')
+            args_output.append(f'unix://{socket_filename}')
 
             LOGGER.debug("Params output ffmpeg : %s" % params_output)
             stream = ffmpeg.input(src_file.name)
             stream = stream.output(dest_file.name, **params_output)
-            stream = stream.global_args('-progress', f'unix://{socket_filename}')
+            stream = stream.global_args(*args_output)
             stream = stream.overwrite_output()
+
             ffmpeg_process = stream.run_async(pipe_stdout=True, pipe_stderr=True)
             try:
                 run_ffmpeg = loop.run_in_executor(None, run_stream, ffmpeg_process)
