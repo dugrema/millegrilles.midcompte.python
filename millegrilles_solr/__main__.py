@@ -127,6 +127,7 @@ def main():
     logging.getLogger(__name__).setLevel(logging.INFO)
     logging.getLogger('solrdao').setLevel(logging.INFO)
     logging.getLogger('millegrilles_solr').setLevel(logging.INFO)
+    logging.getLogger('millegrilles_messages').setLevel(logging.INFO)
     args = parse()
     asyncio.run(demarrer(args))
 

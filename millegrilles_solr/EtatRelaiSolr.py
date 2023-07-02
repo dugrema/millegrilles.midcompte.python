@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from asyncio import wait
@@ -83,12 +84,19 @@ class EtatRelaiSolr:
             self.__logger.warning("charger_url_consignation Producer mq n'est pas encore charge - skip")
             return
 
-        await wait([producer.producer_pret().wait()], timeout=60)
+        try:
+            await wait([producer.producer_pret().wait()], timeout=60)
+        except [asyncio.CancelledError, asyncio.TimeoutError]:
+            self.__logger.info("Producer job cancelled - tenter de recharger")
 
-        reponse = await producer.executer_requete(
-            dict(), 'CoreTopologie', 'getConsignationFichiers', exchange="2.prive")
+        # Recharger producer en cas de reconnexion
+        producer = rabbitmq_dao.get_producer()
+        if not producer.producer_pret().is_set():
+            raise Exception('producer deconnecte (MQ) - arreter relai_solr')
 
         try:
+            reponse = await producer.executer_requete(
+                dict(), 'CoreTopologie', 'getConsignationFichiers', exchange="2.prive")
             self.__url_consignation = reponse.parsed['consignation_url']
         except Exception as e:
             self.__logger.exception("Erreur chargement URL consignation")
