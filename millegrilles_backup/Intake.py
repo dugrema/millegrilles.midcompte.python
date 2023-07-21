@@ -275,7 +275,27 @@ class IntakeBackup(IntakeHandler):
         # Effectuer rotation backup (local)
         await self.rotation_backup()
 
+    # async def traiter_commande_traitement(self, message: MessageWrapper):
+    #     contenu = message.parsed
+    #     complet = contenu.get('complet') or False
+    #     if self.__event_intake.is_set() is False:
+    #         if complet is True:
+    #             # Declencher un backup complet
+    #             await self.trigger_traitement()
+    #         else:
+    #             # Declencher un backup incremental
+    #             producer = self._etat_instance.producer
+    #             await producer.producer_pret().wait()
+    #             await producer.emettre_evenement(
+    #                 dict(),
+    #                 ConstantesMillegrilles.DOMAINE_BACKUP,
+    #                 Constantes.COMMANDE_DEMARRER_BACKUP,
+    #                 exchanges=ConstantesMillegrilles.SECURITE_PRIVE
+    #             )
+
     async def recevoir_evenement(self, message: MessageWrapper):
+        if self.__domaines is None:
+            return  # Backup n'est pas en cours
 
         contenu = message.parsed
         nom_evenement = contenu['evenement']
