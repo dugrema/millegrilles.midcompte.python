@@ -241,14 +241,13 @@ class IntakeBackup(IntakeHandler):
         await self.emettre_evenement_maj(domaine)
 
         # Demarrer le backup sur le domaine. Attendre tous les fichiers de backup ou timeout
-        # TODO : fix me, utiliser reset du timeout
-        try:
-            self.__event_attente_fichiers.clear()
-            self.__nom_domaine_attente = nom_domaine
-            wait_coro = self.__event_attente_fichiers.wait()
-            await asyncio.wait_for(wait_coro, timeout=5)
-        except asyncio.TimeoutError:
-            self.__logger.info("Timeout attente backup domaine %s" % nom_domaine)
+        self.__nom_domaine_attente = nom_domaine
+        self.__event_attente_fichiers.clear()
+        pending = [self.__event_attente_fichiers.wait()]
+        while self.__event_attente_fichiers.is_set() is False:
+            done, pending = await asyncio.wait(pending, timeout=5)
+            # Emettre evenement maj backup
+            await self.emettre_evenement_maj(domaine)
 
     async def run_backup(self):
         await self.preparer_backup()
@@ -279,7 +278,7 @@ class IntakeBackup(IntakeHandler):
             pass
         elif nom_evenement == 'cataloguePret':
             if domaine_dict is not None:
-                pass
+                domaine_dict['transactions_traitees'] = contenu['transactions_traitees']
         elif nom_evenement == 'backupTermine':
             if nom_domaine == self.__nom_domaine_attente:
                 # Debloquer attente des fichiers pour le domaine
