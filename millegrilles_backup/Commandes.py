@@ -12,6 +12,7 @@ from millegrilles_messages.MilleGrillesConnecteur import CommandHandler as Comma
 from millegrilles_backup.Intake import IntakeBackup
 from millegrilles_backup import Constantes
 
+
 class CommandHandler(CommandesAbstract):
 
     def __init__(self, etat_instance: EtatInstance, intake_backups: IntakeBackup):
