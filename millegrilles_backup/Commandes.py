@@ -35,6 +35,7 @@ class CommandHandler(CommandesAbstract):
         res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'commande.backup.demarrerBackupTransactions')
         res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'commande.backup.getClesBackupTransactions')
         res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'requete.backup.getBackupTransaction')
+        res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'evenement.*.backupMaj')
         messages_thread.ajouter_consumer(res_primaire)
 
         res_backup = RessourcesConsommation(self.callback_reply_q,
@@ -72,15 +73,16 @@ class CommandHandler(CommandesAbstract):
                     self.__logger.info("Trigger nouveau backup")
                     deja_en_cours = await self.__intake_backups.trigger_traitement()
                     if deja_en_cours:
-                        return {'ok': True, 'message': 'Backup deja en cours', 'code': 2}
+                        reponse = {'ok': True, 'message': 'Backup deja en cours', 'code': 2}
                     else:
-                        return {'ok': True, 'message': 'Backup demarre', 'code': 1}
-                # if action in [ConstantesMedia.EVENEMENT_JOB_IMAGE_DISPONIBLE, ConstantesMedia.EVENEMENT_JOB_VIDEO_DISPONIBLE]:
-                #     await self._intake_images.trigger_traitement()
-                #     if self._intake_videos is not None:
-                #         await self._intake_videos.trigger_traitement()
-                #     return
-                # elif action == ConstantesMedia.EVENEMENT_ANNULER_JOB_VIDEO:
-                #     await self._intake_videos.annuler_job(message.parsed, False)
+                        reponse = {'ok': True, 'message': 'Backup demarre', 'code': 1}
+        elif ConstantesMilleGrilles.SECURITE_PRIVE in exchanges:
+            if type_message == 'commande':
+                if action == Constantes.COMMANDE_BACKUP_TRANSACTIONS:
+                    reponse = await self.__intake_backups.recevoir_fichier_transactions(message)
+            elif type_message == 'evenement':
+                if action == Constantes.EVENEMENT_BACKUP_DOMAINE_MISEAJOUR:
+                    await self.__intake_backups.recevoir_evenement(message)
+                    return False  # Empeche de transmettre un message de reponse
 
         return reponse
