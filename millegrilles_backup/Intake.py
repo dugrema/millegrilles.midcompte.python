@@ -32,6 +32,7 @@ class IntakeBackup(IntakeHandler):
         self.__domaines: Optional[list] = None
 
         self.__nom_domaine_attente: Optional[str] = None
+        self.__dernier_evenement_domaine: Optional[datetime.datetime] = None
         self.__event_attente_fichiers: Optional[asyncio.Event] = None
         self.__notices: Optional[list] = None
 
@@ -57,6 +58,7 @@ class IntakeBackup(IntakeHandler):
             self.__nom_domaine_attente = None
             self.__event_attente_fichiers = None
             self.__notices = None
+            self.__dernier_evenement_domaine = None
 
         return None
 
@@ -253,8 +255,13 @@ class IntakeBackup(IntakeHandler):
         # Demarrer le backup sur le domaine. Attendre tous les fichiers de backup ou timeout
         self.__nom_domaine_attente = nom_domaine
         self.__event_attente_fichiers.clear()
+        self.__dernier_evenement_domaine = datetime.datetime.utcnow()
+
         pending = [self.__event_attente_fichiers.wait()]
         while self.__event_attente_fichiers.is_set() is False:
+            expiration = datetime.datetime.utcnow() - datetime.timedelta(seconds=90)
+            if expiration > self.__dernier_evenement_domaine:
+                raise Exception("Echec backup domaine %s, timeout catalogues" % nom_domaine)
             done, pending = await asyncio.wait(pending, timeout=5)
             # Emettre evenement maj backup
             await self.emettre_evenement_maj(domaine)
@@ -270,28 +277,17 @@ class IntakeBackup(IntakeHandler):
         for domaine in self.__domaines:
             # Verifier que le domaine a precedemment repondu
             if domaine.get('nombre_transactions'):
-                await self.backup_domaine(domaine)
+                try:
+                    await self.backup_domaine(domaine)
+                except Exception as e:
+                    self.__logger.exception("Erreur traitement domaine %s" % domaine['domaine'])
+                    self.__notices.append({
+                        'domaine': domaine['domaine'],
+                        'erreur': "%s" % e
+                    })
 
         # Effectuer rotation backup (local)
         await self.rotation_backup()
-
-    # async def traiter_commande_traitement(self, message: MessageWrapper):
-    #     contenu = message.parsed
-    #     complet = contenu.get('complet') or False
-    #     if self.__event_intake.is_set() is False:
-    #         if complet is True:
-    #             # Declencher un backup complet
-    #             await self.trigger_traitement()
-    #         else:
-    #             # Declencher un backup incremental
-    #             producer = self._etat_instance.producer
-    #             await producer.producer_pret().wait()
-    #             await producer.emettre_evenement(
-    #                 dict(),
-    #                 ConstantesMillegrilles.DOMAINE_BACKUP,
-    #                 Constantes.COMMANDE_DEMARRER_BACKUP,
-    #                 exchanges=ConstantesMillegrilles.SECURITE_PRIVE
-    #             )
 
     async def recevoir_evenement(self, message: MessageWrapper):
         if self.__domaines is None:
@@ -312,9 +308,12 @@ class IntakeBackup(IntakeHandler):
         elif nom_evenement == 'cataloguePret':
             if domaine_dict is not None:
                 domaine_dict['transactions_traitees'] = contenu['transactions_traitees']
+            if self.__nom_domaine_attente == nom_domaine:
+                self.__dernier_evenement_domaine = datetime.datetime.utcnow()
         elif nom_evenement == 'backupTermine':
             if nom_domaine == self.__nom_domaine_attente:
                 # Debloquer attente des fichiers pour le domaine
+                self.__dernier_evenement_domaine = datetime.datetime.utcnow()
                 self.__event_attente_fichiers.set()
 
         pass
