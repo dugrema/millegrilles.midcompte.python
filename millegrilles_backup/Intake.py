@@ -30,6 +30,8 @@ class IntakeBackup(IntakeHandler):
         # Variables partagees par une meme job
         self.__debut_backup: Optional[datetime.datetime] = None
         self.__domaines: Optional[list] = None
+
+        self.__nom_domaine_attente: Optional[str] = None
         self.__event_attente_fichiers: Optional[asyncio.Event] = None
 
     async def traiter_prochaine_job(self) -> Optional[dict]:
@@ -51,6 +53,7 @@ class IntakeBackup(IntakeHandler):
             # Cleanup job
             self.__debut_backup = None
             self.__domaines = None
+            self.__nom_domaine_attente = None
             self.__event_attente_fichiers = None
 
         return None
@@ -150,6 +153,32 @@ class IntakeBackup(IntakeHandler):
     async def rotation_backup(self):
         self.__logger.warning("TODO - rotation repertoire backup")
 
+        # Cleanup repertoire de staging precedent au besoin
+        configuration = self._etat_instance.configuration
+        dir_backup = configuration.dir_backup
+
+        try:
+            shutil.rmtree(os.path.join(dir_backup, 'transactions.3'))
+        except FileNotFoundError:
+            pass
+
+        for i in range(2, 0, -1):
+            path_transactions_prev = os.path.join(dir_backup, 'transactions.%d' % i)
+            path_transactions_next = os.path.join(dir_backup, 'transactions.%d' % (i+1))
+            try:
+                os.rename(path_transactions_prev, path_transactions_next)
+            except FileNotFoundError:
+                pass
+
+        path_transactions = os.path.join(dir_backup, 'transactions')
+        try:
+            os.rename(path_transactions, os.path.join(dir_backup, 'transactions.1'))
+        except FileNotFoundError:
+            pass
+
+        path_staging = os.path.join(dir_backup, 'staging')
+        os.rename(path_staging, path_transactions)
+
     async def preparer_backup(self):
         producer = self._etat_instance.producer
         await producer.producer_pret().wait()
@@ -183,9 +212,6 @@ class IntakeBackup(IntakeHandler):
             except:
                 self.__logger.exception("Erreur recuperation nombre transactions pour domaine %s, SKIP" % nom_domaine)
 
-        # Effectuer rotation backup (local)
-        await self.rotation_backup()
-
     async def backup_domaine(self, domaine):
         self.__logger.info("Debut backup domaine : %s" % domaine)
         producer = self._etat_instance.producer
@@ -216,9 +242,13 @@ class IntakeBackup(IntakeHandler):
 
         # Demarrer le backup sur le domaine. Attendre tous les fichiers de backup ou timeout
         # TODO : fix me, utiliser reset du timeout
-        wait_coro = self.__event_attente_fichiers.wait()
-        await asyncio.wait([wait_coro], timeout=5)
-        wait_coro.close()
+        try:
+            self.__event_attente_fichiers.clear()
+            self.__nom_domaine_attente = nom_domaine
+            wait_coro = self.__event_attente_fichiers.wait()
+            await asyncio.wait_for(wait_coro, timeout=5)
+        except asyncio.TimeoutError:
+            self.__logger.info("Timeout attente backup domaine %s" % nom_domaine)
 
     async def run_backup(self):
         await self.preparer_backup()
@@ -230,7 +260,31 @@ class IntakeBackup(IntakeHandler):
             if domaine.get('nombre_transactions'):
                 await self.backup_domaine(domaine)
 
+        # Effectuer rotation backup (local)
+        await self.rotation_backup()
+
     async def recevoir_evenement(self, message: MessageWrapper):
+
+        contenu = message.parsed
+        nom_evenement = contenu['evenement']
+        nom_domaine = contenu['domaine']
+
+        domaine_dict = None
+        for domaine_info in self.__domaines:
+            if domaine_info['domaine'] == nom_domaine:
+                domaine_dict = domaine_info
+                break
+
+        if nom_evenement == 'backupDemarre':
+            pass
+        elif nom_evenement == 'cataloguePret':
+            if domaine_dict is not None:
+                pass
+        elif nom_evenement == 'backupTermine':
+            if nom_domaine == self.__nom_domaine_attente:
+                # Debloquer attente des fichiers pour le domaine
+                self.__event_attente_fichiers.set()
+
         pass
 
     async def recevoir_fichier_transactions(self, message: MessageWrapper):
