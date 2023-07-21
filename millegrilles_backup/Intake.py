@@ -39,7 +39,7 @@ class IntakeBackup(IntakeHandler):
     async def traiter_prochaine_job(self) -> Optional[dict]:
         self.__logger.debug("Traiter job backup")
 
-        self.__debut_backup = datetime.datetime.now(tz=pytz.utc)
+        self.__debut_backup = datetime.datetime.utcnow()
         try:
             await self.emettre_evenement_demarrer()
             await self.charger_liste_domaines()
