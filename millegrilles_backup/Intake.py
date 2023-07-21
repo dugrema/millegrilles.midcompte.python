@@ -157,7 +157,7 @@ class IntakeBackup(IntakeHandler):
         return self.__domaines
 
     async def rotation_backup(self):
-        self.__logger.warning("TODO - rotation repertoire backup")
+        self.__logger.debug("rotation repertoire backup")
 
         # Cleanup repertoire de staging precedent au besoin
         configuration = self._etat_instance.configuration
