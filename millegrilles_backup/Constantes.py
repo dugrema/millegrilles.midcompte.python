@@ -1,1 +1,3 @@
 ENV_DIR_BACKUP = 'DIR_BACKUP'
+
+COMMANDE_DEMARRER_BACKUP = 'demarrerBackupTransactions'

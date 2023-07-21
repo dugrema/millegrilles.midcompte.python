@@ -10,7 +10,7 @@ from millegrilles_messages.messages.MessagesModule import RessourcesConsommation
 from millegrilles_messages.MilleGrillesConnecteur import CommandHandler as CommandesAbstract
 
 from millegrilles_backup.Intake import IntakeBackup
-
+from millegrilles_backup import Constantes
 
 class CommandHandler(CommandesAbstract):
 
@@ -65,9 +65,15 @@ class CommandHandler(CommandesAbstract):
         except ExtensionNotFound:
             delegation_globale = None
 
-        if exchange == ConstantesMilleGrilles.SECURITE_PRIVE and ConstantesMilleGrilles.SECURITE_PRIVE in exchanges:
-            if type_message == 'evenement':
-                pass
+        if delegation_globale == ConstantesMilleGrilles.DELEGATION_GLOBALE_PROPRIETAIRE:
+            if type_message == 'commande':
+                if action == Constantes.COMMANDE_DEMARRER_BACKUP:
+                    self.__logger.info("Trigger nouveau backup")
+                    deja_en_cours = await self.__intake_backups.trigger_traitement()
+                    if deja_en_cours:
+                        return {'ok': True, 'message': 'Backup deja en cours', 'code': 2}
+                    else:
+                        return {'ok': True, 'message': 'Backup demarre', 'code': 1}
                 # if action in [ConstantesMedia.EVENEMENT_JOB_IMAGE_DISPONIBLE, ConstantesMedia.EVENEMENT_JOB_VIDEO_DISPONIBLE]:
                 #     await self._intake_images.trigger_traitement()
                 #     if self._intake_videos is not None:
