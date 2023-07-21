@@ -33,6 +33,7 @@ class IntakeBackup(IntakeHandler):
 
         self.__nom_domaine_attente: Optional[str] = None
         self.__event_attente_fichiers: Optional[asyncio.Event] = None
+        self.__notices: Optional[list] = None
 
     async def traiter_prochaine_job(self) -> Optional[dict]:
         self.__logger.debug("Traiter job backup")
@@ -55,6 +56,7 @@ class IntakeBackup(IntakeHandler):
             self.__domaines = None
             self.__nom_domaine_attente = None
             self.__event_attente_fichiers = None
+            self.__notices = None
 
         return None
 
@@ -102,7 +104,11 @@ class IntakeBackup(IntakeHandler):
         await producer.producer_pret().wait()
         evenement = {
             'debut': int(self.__debut_backup.timestamp()),
+            'fin': int(datetime.datetime.utcnow().timestamp()),
+            'domaines': self.__domaines,
         }
+        if len(self.__notices) > 0:
+            evenement['notices'] = self.__notices
 
         await producer.emettre_evenement(
             evenement,
@@ -194,6 +200,10 @@ class IntakeBackup(IntakeHandler):
 
         # Interroger chaque domaine pour obtenir nombre de transactions
         for domaine in self.__domaines:
+
+            # Init flags
+            domaine['backup_complete'] = False
+
             nom_domaine = domaine['domaine']
             self.__logger.info("Recuperer nombre transactions du domaine %s" % nom_domaine)
             try:
@@ -211,6 +221,10 @@ class IntakeBackup(IntakeHandler):
                 self.__logger.info("Information domaine : %s" % domaine)
             except:
                 self.__logger.exception("Erreur recuperation nombre transactions pour domaine %s, SKIP" % nom_domaine)
+                self.__notices.append({
+                    "domaine": nom_domaine,
+                    "erreur": "Erreur recuperation nombre de transactions, le domaine ne repond pas.",
+                })
 
     async def backup_domaine(self, domaine):
         self.__logger.info("Debut backup domaine : %s" % domaine)
@@ -222,12 +236,6 @@ class IntakeBackup(IntakeHandler):
         # Evenement demarrer backup domaine
         await self.emettre_evenement_maj(domaine)
 
-        # # Reset le flag de backup de toutes les transactions du domaine
-        # reponse_reset = await producer.executer_commande(dict(), nom_domaine, Constantes.COMMANDE_RESET_BACKUP)
-        #
-        # if reponse_reset.parsed['ok'] is not True:
-        #     raise Exception("Erreur reset transactions domaine %s" % nom_domaine)
-
         await producer.executer_commande(
             {'complet': True},
             nom_domaine,
@@ -238,6 +246,8 @@ class IntakeBackup(IntakeHandler):
 
         # Indique que le backup est commence
         domaine['transactions_traitees'] = 0
+        domaine['backup_complete'] = False
+
         await self.emettre_evenement_maj(domaine)
 
         # Demarrer le backup sur le domaine. Attendre tous les fichiers de backup ou timeout
@@ -249,10 +259,13 @@ class IntakeBackup(IntakeHandler):
             # Emettre evenement maj backup
             await self.emettre_evenement_maj(domaine)
 
-    async def run_backup(self):
-        await self.preparer_backup()
+        domaine['backup_complete'] = True
 
+    async def run_backup(self):
         self.__event_attente_fichiers = asyncio.Event()
+        self.__notices = list()
+
+        await self.preparer_backup()
 
         for domaine in self.__domaines:
             # Verifier que le domaine a precedemment repondu
