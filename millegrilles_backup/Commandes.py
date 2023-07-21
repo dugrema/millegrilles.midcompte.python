@@ -122,7 +122,7 @@ class CommandHandler(CommandesAbstract):
         if weekday == 0 and hour == 4:
             # Declencher un backup complet
             await self.__intake_backups.trigger_traitement()
-        elif minute % 1 == 0:
+        elif minute % 20 == 0:
             await producer.emettre_evenement(
                 {'complet': False},
                 ConstantesMilleGrilles.DOMAINE_BACKUP,
