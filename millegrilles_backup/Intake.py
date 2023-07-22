@@ -35,6 +35,7 @@ class IntakeBackup(IntakeHandler):
         self.__dernier_evenement_domaine: Optional[datetime.datetime] = None
         self.__event_attente_fichiers: Optional[asyncio.Event] = None
         self.__notices: Optional[list] = None
+        self.__compteur_fichiers_domaine: Optional[int] = None
 
     async def traiter_prochaine_job(self) -> Optional[dict]:
         self.__logger.debug("Traiter job backup")
@@ -59,6 +60,7 @@ class IntakeBackup(IntakeHandler):
             self.__event_attente_fichiers = None
             self.__notices = None
             self.__dernier_evenement_domaine = None
+            self.__compteur_fichiers_domaine = None
 
         return None
 
@@ -256,10 +258,11 @@ class IntakeBackup(IntakeHandler):
         self.__nom_domaine_attente = nom_domaine
         self.__event_attente_fichiers.clear()
         self.__dernier_evenement_domaine = datetime.datetime.utcnow()
+        self.__compteur_fichiers_domaine = 0
 
         pending = [self.__event_attente_fichiers.wait()]
         while self.__event_attente_fichiers.is_set() is False:
-            expiration = datetime.datetime.utcnow() - datetime.timedelta(seconds=90)
+            expiration = datetime.datetime.utcnow() - datetime.timedelta(seconds=45)
             if expiration > self.__dernier_evenement_domaine:
                 raise Exception("Echec backup domaine %s, timeout catalogues" % nom_domaine)
             done, pending = await asyncio.wait(pending, timeout=5)
@@ -267,6 +270,7 @@ class IntakeBackup(IntakeHandler):
             await self.emettre_evenement_maj(domaine)
 
         domaine['backup_complete'] = True
+        self.__compteur_fichiers_domaine = None
 
     async def run_backup(self):
         self.__event_attente_fichiers = asyncio.Event()
@@ -311,7 +315,7 @@ class IntakeBackup(IntakeHandler):
             if self.__nom_domaine_attente == nom_domaine:
                 self.__dernier_evenement_domaine = datetime.datetime.utcnow()
         elif nom_evenement == 'backupTermine':
-            if nom_domaine == self.__nom_domaine_attente:
+            if self.__nom_domaine_attente == nom_domaine:
                 # Debloquer attente des fichiers pour le domaine
                 self.__dernier_evenement_domaine = datetime.datetime.utcnow()
                 self.__event_attente_fichiers.set()
@@ -326,12 +330,23 @@ class IntakeBackup(IntakeHandler):
         nombre_transactions = contenu['nombre_transactions']
         original = message.contenu
         nom_domaine = contenu['domaine']
-        nom_fichier: str = contenu['catalogue_nomfichier']
         hachage = contenu['data_hachage_bytes']
+        date_transaction_debut = datetime.datetime.fromtimestamp(contenu['date_transactions_debut'])
+        date_debut_format = date_transaction_debut.strftime("%Y%m%dT%H%M%SZ")
 
-        nom_fichier_split = nom_fichier.split('.')
-        nom_fichier_split.insert(1, hachage[-8:])
-        nom_fichier = '.'.join(nom_fichier_split)
+        if self.__compteur_fichiers_domaine is not None:
+            # On est dans un backup complet, utiliser compteur de 8 chiffres (00000000, 00000001, ...)
+            id_fichier = "C{:0>8}".format(self.__compteur_fichiers_domaine)
+            self.__compteur_fichiers_domaine += 1  # Incrementer compteur
+        else:
+            # Mode incremental, utiliser fin du hachage de contenu
+            id_fichier = 'I%s' % hachage[-8:]
+        nom_fichier = '_'.join([nom_domaine, date_debut_format, id_fichier])
+
+        nom_fichier += '.json.xz'
+
+        if self.__nom_domaine_attente == nom_domaine:
+            self.__dernier_evenement_domaine = datetime.datetime.utcnow()
 
         # Sauvegarder original sur disque
         configuration = self._etat_instance.configuration
