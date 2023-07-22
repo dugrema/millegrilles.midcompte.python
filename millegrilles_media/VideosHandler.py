@@ -84,7 +84,7 @@ class ProgressHandler:
 
         producer = self.__etat_media.producer
         await producer.emettre_evenement(evenement,
-                                         domaine='fichiers', action='transcodageProgres',
+                                         domaine='media', action='transcodageProgres',
                                          partition=user_id, exchanges='2.prive')
 
 
