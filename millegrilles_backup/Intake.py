@@ -216,7 +216,7 @@ class IntakeBackup(IntakeHandler):
                     nom_domaine,
                     ConstantesMillegrilles.REQUETE_GLOBAL_NOMBRE_TRANSACTIONS,
                     exchange=ConstantesMillegrilles.SECURITE_PRIVE,
-                    timeout=5
+                    timeout=30
                 )
                 if reponse.parsed['ok'] is not True:
                     self.__logger.info("Erreur recuperation nombre transactions pour domaine %s, SKIP" % nom_domaine)
@@ -262,7 +262,7 @@ class IntakeBackup(IntakeHandler):
 
         pending = [self.__event_attente_fichiers.wait()]
         while self.__event_attente_fichiers.is_set() is False:
-            expiration = datetime.datetime.utcnow() - datetime.timedelta(seconds=45)
+            expiration = datetime.datetime.utcnow() - datetime.timedelta(seconds=90)
             if expiration > self.__dernier_evenement_domaine:
                 raise Exception("Echec backup domaine %s, timeout catalogues" % nom_domaine)
             done, pending = await asyncio.wait(pending, timeout=5)
