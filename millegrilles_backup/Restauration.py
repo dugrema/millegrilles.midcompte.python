@@ -79,7 +79,11 @@ class HandlerRestauration:
         if domaines is not None:
             domaines_filtres = list()
             for domaine in domaines:
-                domaines_filtres.append({'domaine': domaine['domaine'], 'file_count': domaine['count']})
+                domaines_filtres.append({
+                    'domaine': domaine['domaine'],
+                    'file_count': domaine['count'],
+                    'regenerer_immediatement': domaine.get('regenerer_immediatement') or False,
+                })
             domaines = domaines_filtres
 
         reponse = {
@@ -103,7 +107,11 @@ class HandlerRestauration:
                 path_domaine = os.path.join(dir_transactions, rep)
                 nombre_fichiers = len(os.listdir(path_domaine))
                 if os.path.isdir(path_domaine):
-                    domaines.append({'domaine': rep, 'fullpath': path_domaine, 'count': nombre_fichiers})
+                    if rep == 'CorePki':
+                        # Inserer en premier, doit etre executer avant tous les autres
+                        domaines.insert(0, {'domaine': rep, 'fullpath': path_domaine, 'count': nombre_fichiers, 'regenerer_immediatement': True})
+                    else:
+                        domaines.append({'domaine': rep, 'fullpath': path_domaine, 'count': nombre_fichiers})
 
         return domaines
 
@@ -131,13 +139,24 @@ class HandlerRestauration:
                 raise Exception("uploader_domaine stopped")
             elif self.__event_attendre_confirmation.is_set():
                 # Confirmation recue, passer au prochain catalogue
-                task_stop_event.cancel()  # Annuler attente stop_event
+                pass
             else:
                 raise Exception('uploader_domaine Timeout attente confirmation traitement catalogue transactions domaine %s' % nom_domaine)
 
         # Emettre reponse domaine complete
+        # self.__event_attendre_confirmation.clear()
         reponse = {'ok': True, 'domaine': nom_domaine, 'domaine_complete': True}
         await producer.repondre(reponse, reply_to=message.reply_to, correlation_id='domaineComplete')
+        # Attendre confirmation que le catalogue a ete traite
+        # await asyncio.wait([task_stop_event, self.__event_attendre_confirmation.wait()],
+        #                    return_when=asyncio.FIRST_COMPLETED, timeout=5)
+
+        # if self.__event_attendre_confirmation.is_set() is False:
+        #     self.__logger.warning("Erreur attente confirmation domaine %s complete, on passe au prochain" % nom_domaine)
+        # else:
+        #     task_stop_event.cancel()  # Annuler task attente stop_event
+
+        task_stop_event.cancel()  # Annuler task attente stop_event
 
     def generateur_fichiers(self, path: str):
         for nom_fichier in os.listdir(path):
@@ -156,6 +175,9 @@ class HandlerRestauration:
         pass
 
     async def confirmation_catalogue(self, message: MessageWrapper):
+        self.__event_attendre_confirmation.set()
+
+    async def confirmation_domaine(self, message: MessageWrapper):
         self.__event_attendre_confirmation.set()
 
     async def emettre_maj_restauration(self):

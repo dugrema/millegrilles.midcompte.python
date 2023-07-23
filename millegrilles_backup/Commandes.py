@@ -92,6 +92,8 @@ class CommandHandler(CommandesAbstract):
                     await self.__restauration_handler.restaurer(message)
                 elif action == Constantes.COMMANDE_CATALOGUE_TRAITE:
                     await self.__restauration_handler.confirmation_catalogue(message)
+                elif action == Constantes.COMMANDE_DOMAINE_TRAITE:
+                    await self.__restauration_handler.confirmation_domaine(message)
         elif type_message == 'evenement':
             if ConstantesMilleGrilles.SECURITE_SECURE in exchanges:
                 if action == 'cedule':
