@@ -1,7 +1,7 @@
 import asyncio
 import datetime
+import gzip
 import logging
-import lzma
 import os
 import shutil
 
@@ -240,6 +240,8 @@ class IntakeBackup(IntakeHandler):
         # Evenement demarrer backup domaine
         await self.emettre_evenement_maj(domaine)
 
+        # Clear flag et emet commande de backup du domaine
+        self.__event_attente_fichiers.clear()
         await producer.executer_commande(
             {'complet': True},
             nom_domaine,
@@ -256,20 +258,25 @@ class IntakeBackup(IntakeHandler):
 
         # Demarrer le backup sur le domaine. Attendre tous les fichiers de backup ou timeout
         self.__nom_domaine_attente = nom_domaine
-        self.__event_attente_fichiers.clear()
         self.__dernier_evenement_domaine = datetime.datetime.utcnow()
         self.__compteur_fichiers_domaine = 0
 
         pending = [self.__event_attente_fichiers.wait()]
         while self.__event_attente_fichiers.is_set() is False:
+            # Verifier si on a un timeout pour ce domaine
             expiration = datetime.datetime.utcnow() - datetime.timedelta(seconds=90)
             if expiration > self.__dernier_evenement_domaine:
                 raise Exception("Echec backup domaine %s, timeout catalogues" % nom_domaine)
+
+            # Attendre et emettre evenement maj backup
             done, pending = await asyncio.wait(pending, timeout=5)
-            # Emettre evenement maj backup
             await self.emettre_evenement_maj(domaine)
 
+        # Succes pour le domaine courant
         domaine['backup_complete'] = True
+
+        # Reset etat pour prochain domaine
+        self.__event_attente_fichiers.clear()
         self.__compteur_fichiers_domaine = None
 
     async def run_backup(self):
@@ -343,7 +350,7 @@ class IntakeBackup(IntakeHandler):
             id_fichier = 'I%s' % hachage[-8:]
         nom_fichier = '_'.join([nom_domaine, date_debut_format, id_fichier])
 
-        nom_fichier += '.json.xz'
+        nom_fichier += '.json.gz'
 
         if self.__nom_domaine_attente == nom_domaine:
             self.__dernier_evenement_domaine = datetime.datetime.utcnow()
@@ -361,7 +368,7 @@ class IntakeBackup(IntakeHandler):
 
         os.makedirs(path_domaine, exist_ok=True)
         path_fichier = os.path.join(path_domaine, nom_fichier)
-        with lzma.open(path_fichier, 'wb') as fichier:
+        with gzip.open(path_fichier, 'wb') as fichier:
             fichier.write(original)
 
         if self.__domaines is not None:
