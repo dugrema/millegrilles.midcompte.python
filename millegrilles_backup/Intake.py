@@ -280,6 +280,10 @@ class IntakeBackup(IntakeHandler):
         self.__compteur_fichiers_domaine = None
 
     async def run_backup(self):
+        if self._etat_instance.backup_inhibe is True:
+            self.__logger.warning("Backup inhibe (e.g. restauration en cours) - ABORT")
+            return
+
         self.__event_attente_fichiers = asyncio.Event()
         self.__notices = list()
 

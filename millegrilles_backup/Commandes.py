@@ -35,8 +35,7 @@ class CommandHandler(CommandesAbstract):
         res_primaire = RessourcesConsommation(self.callback_reply_q,
                                               nom_queue='backup/primaire', channel_separe=True, est_asyncio=True)
         res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'commande.backup.demarrerBackupTransactions')
-        res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'commande.backup.getClesBackupTransactions')
-        res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'requete.backup.getBackupTransaction')
+        res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'commande.backup.restaurerTransactions')
         res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'evenement.*.backupMaj')
         res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'evenement.global.cedule')
         messages_thread.ajouter_consumer(res_primaire)
@@ -88,10 +87,6 @@ class CommandHandler(CommandesAbstract):
             if type_message == 'commande':
                 if action == Constantes.COMMANDE_BACKUP_TRANSACTIONS:
                     reponse = await self.__intake_backups.recevoir_fichier_transactions(message)
-                # elif action == Constantes.COMMANDE_DEMARRER_BACKUP:
-                #     if ConstantesMilleGrilles.ROLE_BACKUP in roles:
-                #         await self.__intake_backups.traiter_commande_traitement(message)
-                #         return False  # Empeche de transmettre un message de reponse
             elif type_message == 'evenement':
                 if action == Constantes.EVENEMENT_BACKUP_DOMAINE_MISEAJOUR:
                     await self.__intake_backups.recevoir_evenement(message)
@@ -100,6 +95,10 @@ class CommandHandler(CommandesAbstract):
                     if 'core' in roles:
                         await self.traiter_cedule(producer, message)
                         return False  # Empeche de transmettre un message de reponse
+        elif ConstantesMilleGrilles.SECURITE_PROTEGE in exchanges:
+            if type_message == 'commande':
+                if action == Constantes.COMMANDE_RESTAURER_TRANSACTIONS:
+                    reponse = await self.__restauration_handler.restaurer(message)
 
         return reponse
 
@@ -115,8 +114,8 @@ class CommandHandler(CommandesAbstract):
         hour = date_cedule.hour
         minute = date_cedule.minute
 
-        if self.__intake_backups.en_cours:
-            # Ignorer le trigger, backup est en cours
+        if self.__intake_backups.en_cours or self.__etat_instance.backup_inhibe:
+            # Ignorer le trigger, backup ou restauration en cours
             return
 
         if weekday == 0 and hour == 4:

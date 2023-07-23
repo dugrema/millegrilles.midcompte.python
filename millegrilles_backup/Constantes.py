@@ -4,6 +4,7 @@ COMMANDE_DEMARRER_BACKUP = 'demarrerBackupTransactions'
 COMMANDE_RESET_BACKUP = 'resetBackup'
 COMMANDE_DECLENCHER_BACKUP = 'declencherBackup'
 COMMANDE_BACKUP_TRANSACTIONS = 'backupTransactions'
+COMMANDE_RESTAURER_TRANSACTIONS = 'restaurerTransactions'
 
 EVENEMENT_BACKUP_DEMARRAGE = 'demarrage'
 EVENEMENT_BACKUP_SUCCES = 'succes'
