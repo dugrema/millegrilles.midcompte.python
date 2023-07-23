@@ -13,15 +13,17 @@ from millegrilles_messages.MilleGrillesConnecteur import CommandHandler as Comma
 
 from millegrilles_backup.Intake import IntakeBackup
 from millegrilles_backup import Constantes
+from millegrilles_backup.Restauration import HandlerRestauration
 
 
 class CommandHandler(CommandesAbstract):
 
-    def __init__(self, etat_instance: EtatInstance, intake_backups: IntakeBackup):
+    def __init__(self, etat_instance: EtatInstance, intake_backups: IntakeBackup, restauration_handler: HandlerRestauration):
         super().__init__()
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__etat_instance = etat_instance
         self.__intake_backups = intake_backups
+        self.__restauration_handler = restauration_handler
         self.__messages_thread = None
 
     def get_routing_keys(self):
@@ -36,6 +38,7 @@ class CommandHandler(CommandesAbstract):
                                               nom_queue='backup/primaire', channel_separe=True, est_asyncio=True)
         res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'commande.backup.demarrerBackupTransactions')
         res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'commande.backup.restaurerTransactions')
+        res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'commande.backup.catalogueTraite')
         res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'evenement.*.backupMaj')
         res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'evenement.global.cedule')
         messages_thread.ajouter_consumer(res_primaire)
@@ -46,8 +49,6 @@ class CommandHandler(CommandesAbstract):
         messages_thread.ajouter_consumer(res_backup)
 
     async def traiter_commande(self, producer: MessageProducerFormatteur, message: MessageWrapper):
-        reponse = None
-
         routing_key = message.routing_key
         exchange = message.exchange
         action = routing_key.split('.').pop()
@@ -74,33 +75,33 @@ class CommandHandler(CommandesAbstract):
         except ExtensionNotFound:
             delegation_globale = None
 
-        if delegation_globale == ConstantesMilleGrilles.DELEGATION_GLOBALE_PROPRIETAIRE:
-            if type_message == 'commande':
+        if type_message == 'commande':
+            if delegation_globale == ConstantesMilleGrilles.DELEGATION_GLOBALE_PROPRIETAIRE:
                 if action == Constantes.COMMANDE_DEMARRER_BACKUP:
                     self.__logger.info("Trigger nouveau backup")
                     deja_en_cours = await self.__intake_backups.trigger_traitement()
                     if deja_en_cours:
-                        reponse = {'ok': True, 'message': 'Backup deja en cours', 'code': 2}
+                        return {'ok': True, 'message': 'Backup deja en cours', 'code': 2}
                     else:
-                        reponse = {'ok': True, 'message': 'Backup demarre', 'code': 1}
-        elif ConstantesMilleGrilles.SECURITE_PRIVE in exchanges:
-            if type_message == 'commande':
+                        return {'ok': True, 'message': 'Backup demarre', 'code': 1}
+            if ConstantesMilleGrilles.SECURITE_SECURE in exchanges:
                 if action == Constantes.COMMANDE_BACKUP_TRANSACTIONS:
-                    reponse = await self.__intake_backups.recevoir_fichier_transactions(message)
-            elif type_message == 'evenement':
-                if action == Constantes.EVENEMENT_BACKUP_DOMAINE_MISEAJOUR:
-                    await self.__intake_backups.recevoir_evenement(message)
-                    return False  # Empeche de transmettre un message de reponse
-                elif action == 'cedule':
+                    return await self.__intake_backups.recevoir_fichier_transactions(message)
+            if ConstantesMilleGrilles.SECURITE_PROTEGE in exchanges:
+                if action == Constantes.COMMANDE_RESTAURER_TRANSACTIONS:
+                    await self.__restauration_handler.restaurer(message)
+                elif action == Constantes.COMMANDE_CATALOGUE_TRAITE:
+                    await self.__restauration_handler.confirmation_catalogue(message)
+        elif type_message == 'evenement':
+            if ConstantesMilleGrilles.SECURITE_SECURE in exchanges:
+                if action == 'cedule':
                     if 'core' in roles:
                         await self.traiter_cedule(producer, message)
-                        return False  # Empeche de transmettre un message de reponse
-        elif ConstantesMilleGrilles.SECURITE_PROTEGE in exchanges:
-            if type_message == 'commande':
-                if action == Constantes.COMMANDE_RESTAURER_TRANSACTIONS:
-                    reponse = await self.__restauration_handler.restaurer(message)
+            if ConstantesMilleGrilles.SECURITE_PRIVE in exchanges:
+                if action == Constantes.EVENEMENT_BACKUP_DOMAINE_MISEAJOUR:
+                    await self.__intake_backups.recevoir_evenement(message)
 
-        return reponse
+        return False  # Empeche de transmettre un message de reponse
 
     async def traiter_cedule(self, producer: MessageProducerFormatteur, message: MessageWrapper):
         contenu = message.parsed
@@ -128,28 +129,3 @@ class CommandHandler(CommandesAbstract):
                 Constantes.COMMANDE_DECLENCHER_BACKUP,
                 exchanges=ConstantesMilleGrilles.SECURITE_PRIVE
             )
-
-
-# async def emettre_commande_backup_incremental(producer, complet: False):
-#     await producer.executer_commande(
-#         {'complet': complet},
-#         ConstantesMilleGrilles.DOMAINE_BACKUP,
-#         Constantes.COMMANDE_DEMARRER_BACKUP,
-#         exchange=ConstantesMilleGrilles.SECURITE_PRIVE,
-#         nowait=True
-#     )
-#
-#     #     if(dow === 0 && hours === 4) {
-#     #         debug("emettreMessagesBackup Emettre trigger backup complet, dimanche 4:00")
-#     #
-#     #         // Rotation repertoire transactions
-#     #         await _consignationManager.rotationBackupTransactions()
-#     #
-#     #         // Envoyer message de backup complet a tous les domaines
-#     #         const evenement = { complet: true }
-#     #         await _mq.emettreEvenement(evenement, {domaine: 'fichiers', action: 'declencherBackup', attacherCertificat: true})
-#     #     } else if(minutes % 20 === 0) {
-#     #         debug("emettreMessagesBackup Emettre trigger backup incremental")
-#     #         const evenement = { complet: false }
-#     #         await _mq.emettreEvenement(evenement, {domaine: 'fichiers', action: 'declencherBackup', attacherCertificat: true})
-#     #     }

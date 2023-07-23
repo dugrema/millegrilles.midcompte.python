@@ -11,6 +11,7 @@ from millegrilles_messages.MilleGrillesConnecteur import EtatInstance, MilleGril
 from millegrilles_backup.Configuration import ConfigurationBackup
 from millegrilles_backup.Commandes import CommandHandler
 from millegrilles_backup.Intake import IntakeBackup
+from millegrilles_backup.Restauration import HandlerRestauration
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,9 @@ class BackupMain:
 
         self.__rabbitmq_dao: Optional[MilleGrillesConnecteur] = None
 
-        self.__commandes_handler = None
-        self.__intake_backups = None
+        self.__commandes_handler: Optional[CommandHandler] = None
+        self.__intake_backups: Optional[IntakeBackup] = None
+        self.__restauration_handler: Optional[HandlerRestauration] = None
 
         # Asyncio lifecycle handlers
         self.__loop = None
@@ -38,8 +40,9 @@ class BackupMain:
 
         await self._etat_backup.reload_configuration()
         self.__intake_backups = IntakeBackup(self._stop_event, self._etat_backup)
+        self.__restauration_handler = HandlerRestauration(self._stop_event, self._etat_backup)
 
-        self.__commandes_handler = CommandHandler(self._etat_backup, self.__intake_backups)
+        self.__commandes_handler = CommandHandler(self._etat_backup, self.__intake_backups, self.__restauration_handler)
         self.__rabbitmq_dao = MilleGrillesConnecteur(self._stop_event, self._etat_backup, self.__commandes_handler)
 
         await self.__intake_backups.configurer()
@@ -53,6 +56,7 @@ class BackupMain:
         threads = [
             self.__rabbitmq_dao.run(),
             self.__intake_backups.run(),
+            self.__restauration_handler.run(),
             self._etat_backup.run(self._stop_event, self.__rabbitmq_dao),
         ]
 
