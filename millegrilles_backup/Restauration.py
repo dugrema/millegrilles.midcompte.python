@@ -26,7 +26,7 @@ class HandlerRestauration:
     async def run(self):
         self.__queue_triggers = asyncio.Queue(maxsize=2)
 
-        coro_stop_event = self.__stop_event.wait()
+        coro_stop_event = asyncio.create_task(self.__stop_event.wait())
         while self.__stop_event.is_set() is False:
             done, pending = await asyncio.wait([coro_stop_event, self.__queue_triggers.get()], return_when=asyncio.FIRST_COMPLETED)
             message = done.pop().result()
