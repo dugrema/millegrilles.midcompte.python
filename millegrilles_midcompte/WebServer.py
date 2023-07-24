@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import urllib.parse
 
 from aiohttp import web
 from aiohttp.web_request import Request
@@ -57,7 +58,8 @@ class WebServer:
         if verified == 'SUCCESS':
             # Cleanup certificat
             client_cert = headers.get('X-Client-Cert')
-            client_cert = client_cert.replace('\t', '')
+            # client_cert = client_cert.replace('\t', '')
+            client_cert = urllib.parse.unquote(client_cert)
             enveloppe = EnveloppeCertificat.from_pem(client_cert)
 
             idmg = enveloppe.idmg
