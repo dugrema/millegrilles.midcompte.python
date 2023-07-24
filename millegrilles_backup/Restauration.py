@@ -2,6 +2,7 @@ import asyncio
 import gzip
 import json
 import logging
+import lzma
 import os
 
 from typing import Optional
@@ -133,7 +134,7 @@ class HandlerRestauration:
 
             # Attendre confirmation que le catalogue a ete traite
             await asyncio.wait([task_stop_event, self.__event_attendre_confirmation.wait()],
-                               return_when=asyncio.FIRST_COMPLETED, timeout=5)
+                               return_when=asyncio.FIRST_COMPLETED, timeout=90)
 
             if self.__stop_event.is_set():
                 raise Exception("uploader_domaine stopped")
@@ -163,8 +164,17 @@ class HandlerRestauration:
             path_complet = os.path.join(path, nom_fichier)
             self.__logger.info("Ouvrir fichier %s" % path_complet)
 
-            with gzip.open(path_complet) as fichier:
-                contenu = json.load(fichier)
+            if nom_fichier.endswith('.json.xz'):
+                with lzma.open(path_complet) as fichier:
+                    contenu = json.load(fichier)
+            elif nom_fichier.endswith('.json.gz'):
+                with gzip.open(path_complet) as fichier:
+                    contenu = json.load(fichier)
+            elif nom_fichier.endswith('.json'):
+                with open(path_complet) as fichier:
+                    contenu = json.load(fichier)
+            else:
+                raise Exception("Type fichier non supporte : %s" % path_complet)
 
             yield contenu
 
