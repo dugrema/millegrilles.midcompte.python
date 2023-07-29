@@ -138,8 +138,9 @@ class IntakeJobImage(IntakeHandler):
     async def get_prochain_fichier(self) -> Optional[dict]:
         try:
             producer = self._etat_media.producer
+            requete = {'instance_id': self._etat_media.instance_id_consignation}
             job = await producer.executer_commande(
-                dict(), 'GrosFichiers', 'getJobImage', exchange="4.secure")
+                requete, 'GrosFichiers', 'getJobImage', exchange="4.secure")
 
             if job.parsed['ok'] is True:
                 self.__logger.debug("Executer job image : %s" % job)
@@ -189,8 +190,9 @@ class IntakeJobVideo(IntakeHandler):
     async def get_prochain_fichier(self) -> Optional[dict]:
         try:
             producer = self._etat_media.producer
+            requete = {'instance_id': self._etat_media.instance_id_consignation}
             job = await producer.executer_commande(
-                dict(), 'GrosFichiers', 'getJobVideo', exchange="4.secure")
+                requete, 'GrosFichiers', 'getJobVideo', exchange="4.secure")
 
             if job.parsed['ok'] is True:
                 self.__logger.debug("Executer job video : %s" % job)

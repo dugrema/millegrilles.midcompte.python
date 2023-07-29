@@ -39,6 +39,7 @@ class EtatMedia:
         self.__producer: Optional[MessageProducerFormatteur] = None
         self.__partition: Optional[str] = None
 
+        self.__instance_id_consgination = None
         self.__url_consignation = None
         self.__ssl_context: Optional[SSLContext] = None
 
@@ -102,6 +103,7 @@ class EtatMedia:
 
         try:
             self.__url_consignation = reponse.parsed['consignation_url']
+            self.__instance_id_consgination = reponse.parsed['instance_id']
         except Exception as e:
             self.__logger.exception("Erreur chargement URL consignation")
 
@@ -148,6 +150,10 @@ class EtatMedia:
     @property
     def mq_port(self):
         return self.__mq_port
+
+    @property
+    def instance_id_consignation(self) -> str:
+        return self.__instance_id_consgination
 
     @property
     def url_consignation(self) -> str:
