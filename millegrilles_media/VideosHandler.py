@@ -298,6 +298,8 @@ def preparer_commande_associer(job: dict, info_chiffrage: dict) -> dict:
         "hachage": info_chiffrage['hachage'],
         "header": info_chiffrage['header'],
         "format": info_chiffrage['format'],
+
+        "cle_conversion": job['cle_conversion'],  # Ajouter dans 2023.7.4
     }
 
     if job.get('fallback') is True:
