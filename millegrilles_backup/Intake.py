@@ -258,6 +258,7 @@ class IntakeBackup(IntakeHandler):
         with open(os.path.join(path_domaine, Constantes.FICHIER_BACKUP_COURANT), 'w') as fichier:
             json.dump(self.__info_backup, fichier)
 
+        await self._etat_instance.trigger_backup_complete()
 
     async def backup_domaine(self, domaine):
         self.__logger.info("Debut backup domaine : %s" % domaine)

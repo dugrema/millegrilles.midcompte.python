@@ -22,11 +22,18 @@ class ConsignationHandler:
         self.__trigger_consignation: Optional[asyncio.Event] = None
         self.__url_consignation: Optional[str] = None
 
+        self.__etat_instance.ajouter_listener_backup_complete(self.trigger)
+
     async def configurer(self):
         self.__trigger_consignation = asyncio.Event()
 
+    async def trigger(self):
+        self.__trigger_consignation.set()
+
     async def run(self):
         self.__logger.info("run Demarrer ConsignationHandler")
+
+        timeout = 10  # Timeout initial, 10 secondes
 
         stop_wait_task = asyncio.create_task(self.__stop_event.wait())
         while self.__stop_event.is_set() is False:
@@ -34,9 +41,12 @@ class ConsignationHandler:
             consignation_wait_task = asyncio.create_task(self.__trigger_consignation.wait())
             await asyncio.wait(
                 [stop_wait_task, consignation_wait_task],
-                timeout=10,
+                timeout=timeout,
                 return_when=asyncio.FIRST_COMPLETED
             )
+
+            timeout = 3600  # 1 heure
+
             if self.__stop_event.is_set() is True:
                 break
 
