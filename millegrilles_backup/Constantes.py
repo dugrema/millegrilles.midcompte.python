@@ -1,4 +1,5 @@
 ENV_DIR_BACKUP = 'DIR_BACKUP'
+FICHIER_BACKUP_COURANT = 'infoBackup.json'
 
 COMMANDE_DEMARRER_BACKUP = 'demarrerBackupTransactions'
 COMMANDE_RESET_BACKUP = 'resetBackup'

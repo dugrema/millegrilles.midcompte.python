@@ -12,6 +12,7 @@ from millegrilles_backup.Configuration import ConfigurationBackup
 from millegrilles_backup.Commandes import CommandHandler
 from millegrilles_backup.Intake import IntakeBackup
 from millegrilles_backup.Restauration import HandlerRestauration
+from millegrilles_backup.Consignation import ConsignationHandler
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class BackupMain:
         self.__commandes_handler: Optional[CommandHandler] = None
         self.__intake_backups: Optional[IntakeBackup] = None
         self.__restauration_handler: Optional[HandlerRestauration] = None
+        self.__consignation_handler: Optional[ConsignationHandler] = None
 
         # Asyncio lifecycle handlers
         self.__loop = None
@@ -41,11 +43,13 @@ class BackupMain:
         await self._etat_backup.reload_configuration()
         self.__intake_backups = IntakeBackup(self._stop_event, self._etat_backup)
         self.__restauration_handler = HandlerRestauration(self._stop_event, self._etat_backup)
+        self.__consignation_handler = ConsignationHandler(self._stop_event, self._etat_backup)
 
         self.__commandes_handler = CommandHandler(self._etat_backup, self.__intake_backups, self.__restauration_handler)
         self.__rabbitmq_dao = MilleGrillesConnecteur(self._stop_event, self._etat_backup, self.__commandes_handler)
 
         await self.__intake_backups.configurer()
+        await self.__consignation_handler.configurer()
 
         # S'assurer d'avoir le repertoire de staging
         dir_backup = self._etat_backup.configuration.dir_backup
@@ -57,6 +61,7 @@ class BackupMain:
             self.__rabbitmq_dao.run(),
             self.__intake_backups.run(),
             self.__restauration_handler.run(),
+            self.__consignation_handler.run(),
             self._etat_backup.run(self._stop_event, self.__rabbitmq_dao),
         ]
 

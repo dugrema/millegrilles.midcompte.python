@@ -1,9 +1,11 @@
 import asyncio
 import datetime
 import gzip
+import json
 import logging
 import os
 import shutil
+import uuid
 
 import pytz
 
@@ -29,6 +31,7 @@ class IntakeBackup(IntakeHandler):
 
         # Variables partagees par une meme job
         self.__debut_backup: Optional[datetime.datetime] = None
+        self.__info_backup: Optional[dict] = None
         self.__domaines: Optional[list] = None
 
         self.__nom_domaine_attente: Optional[str] = None
@@ -55,6 +58,7 @@ class IntakeBackup(IntakeHandler):
         finally:
             # Cleanup job
             self.__debut_backup = None
+            self.__info_backup = None
             self.__domaines = None
             self.__nom_domaine_attente = None
             self.__event_attente_fichiers = None
@@ -201,6 +205,16 @@ class IntakeBackup(IntakeHandler):
             shutil.rmtree(path_domaine)
         except FileNotFoundError:
             pass  # OK
+        os.makedirs(path_domaine)
+
+        # Creer nouveau fichier d'information de backup avec uuid unique
+        self.__info_backup = {
+            'uuid_backup': str(uuid.uuid4()),
+            'date': int(datetime.datetime.utcnow().timestamp()),
+            'en_cours': True,
+        }
+        with open(os.path.join(path_domaine, Constantes.FICHIER_BACKUP_COURANT), 'w') as fichier:
+            json.dump(self.__info_backup, fichier)
 
         # Interroger chaque domaine pour obtenir nombre de transactions
         for domaine in self.__domaines:
@@ -229,6 +243,21 @@ class IntakeBackup(IntakeHandler):
                     "domaine": nom_domaine,
                     "erreur": "Erreur recuperation nombre de transactions, le domaine ne repond pas.",
                 })
+
+        self.__info_backup['domaines'] = self.__domaines
+        with open(os.path.join(path_domaine, Constantes.FICHIER_BACKUP_COURANT), 'w') as fichier:
+            json.dump(self.__info_backup, fichier)
+
+    async def completer_backup(self):
+        configuration = self._etat_instance.configuration
+        dir_backup = configuration.dir_backup
+        path_domaine = os.path.join(dir_backup, 'staging')
+
+        self.__info_backup['en_cours'] = False
+
+        with open(os.path.join(path_domaine, Constantes.FICHIER_BACKUP_COURANT), 'w') as fichier:
+            json.dump(self.__info_backup, fichier)
+
 
     async def backup_domaine(self, domaine):
         self.__logger.info("Debut backup domaine : %s" % domaine)
@@ -300,6 +329,8 @@ class IntakeBackup(IntakeHandler):
                         'domaine': domaine['domaine'],
                         'erreur': "%s" % e
                     })
+
+        await self.completer_backup()
 
         # Effectuer rotation backup (local)
         await self.rotation_backup()
