@@ -25,9 +25,11 @@ class IntakeBackup(IntakeHandler):
     Recoit aussi les backup incrementaux (aucune orchestration requise).
     """
 
-    def __init__(self, stop_event: asyncio.Event, etat_instance: EtatInstance, timeout_cycle: Optional[int] = None):
+    def __init__(self, stop_event: asyncio.Event, etat_instance: EtatInstance, timeout_cycle: Optional[int] = None, triggers_complete: Optional[list] = None):
         super().__init__(stop_event, etat_instance, timeout_cycle)
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+
+        self.__triggers_completes = triggers_complete
 
         # Variables partagees par une meme job
         self.__debut_backup: Optional[datetime.datetime] = None
@@ -39,6 +41,11 @@ class IntakeBackup(IntakeHandler):
         self.__event_attente_fichiers: Optional[asyncio.Event] = None
         self.__notices: Optional[list] = None
         self.__compteur_fichiers_domaine: Optional[int] = None
+
+    async def trigger_backup_complete(self):
+        if self.__triggers_completes is not None:
+            for trigger in self.__triggers_completes:
+                await trigger()
 
     async def traiter_prochaine_job(self) -> Optional[dict]:
         self.__logger.debug("Traiter job backup")
@@ -258,7 +265,7 @@ class IntakeBackup(IntakeHandler):
         with open(os.path.join(path_domaine, Constantes.FICHIER_BACKUP_COURANT), 'w') as fichier:
             json.dump(self.__info_backup, fichier)
 
-        await self._etat_instance.trigger_backup_complete()
+        await self.trigger_backup_complete()
 
     async def backup_domaine(self, domaine):
         self.__logger.info("Debut backup domaine : %s" % domaine)

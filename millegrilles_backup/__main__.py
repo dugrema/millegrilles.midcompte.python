@@ -41,7 +41,7 @@ class BackupMain:
         self.__config.parse_config(self.__args.__dict__)
 
         await self._etat_backup.reload_configuration()
-        self.__intake_backups = IntakeBackup(self._stop_event, self._etat_backup)
+        self.__intake_backups = IntakeBackup(self._stop_event, self._etat_backup, triggers_complete=[self.trigger_backup_complete])
         self.__restauration_handler = HandlerRestauration(self._stop_event, self._etat_backup)
         self.__consignation_handler = ConsignationHandler(self._stop_event, self._etat_backup)
 
@@ -54,6 +54,9 @@ class BackupMain:
         # S'assurer d'avoir le repertoire de staging
         dir_backup = self._etat_backup.configuration.dir_backup
         os.makedirs(dir_backup, exist_ok=True)
+
+    async def trigger_backup_complete(self):
+        await self.__consignation_handler.trigger()
 
     async def run(self):
 

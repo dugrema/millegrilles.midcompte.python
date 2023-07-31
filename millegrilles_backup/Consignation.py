@@ -22,8 +22,6 @@ class ConsignationHandler:
         self.__trigger_consignation: Optional[asyncio.Event] = None
         self.__url_consignation: Optional[str] = None
 
-        self.__etat_instance.ajouter_listener_backup_complete(self.trigger)
-
     async def configurer(self):
         self.__trigger_consignation = asyncio.Event()
 
