@@ -6,13 +6,14 @@ import signal
 
 from typing import Optional
 
-from millegrilles_messages.MilleGrillesConnecteur import EtatInstance, MilleGrillesConnecteur
+from millegrilles_messages.MilleGrillesConnecteur import MilleGrillesConnecteur
 
 from millegrilles_backup.Configuration import ConfigurationBackup
 from millegrilles_backup.Commandes import CommandHandler
 from millegrilles_backup.Intake import IntakeBackup
 from millegrilles_backup.Restauration import HandlerRestauration
 from millegrilles_backup.Consignation import ConsignationHandler
+from millegrilles_backup.EtatBackup import EtatBackup
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class BackupMain:
     def __init__(self, args: argparse.Namespace):
         self.__args = args
         self.__config = ConfigurationBackup()
-        self._etat_backup = EtatInstance(self.__config)
+        self._etat_backup = EtatBackup(self.__config)
 
         self.__rabbitmq_dao: Optional[MilleGrillesConnecteur] = None
 
