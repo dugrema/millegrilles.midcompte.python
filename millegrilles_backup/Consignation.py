@@ -24,11 +24,11 @@ class ConsignationHandler:
         self.__url_consignation: Optional[str] = None
         self.__queue_upload: Optional[asyncio.Queue] = None
 
-        self.__session_http = None
+        self.__session_http: aiohttp.ClientSession = None
 
     async def configurer(self):
         self.__trigger_consignation = asyncio.Event()
-        self.__queue_upload = asyncio.Queue()
+        self.__queue_upload = asyncio.Queue(maxsize=1000)
 
     async def trigger(self):
         self.__trigger_consignation.set()
@@ -37,6 +37,7 @@ class ConsignationHandler:
         await asyncio.gather(self.thread_upload(), self.thread_preparer())
 
     async def thread_upload(self):
+        timeout = aiohttp.ClientTimeout(connect=5, total=120)
         stop_wait_task = asyncio.create_task(self.__stop_event.wait())
         while self.__stop_event.is_set() is False:
             done, pending = await asyncio.wait([stop_wait_task, self.__queue_upload.get()], return_when=asyncio.FIRST_COMPLETED)
@@ -45,8 +46,16 @@ class ConsignationHandler:
 
             # On a recu un fichier a uploader
             task_item_upload = done.pop()
-            item_upload = task_item_upload.result()
+            item_upload: dict = task_item_upload.result()
             self.__logger.debug("Uploader fichier %s" % item_upload)
+
+            if self.__session_http is None or self.__session_http.closed:
+                self.__session_http = aiohttp.ClientSession(timeout=timeout)
+
+            try:
+                await self.upload_fichier(item_upload)
+            except:
+                self.__logger.exception("Erreur upload fichier %s" % item_upload)
 
     async def thread_preparer(self):
         self.__logger.info("run Demarrer ConsignationHandler")
@@ -173,7 +182,19 @@ class ConsignationHandler:
                     nom_fichier = fichier_info['nom_fichier']
                     present = reponse_fichiers.get(nom_fichier)
                     if present is not True:
+                        # Ajouter liste des fichiers manquants a la Q de transfert
                         await self.__queue_upload.put(fichier_info)
 
-    # Ajouter liste des fichiers manquants a la Q de transfert
-        #await self.__queue_upload.put(info_fichier)
+    async def upload_fichier(self, info_fichier: dict):
+        uuid_backup = info_fichier['uuid_backup']
+        domaine = info_fichier['domaine']
+        nom_fichier = info_fichier['nom_fichier']
+        path_fichier = info_fichier['fullpath']
+
+        url_upload = f"{self.__url_consignation}/fichiers_transfert/backup/upload/{uuid_backup}/{domaine}/{nom_fichier}"
+        self.__logger.debug("Uploader fichier backup vers %s" % url_upload)
+
+        with open(path_fichier, 'rb') as fichier:
+            reponse = await self.__session_http.put(url_upload, data=fichier, ssl=self.__etat_instance.ssl_context)
+
+        self.__logger.debug("Reponse upload fichier status : %s" % reponse.status)
