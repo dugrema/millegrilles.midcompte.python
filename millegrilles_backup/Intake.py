@@ -178,25 +178,21 @@ class IntakeBackup(IntakeHandler):
         configuration = self._etat_instance.configuration
         dir_backup = configuration.dir_backup
 
-        try:
-            shutil.rmtree(os.path.join(dir_backup, 'transactions.3'))
-        except FileNotFoundError:
-            pass
-
-        for i in range(2, 0, -1):
-            path_transactions_prev = os.path.join(dir_backup, 'transactions.%d' % i)
-            path_transactions_next = os.path.join(dir_backup, 'transactions.%d' % (i+1))
-            try:
-                os.rename(path_transactions_prev, path_transactions_next)
-            except FileNotFoundError:
-                pass
-
         path_transactions = os.path.join(dir_backup, 'transactions')
         try:
-            os.rename(path_transactions, os.path.join(dir_backup, 'transactions.1'))
+            path_fichier_data = os.path.join(path_transactions, Constantes.FICHIER_BACKUP_COURANT)
+            with open(path_fichier_data, 'r') as fichier:
+                info_backup = json.load(fichier)
+            uuid_backup = info_backup['uuid_backup']
+            path_destination = os.path.join(dir_backup, uuid_backup)
+            os.rename(path_transactions, os.path.join(dir_backup, path_destination))
+        except KeyError:
+            self.__logger.debug("Backup set %s invalide, on le supprime", path_transactions)
+            shutil.rmtree(path_transactions)
         except FileNotFoundError:
             pass
 
+        # Renommer staging vers transactions (backup courant)
         path_staging = os.path.join(dir_backup, 'staging')
         os.rename(path_staging, path_transactions)
 

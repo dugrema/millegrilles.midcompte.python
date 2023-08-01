@@ -1,3 +1,5 @@
+import shutil
+
 import aiohttp
 import asyncio
 import logging
@@ -103,7 +105,7 @@ class ConsignationHandler:
             timeout = 3600
 
             try:
-                await self.emettre_message_entretien_consignation()
+                await self.entretien_consignation()
             except:
                 self.__logger.exception("Erreur emission message entretien consignation")
 
@@ -227,8 +229,8 @@ class ConsignationHandler:
 
         self.__logger.debug("Reponse upload fichier status : %s" % reponse.status)
 
-    async def emettre_message_entretien_consignation(self):
-        self.__logger.debug("emettre_message_entretien_consignation Debut")
+    async def entretien_consignation(self):
+        self.__logger.debug("entretien_consignation Debut")
 
         # Parcourir tous les backup, charger info
         configuration = self.__etat_instance.configuration
@@ -254,10 +256,21 @@ class ConsignationHandler:
 
         # Conserver les 3 plus recents
         backups_recents = liste_backups[-3:]
-
         uuid_backups_recents = [b['uuid_backup'] for b in backups_recents]
 
-        commande = {'uuid_backups': uuid_backups_recents}
+        for backup_set in os.listdir(dir_backups):
+            path_dir = os.path.join(dir_backups, backup_set)
+            if os.path.isdir(path_dir):
+                if backup_set not in uuid_backups_recents:
+                    self.__logger.info("Supprimer vieux backup %s" % path_dir)
+                    shutil.rmtree(path_dir)
+
+        await self.emettre_message_entretien_consignation(uuid_backups_recents)
+
+    async def emettre_message_entretien_consignation(self, uuid_backups: list):
+        self.__logger.debug("emettre_message_entretien_consignation Debut")
+
+        commande = {'uuid_backups': uuid_backups}
         producer = self.__etat_instance.producer
         await asyncio.wait_for(producer.producer_pret().wait(), 5_000)
         await producer.executer_commande(
