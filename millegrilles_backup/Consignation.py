@@ -4,8 +4,10 @@ import logging
 import json
 import os
 
+from operator import attrgetter
 from typing import Optional
 
+from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
 from millegrilles_backup import Constantes
 from millegrilles_backup.EtatBackup import EtatBackup
 
@@ -34,7 +36,11 @@ class ConsignationHandler:
         self.__trigger_consignation.set()
 
     async def run(self):
-        await asyncio.gather(self.thread_upload(), self.thread_preparer())
+        await asyncio.gather(
+            self.thread_upload(),
+            self.thread_preparer(),
+            self.thread_entretien()
+        )
 
     async def thread_upload(self):
         timeout = aiohttp.ClientTimeout(connect=5, total=120)
@@ -86,6 +92,20 @@ class ConsignationHandler:
                 self.__logger.exception("Erreur execution upload backup vers consignation")
 
         self.__logger.info("run Arreter ConsignationHandler")
+
+    async def thread_entretien(self):
+        stop_wait_task = asyncio.create_task(self.__stop_event.wait())
+        timeout = 10
+        while self.__stop_event.is_set() is False:
+            await asyncio.wait([stop_wait_task], timeout=timeout)
+            if self.__stop_event.is_set() is True:
+                break  # Fermer application
+            timeout = 3600
+
+            try:
+                await self.emettre_message_entretien_consignation()
+            except:
+                self.__logger.exception("Erreur emission message entretien consignation")
 
     async def run_consignation(self):
         self.__logger.debug("run_consignation Debut")
@@ -198,3 +218,40 @@ class ConsignationHandler:
             reponse = await self.__session_http.put(url_upload, data=fichier, ssl=self.__etat_instance.ssl_context)
 
         self.__logger.debug("Reponse upload fichier status : %s" % reponse.status)
+
+    async def emettre_message_entretien_consignation(self):
+        self.__logger.debug("emettre_message_entretien_consignation Debut")
+
+        # Parcourir tous les backup, charger info
+        configuration = self.__etat_instance.configuration
+        dir_backups = os.path.join(configuration.dir_backup)
+
+        liste_backups = list()
+
+        for backup_set in os.listdir(dir_backups):
+            path_dir = os.path.join(dir_backups, backup_set)
+            if os.path.isdir(path_dir):
+                # Charger info
+                path_info = os.path.join(path_dir, Constantes.FICHIER_BACKUP_COURANT)
+                try:
+                    with open(path_info, 'r') as fichier:
+                        info_backup = json.load(fichier)
+                        date_backup = info_backup['date']  # S'assurer d'avoir la date dans le backup
+                        liste_backups.append(info_backup)
+                except (FileNotFoundError, KeyError):
+                    pass  # On ignore ce repertoire
+
+        # Trier les backups par date
+        liste_backups.sort(key=lambda b: b['date'])
+
+        # Conserver les 3 plus recents
+        backups_recents = liste_backups[-3:]
+
+        uuid_backups_recents = [b['uuid_backup'] for b in backups_recents]
+
+        commande = {'uuid_backups': uuid_backups_recents}
+        producer = self.__etat_instance.producer
+        await asyncio.wait_for(producer.producer_pret().wait(), 5_000)
+        await producer.executer_commande(
+            commande, ConstantesMillegrilles.DOMAINE_FICHIERS, 'entretienBackup',
+            exchange=ConstantesMillegrilles.SECURITE_PRIVE)
