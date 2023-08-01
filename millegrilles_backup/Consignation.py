@@ -234,7 +234,7 @@ class ConsignationHandler:
 
         # Parcourir tous les backup, charger info
         configuration = self.__etat_instance.configuration
-        dir_backups = os.path.join(configuration.dir_backup)
+        dir_backups = configuration.dir_backup
 
         liste_backups = list()
 
@@ -248,17 +248,24 @@ class ConsignationHandler:
                         info_backup = json.load(fichier)
                         date_backup = info_backup['date']  # S'assurer d'avoir la date dans le backup
                         liste_backups.append(info_backup)
-                except (FileNotFoundError, KeyError):
-                    pass  # On ignore ce repertoire
+                except (FileNotFoundError, KeyError) as e:
+                    # On n'inclue pas ce repertoire, il va etre supprime
+                    self.__logger.warning("Erreur lecture repertoire backup %s, pas inclus pour conserver : ERR %s" % (path_dir, e))
 
         # Trier les backups par date
         liste_backups.sort(key=lambda b: b['date'])
 
-        # Conserver les 3 plus recents
-        backups_recents = liste_backups[-3:]
+        if len(liste_backups) > 5:
+            # Conserver les 3 plus recents
+            backups_recents = liste_backups[-5:]
+        else:
+            backups_recents = liste_backups
         uuid_backups_recents = [b['uuid_backup'] for b in backups_recents]
 
         for backup_set in os.listdir(dir_backups):
+            if backup_set == 'transactions':
+                continue  # Skip, c'est le repertoire backup courant
+
             path_dir = os.path.join(dir_backups, backup_set)
             if os.path.isdir(path_dir):
                 if backup_set not in uuid_backups_recents:
