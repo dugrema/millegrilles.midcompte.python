@@ -66,7 +66,7 @@ class ConsignationHandler:
     async def thread_preparer(self):
         self.__logger.info("run Demarrer ConsignationHandler")
 
-        timeout = 10  # Timeout initial, 10 secondes
+        timeout = 15  # Timeout initial
 
         stop_wait_task = asyncio.create_task(self.__stop_event.wait())
         while self.__stop_event.is_set() is False:
@@ -121,15 +121,19 @@ class ConsignationHandler:
         dir_backup = os.path.join(configuration.dir_backup, 'transactions')
 
         # Parcourir liste de domaines a synchroniser
-        for path_item in os.listdir(dir_backup):
-            path_complet = os.path.join(dir_backup, path_item)
-            if os.path.isdir(path_complet) is False:
-                continue  # On veut juste les domaines
+        try:
+            for path_item in os.listdir(dir_backup):
+                path_complet = os.path.join(dir_backup, path_item)
+                if os.path.isdir(path_complet) is False:
+                    continue  # On veut juste les domaines
 
-            # Comparer liste locale avec serveur
-            await self.queue_fichiers_a_uploader(uuid_backup, dir_backup, path_item)
+                # Comparer liste locale avec serveur
+                await self.queue_fichiers_a_uploader(uuid_backup, dir_backup, path_item)
 
-            # Uploader fichiers manquants
+                # Uploader fichiers manquants
+        except FileNotFoundError:
+            self.__logger.info("run_consignation backup %s absent, skip entretien" % dir_backup)
+            return
 
         self.__logger.debug("run_consignation Fin")
 
@@ -137,8 +141,12 @@ class ConsignationHandler:
         configuration = self.__etat_instance.configuration
 
         dir_backup = configuration.dir_backup
-        with open(os.path.join(dir_backup, 'transactions', Constantes.FICHIER_BACKUP_COURANT), 'r') as fichier:
-            config = json.load(fichier)
+        try:
+            with open(os.path.join(dir_backup, 'transactions', Constantes.FICHIER_BACKUP_COURANT), 'r') as fichier:
+                config = json.load(fichier)
+        except FileNotFoundError:
+            self.__logger.info("Repertoire de backup %s absent ou vide (aucuns backup disponibles)", dir_backup)
+            return
 
         if config['en_cours'] is True:
             raise Exception('Backup en cours - ABORT')

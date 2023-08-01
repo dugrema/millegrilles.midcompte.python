@@ -12,7 +12,7 @@ class ConfigurationBackup(ConfigurationAbstract):
 
     def __init__(self):
         super().__init__()
-        self.dir_backup = '/var/opt/millegrilles/consignation/backup'
+        self.dir_backup = '/var/opt/millegrilles/consignation/backupService'
 
     def get_params_list(self) -> list:
         params = super().get_params_list()
