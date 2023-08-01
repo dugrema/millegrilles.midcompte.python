@@ -434,6 +434,6 @@ class IntakeBackup(IntakeHandler):
 
         else:
             # Backup incremental
-            pass
+            await self.trigger_backup_complete()
 
         return {'ok': True}
