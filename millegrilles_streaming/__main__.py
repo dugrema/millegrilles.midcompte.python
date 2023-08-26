@@ -67,6 +67,7 @@ class StreamingMain:
             self.__intake.run(),
             self._etat.run(self._stop_event, self.__rabbitmq_dao),
             self.__web_server.run(self._stop_event),
+            self.__consignation_handler.run(),
         ]
 
         await asyncio.gather(*threads)

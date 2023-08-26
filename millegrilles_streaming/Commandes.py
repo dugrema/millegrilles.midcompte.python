@@ -97,29 +97,14 @@ class CommandHandler(CommandesAbstract):
         elif minute % 20 == 0:
             pass
 
-    async def traiter_fuuid(self, fuuid: str, params: dict) -> InformationFuuid:
+    async def traiter_fuuid(self, fuuid: str, jwt_token: str, params: dict) -> InformationFuuid:
         """
         Traite une requete web pour un fuuid.
         :param fuuid:
         :param params: Parametres de dechiffrage, mimetype, etc
         :return:
         """
-        # Verifier si le fichier est deja dechiffre
-        reponse = self.__intake.get_fichier_dechiffre(fuuid)
-        if reponse is not None:
-            return reponse
-
         # Verifier si le fichier est dans le download folder
+        reponse = await self.__intake.attendre_download(fuuid, jwt_token, params, timeout=3)
 
-        # Ajouter a la liste des reponses pending
-
-        # Ajouter le download et attendre
-
-        # Recuperer l'information sur le progres du download (si applicable)
-        reponse = self.__intake.get_fichier_dechiffre(fuuid)
-        if reponse is not None:
-            # Le dechiffrage est termine
-            return reponse
-
-        reponse = self.__intake.get_progres_download(fuuid)
-
+        return reponse

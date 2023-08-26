@@ -65,7 +65,7 @@ class WebServer:
                 return web.HTTPUnauthorized()
 
             # Verifier si le fichier existe deja (dechiffre)
-            reponse = await self.__commandes.traiter_fuuid(fuuid, claims)
+            reponse = await self.__commandes.traiter_fuuid(fuuid, jwt_token, claims)
             if reponse is None:
                 # On n'a aucune information sur ce fichier/download.
                 self.__logger.warning("handle_path_fuuid Aucune information sur le download %s", fuuid)
@@ -82,14 +82,14 @@ class WebServer:
                 # Repondre avec le stream demande
                 return await self.stream_reponse(headers, reponse)
 
-            # HTTP 202 - indique au client qu'il doit aussi se connecter au serveur 3.protege (avec mq)
+            # HTTP 204 - le contenu n'est pas pret
             if reponse.position_courante is not None:
                 headers_response = {
                     'Content-Type': reponse.mimetype,
-                    'X-File-Size': reponse.taille,
-                    'X-File-Position': reponse.position_courante,
+                    'X-File-Size': str(reponse.taille),
+                    'X-File-Position': str(reponse.position_courante),
                 }
-                return web.Response(status=202, headers=headers_response)
+                return web.Response(status=204, headers=headers_response)
 
             return web.HTTPInternalServerError()  # Fix me
 
