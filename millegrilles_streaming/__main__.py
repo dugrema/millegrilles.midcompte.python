@@ -8,11 +8,13 @@ from typing import Optional
 
 from millegrilles_messages.MilleGrillesConnecteur import MilleGrillesConnecteur
 
+from millegrilles_streaming import Constantes
 from millegrilles_streaming.Configuration import ConfigurationStreaming
 from millegrilles_streaming.EtatStreaming import EtatStreaming
 from millegrilles_streaming.Commandes import CommandHandler
 from millegrilles_streaming.Intake import IntakeStreaming
 from millegrilles_streaming.Consignation import ConsignationHandler
+from millegrilles_streaming.WebServer import WebServer
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,7 @@ class StreamingMain:
         self._etat = EtatStreaming(self.__config)
 
         self.__rabbitmq_dao: Optional[MilleGrillesConnecteur] = None
+        self.__web_server: Optional[WebServer] = None
 
         self.__commandes_handler: Optional[CommandHandler] = None
         self.__intake: Optional[IntakeStreaming] = None
@@ -50,17 +53,22 @@ class StreamingMain:
         await self.__consignation_handler.configurer()
 
         # S'assurer d'avoir le repertoire de staging
-        dir_staging = self._etat.configuration.dir_staging
-        os.makedirs(dir_staging, exist_ok=True)
+        dir_download = os.path.join(self._etat.configuration.dir_staging, Constantes.DIR_DOWNLOAD)
+        os.makedirs(dir_download, exist_ok=True)
+        dir_dechiffre = os.path.join(self._etat.configuration.dir_staging, Constantes.DIR_DECHIFFRE)
+        os.makedirs(dir_dechiffre, exist_ok=True)
+
+        self.__web_server = WebServer(self._etat, self.__commandes_handler)
+        self.__web_server.setup()
 
     async def run(self):
 
         threads = [
             self.__rabbitmq_dao.run(),
-            # self.__intake_backups.run(),
-            # self.__restauration_handler.run(),
-            # self.__consignation_handler.run(),
+            self.__intake.run(),
+            self.__consignation_handler.run(),
             self._etat.run(self._stop_event, self.__rabbitmq_dao),
+            self.__web_server.run(self._stop_event),
         ]
 
         await asyncio.gather(*threads)

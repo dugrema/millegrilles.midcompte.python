@@ -47,22 +47,23 @@ class ConsignationHandler:
         timeout = aiohttp.ClientTimeout(connect=5, total=120)
         stop_wait_task = asyncio.create_task(self.__stop_event.wait())
         while self.__stop_event.is_set() is False:
-            done, pending = await asyncio.wait([stop_wait_task, self.__queue_upload.get()], return_when=asyncio.FIRST_COMPLETED)
+            done, pending = await asyncio.wait([stop_wait_task, self.__queue_download.get()], return_when=asyncio.FIRST_COMPLETED)
             if self.__stop_event.is_set() is True:
                 break  # Fermeture de l'application
 
             # On a recu un fichier a uploader
             task_item_upload = done.pop()
-            item_upload: dict = task_item_upload.result()
-            self.__logger.debug("Uploader fichier %s" % item_upload)
+            item_download: dict = task_item_upload.result()
+            self.__logger.debug("Uploader fichier %s" % item_download)
 
             if self.__session_http is None or self.__session_http.closed:
                 self.__session_http = aiohttp.ClientSession(timeout=timeout)
 
-            try:
-                await self.upload_fichier(item_upload)
-            except:
-                self.__logger.exception("Erreur upload fichier %s" % item_upload)
+            raise NotImplementedError('fix me')
+            # try:
+            #     await self.download_fichier(item_download)
+            # except:
+            #     self.__logger.exception("Erreur upload fichier %s" % item_download)
 
     async def thread_preparer(self):
         self.__logger.info("run Demarrer ConsignationHandler")

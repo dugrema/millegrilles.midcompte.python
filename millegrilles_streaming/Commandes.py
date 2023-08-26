@@ -1,8 +1,9 @@
 import datetime
 import logging
-
 import pytz
+
 from cryptography.x509.extensions import ExtensionNotFound
+from typing import Optional
 
 from millegrilles_messages.messages import Constantes as ConstantesMilleGrilles
 from millegrilles_messages.messages.MessagesModule import MessageWrapper
@@ -13,6 +14,19 @@ from millegrilles_messages.MilleGrillesConnecteur import CommandHandler as Comma
 
 from millegrilles_streaming.Intake import IntakeStreaming
 from millegrilles_streaming import Constantes
+
+
+class InformationFuuid:
+
+    def __init__(self, fuuid):
+        self.fuuid = fuuid
+        self.taille: Optional[int] = None               # Taille du fichier
+        self.position_courante: Optional[int] = None    # Position courante de dechiffrage
+        self.path_complet: Optional[str] = None         # Path complet sur disque du fichier dechiffre
+
+    @property
+    def est_pret(self):
+        return self.path_complet is not None
 
 
 class CommandHandler(CommandesAbstract):
@@ -110,3 +124,12 @@ class CommandHandler(CommandesAbstract):
                 Constantes.COMMANDE_DECLENCHER_BACKUP,
                 exchanges=ConstantesMilleGrilles.SECURITE_PRIVE
             )
+
+    async def traiter_fuuid(self, fuuid, blocking=True):
+        """
+        Traite une requete web pour un fuuid.
+        :param fuuid:
+        :param blocking:
+        :return:
+        """
+        pass
