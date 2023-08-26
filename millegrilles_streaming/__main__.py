@@ -43,14 +43,13 @@ class StreamingMain:
         self.__config.parse_config(self.__args.__dict__)
 
         await self._etat.reload_configuration()
-        self.__intake = IntakeStreaming(self._stop_event, self._etat)
         self.__consignation_handler = ConsignationHandler(self._stop_event, self._etat)
+        self.__intake = IntakeStreaming(self._stop_event, self._etat, self.__consignation_handler)
 
         self.__commandes_handler = CommandHandler(self._etat, self.__intake)
         self.__rabbitmq_dao = MilleGrillesConnecteur(self._stop_event, self._etat, self.__commandes_handler)
 
         await self.__intake.configurer()
-        await self.__consignation_handler.configurer()
 
         # S'assurer d'avoir le repertoire de staging
         dir_download = os.path.join(self._etat.configuration.dir_staging, Constantes.DIR_DOWNLOAD)
@@ -66,7 +65,6 @@ class StreamingMain:
         threads = [
             self.__rabbitmq_dao.run(),
             self.__intake.run(),
-            self.__consignation_handler.run(),
             self._etat.run(self._stop_event, self.__rabbitmq_dao),
             self.__web_server.run(self._stop_event),
         ]

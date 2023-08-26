@@ -76,3 +76,26 @@ class ConfigurationWeb:
         self.web_cert_pem_path = dict_params.get(ConstantesMessages.ENV_CERT_PEM) or self.web_cert_pem_path
         self.web_key_pem_path = dict_params.get(ConstantesMessages.ENV_KEY_PEM) or self.web_key_pem_path
         self.port = int(dict_params.get(Constantes.ENV_WEB_PORT) or self.port)
+
+
+class InformationFuuid:
+
+    def __init__(self, fuuid, params: Optional[dict] = None):
+        self.fuuid = fuuid
+        self.taille: Optional[int] = None               # Taille du fichier
+        self.mimetype: Optional[str] = None             # Mimetype du fichier dechiffre
+        self.status: Optional[int] = None               # Status du back-end/consignation
+        self.position_courante: Optional[int] = None    # Position courante de dechiffrage
+        self.path_complet: Optional[str] = None         # Path complet sur disque du fichier dechiffre
+
+        if params is not None:
+            self.set_params(params)
+
+    def set_params(self, params: dict):
+        self.taille = params.get('taille')
+        self.mimetype = params.get('mimetype')
+        self.status = params.get('status')
+
+    @property
+    def est_pret(self):
+        return self.path_complet is not None
