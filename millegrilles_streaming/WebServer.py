@@ -8,11 +8,11 @@ from aiohttp.web_request import Request
 from asyncio import Event
 from asyncio.exceptions import TimeoutError
 from ssl import SSLContext
-from typing import Optional
+from typing import Optional, Union
 
 from millegrilles_streaming.Configuration import ConfigurationWeb
 from millegrilles_streaming.EtatStreaming import EtatStreaming
-from millegrilles_streaming.Commandes import CommandHandler
+from millegrilles_streaming.Commandes import CommandHandler, InformationFuuid
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 
 
@@ -50,23 +50,47 @@ class WebServer:
     async def handle_path_fuuid(self, request: Request):
         fuuid = request.match_info['fuuid']
         headers = request.headers
-        jwt = request.query.get('jwt')
+        jwt_token = request.query.get('jwt')
 
-        if jwt is None:
+        if jwt_token is None:
             # Token JWT absent
             self.__logger.debug("handle_path_fuuid ERROR jwt absent pour requete sur fuuid %s" % fuuid)
             return web.HTTPForbidden()
 
         self.__logger.debug("handle_path_fuuid Requete sur fuuid %s" % fuuid)
         try:
-            if await self.verifier_token_jwt(jwt, fuuid) is False:
+            claims = await self.verifier_token_jwt(jwt_token, fuuid)
+            if claims is False:
                 self.__logger.debug("handle_path_fuuid ERROR jwt refuse pour requete sur fuuid %s" % fuuid)
                 return web.HTTPUnauthorized()
 
+            # Verifier si le fichier existe deja (dechiffre)
+            reponse = await self.__commandes.traiter_fuuid(fuuid, claims)
+            if reponse is None:
+                # On n'a aucune information sur ce fichier/download.
+                self.__logger.warning("handle_path_fuuid Aucune information sur le download %s", fuuid)
+                return web.HTTPInternalServerError()
+
+            if reponse.status == 404:
+                # Fichier inconnu localement
+                return web.HTTPNotFound
+            elif reponse.status is not None and reponse.status != 200:
+                # On a une erreur du back-end (consignation)
+                return web.HTTPInternalServerError()
+
+            if reponse.est_pret:
+                # Repondre avec le stream demande
+                return await self.stream_reponse(headers, reponse)
+
             # HTTP 202 - indique au client qu'il doit aussi se connecter au serveur 3.protege (avec mq)
-            # return web.HTTPAccepted()
-            # HTTP 200
-            #return web.HTTPOk()
+            if reponse.position_courante is not None:
+                headers_response = {
+                    'Content-Type': reponse.mimetype,
+                    'X-File-Size': reponse.taille,
+                    'X-File-Position': reponse.position_courante,
+                }
+                return web.Response(status=202, headers=headers_response)
+
             return web.HTTPInternalServerError()  # Fix me
 
         except Exception:
@@ -103,7 +127,7 @@ class WebServer:
             self.__logger.info("Site arrete")
             await runner.cleanup()
 
-    async def verifier_token_jwt(self, token: str, fuuid: str) -> bool:
+    async def verifier_token_jwt(self, token: str, fuuid: str) -> Union[bool, dict]:
         # Recuperer kid, charger certificat pour validation
         header = jwt.get_unverified_header(token)
         fingerprint = header['kid']
@@ -126,4 +150,11 @@ class WebServer:
 
         self.__logger.debug("JWT claims pour %s = %s" % (fuuid, claims))
 
-        return True
+        if claims['sub'] != fuuid:
+            # JWT pour le mauvais fuuid
+            return False
+
+        return claims
+
+    async def stream_reponse(self, headers, info: InformationFuuid):
+        raise NotImplementedError('fix me')

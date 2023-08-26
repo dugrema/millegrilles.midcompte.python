@@ -1,5 +1,8 @@
 import datetime
+import json
 import logging
+import os
+import pathlib
 import pytz
 
 from cryptography.x509.extensions import ExtensionNotFound
@@ -18,11 +21,21 @@ from millegrilles_streaming import Constantes
 
 class InformationFuuid:
 
-    def __init__(self, fuuid):
+    def __init__(self, fuuid, params: Optional[dict] = None):
         self.fuuid = fuuid
         self.taille: Optional[int] = None               # Taille du fichier
+        self.mimetype: Optional[str] = None             # Mimetype du fichier dechiffre
+        self.status: Optional[int] = None               # Status du back-end/consignation
         self.position_courante: Optional[int] = None    # Position courante de dechiffrage
         self.path_complet: Optional[str] = None         # Path complet sur disque du fichier dechiffre
+
+        if params is not None:
+            self.set_params(params)
+
+    def set_params(self, params: dict):
+        self.taille = params.get('taille')
+        self.mimetype = params.get('mimetype')
+        self.status = params.get('status')
 
     @property
     def est_pret(self):
@@ -125,11 +138,87 @@ class CommandHandler(CommandesAbstract):
                 exchanges=ConstantesMilleGrilles.SECURITE_PRIVE
             )
 
-    async def traiter_fuuid(self, fuuid, blocking=True):
+    async def traiter_fuuid(self, fuuid: str, params: dict) -> InformationFuuid:
         """
         Traite une requete web pour un fuuid.
         :param fuuid:
-        :param blocking:
+        :param params: Parametres de dechiffrage, mimetype, etc
         :return:
         """
-        pass
+        # Verifier si le fichier est deja dechiffre
+        reponse = self.get_fichier_dechiffre(fuuid)
+        if reponse is not None:
+            return reponse
+
+        # Verifier si le fichier est dans le download folder
+
+        # Ajouter a la liste des reponses pending
+
+        # Ajouter le download et attendre
+
+        # Recuperer l'information sur le progres du download (si applicable)
+        reponse = self.get_fichier_dechiffre(fuuid)
+        if reponse is not None:
+            # Le dechiffrage est termine
+            return reponse
+
+        reponse = self.get_progres_download(fuuid)
+
+    def get_fichier_dechiffre(self, fuuid) -> Optional[InformationFuuid]:
+        """
+        :param fuuid: Fuuid du fichier dechiffre.
+        :return: L'information pour acceder au fichier dechiffre, incluant metadonnes. None si fichier n'existe pas.
+        """
+        path_dechiffre_dat = pathlib.Path(os.path.join(self.get_path_dechiffre(), fuuid + '.dat'))
+
+        try:
+            stat_dat = path_dechiffre_dat.stat()
+        except FileNotFoundError:
+            return None
+
+        # Touch le fichier pour indiquer qu'on l'utilise encore
+        path_dechiffre_dat.touch()
+
+        # Charger les metadonnees (json associe)
+        path_dechiffre_json = pathlib.Path(os.path.join(self.get_path_dechiffre(), fuuid + '.json'))
+        with path_dechiffre_json.open() as fichier:
+            info_json = json.load(fichier)
+
+        info = InformationFuuid(fuuid, info_json)
+        info.path_complet = str(path_dechiffre_dat)
+        info.taille = stat_dat.st_size
+
+        return info
+
+    def get_progres_download(self, fuuid) -> Optional[InformationFuuid]:
+        path_dechiffre_json = pathlib.Path(os.path.join(self.get_path_download(), fuuid + '.json'))
+
+        if path_dechiffre_json.exists() is False:
+            # Le fichier n'est pas en download / traitement
+            return None
+
+        with path_dechiffre_json.open() as fichier:
+            contenu_json = json.load(fichier)
+
+        path_dechiffre_dat = pathlib.Path(os.path.join(self.get_path_download(), fuuid + '.work'))
+        try:
+            stat_dat = path_dechiffre_dat.stat()
+        except FileNotFoundError:
+            # On n'a pas de fichier .work. Retourner le contenu du .json (peut avoir un status d'erreur, e.g. 404).
+            reponse = InformationFuuid(fuuid, contenu_json)
+            reponse.position_courante = 0
+            return reponse
+
+        # Retourner l'information du fichier avec taille totale et position courante
+        reponse = InformationFuuid(fuuid, contenu_json)
+        reponse.position_courante = stat_dat.st_size
+
+        return reponse
+
+    def get_path_dechiffre(self):
+        path_staging = self.__etat_instance.configuration.dir_staging
+        return os.path.join(path_staging, Constantes.ENV_DIR_STAGING, Constantes.DIR_DECHIFFRE)
+
+    def get_path_download(self):
+        path_staging = self.__etat_instance.configuration.dir_staging
+        return os.path.join(path_staging, Constantes.ENV_DIR_STAGING, Constantes.DIR_DOWNLOAD)
