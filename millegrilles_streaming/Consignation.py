@@ -54,6 +54,11 @@ class ConsignationHandler:
 
     async def charger_consignation_url(self):
         producer = self.__etat_instance.producer
+        if producer is None:
+            await asyncio.sleep(5)  # Attendre connexion MQ
+            producer = self.__etat_instance.producer
+            if producer is None:
+                raise Exception('producer pas pret')
         await asyncio.wait_for(producer.producer_pret().wait(), 30)
 
         reponse = await producer.executer_requete(
