@@ -67,7 +67,7 @@ class IntakeStreaming(IntakeHandler):
         while self._stop_event.is_set() is False:
             self.__logger.debug("Entretien dechiffre")
             path_dechiffre = pathlib.Path(self.get_path_dechiffre())
-            fuuids_supprimes = entretien_dechiffre(path_dechiffre, timeout=120)
+            fuuids_supprimes = entretien_dechiffre(path_dechiffre)
             await asyncio.wait([wait_coro], timeout=300)
 
     async def traiter_prochaine_job(self) -> Optional[dict]:
@@ -279,13 +279,15 @@ class IntakeStreaming(IntakeHandler):
             event_attente = self.__events_fuuids[fuuid]
 
         if timeout is not None:
-            coro_stop = self._stop_event.wait()
             done, pending = await asyncio.wait(
-                [coro_stop, event_attente.wait()], timeout=timeout, return_when=asyncio.tasks.FIRST_COMPLETED)
+                [self._stop_event.wait(), event_attente.wait()], timeout=timeout, return_when=asyncio.tasks.FIRST_COMPLETED)
             for task in pending:
                 task.cancel()
             if self._stop_event.is_set():
                 raise Exception('done')
+        else:
+            # Pas de timeout, retourner l'info qu'on a deja
+            return info
 
         info = self.get_fichier_dechiffre(fuuid)
         if info is not None:

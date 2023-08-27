@@ -208,7 +208,8 @@ class WebServer:
                 position = 0
             for chunk in input_file:
                 if end is not None and position + len(chunk) > end:
-                    await response.write(chunk)
+                    taille_chunk = end - position + 1
+                    await response.write(chunk[:taille_chunk])
                     break  # Termine
                 else:
                     await response.write(chunk)
