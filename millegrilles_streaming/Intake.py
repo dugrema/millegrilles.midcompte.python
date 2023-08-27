@@ -75,7 +75,6 @@ class IntakeStreaming(IntakeHandler):
         os.rename(path_download_fichier, path_dechiffre_fichier)
         os.rename(path_download_json, path_dechiffre_json)
 
-
     async def __ajouter_job(self, info: InformationFuuid):
         """
         :param info: Fuuid a downloader et dechiffrer.
@@ -106,7 +105,13 @@ class IntakeStreaming(IntakeHandler):
 
         try:
             # Recuperer la cle pour dechiffrer la job
-            cle_chiffree = await self.recuperer_cle(info.user_id, info.ref, info.jwt_token)
+            reponse_cle = await self.recuperer_cle(info.user_id, info.ref, info.jwt_token)
+            cle_chiffree = reponse_cle['cle']
+
+            if info.format is None:
+                # On travaille avec le fichier original, copier info chiffrage
+                info.format = reponse_cle['format']
+                info.header = reponse_cle.get('header')
 
             self.__logger.debug('Creer la job de download pour fuuid %s' % fuuid)
             job = IntakeJob(info, cle_chiffree)
@@ -133,13 +138,14 @@ class IntakeStreaming(IntakeHandler):
         if reponse_parsed['acces'] != '1.permis':
             raise Exception('acces cle refuse : %s' % reponse_parsed['acces'])
 
-        clecertificat = self._etat_instance.clecertificat
-        cle_chiffree = reponse_parsed['cles'][fuuid]['cle']
+        reponse_cle = reponse_parsed['cles'][fuuid]
 
         # Test pour voir si la cle est dechiffrable
+        clecertificat = self._etat_instance.clecertificat
+        cle_chiffree = reponse_cle['cle']
         cle_dechiffree = clecertificat.dechiffrage_asymmetrique(cle_chiffree)
 
-        return cle_chiffree
+        return reponse_cle
 
     def get_fichier_dechiffre(self, fuuid) -> Optional[InformationFuuid]:
         """
@@ -219,5 +225,9 @@ class IntakeStreaming(IntakeHandler):
 
         if timeout is not None:
             await asyncio.sleep(timeout)
+
+        info = self.get_fichier_dechiffre(fuuid)
+        if info is not None:
+            return info
 
         return self.get_progres_download(fuuid)

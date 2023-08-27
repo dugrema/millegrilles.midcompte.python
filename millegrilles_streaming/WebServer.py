@@ -2,6 +2,8 @@ import asyncio
 import logging
 import urllib.parse
 import jwt
+import pathlib
+import re
 
 from aiohttp import web
 from aiohttp.web_request import Request
@@ -80,7 +82,7 @@ class WebServer:
 
             if reponse.est_pret:
                 # Repondre avec le stream demande
-                return await self.stream_reponse(headers, reponse)
+                return await self.stream_reponse(request, reponse)
 
             # HTTP 204 - le contenu n'est pas pret
             if reponse.position_courante is not None:
@@ -89,7 +91,8 @@ class WebServer:
                     'X-File-Size': str(reponse.taille),
                     'X-File-Position': str(reponse.position_courante),
                 }
-                return web.Response(status=204, headers=headers_response)
+                # return web.Response(status=204, headers=headers_response)
+                return web.Response(status=202, headers=headers_response)  # Todo - fix code dans client pour utiliser 204
 
             return web.HTTPInternalServerError()  # Fix me
 
@@ -156,5 +159,100 @@ class WebServer:
 
         return claims
 
-    async def stream_reponse(self, headers, info: InformationFuuid):
-        raise NotImplementedError('fix me')
+    async def stream_reponse(self, request, info: InformationFuuid):
+        range_bytes = request.headers.get('Range')
+
+        fuuid = info.fuuid
+        etag = fuuid[-16:]  # ETag requis pour caching, utiliser 16 derniers caracteres du fuuid
+
+        path_fichier = pathlib.Path(info.path_complet)
+        stat_fichier = path_fichier.stat()
+        taille_fichier = stat_fichier.st_size
+
+        range_str = None
+
+        headers_response = {
+            # 'Content-Type': info.mimetype,
+            'Cache-Control': 'public, max-age=604800, immutable',
+            'Accept-Ranges': 'bytes',
+            # 'Content-Range': f'bytes */${taille_fichier}'
+        }
+        if range_bytes is not None:
+            range_parsed = parse_range(range_bytes, taille_fichier)
+            start = range_parsed['start']
+            end = range_parsed['end']
+            range_str = f'bytes {start}-{end}/{taille_fichier}'
+            headers_response['Content-Range'] = range_str
+            taille_transfert = str(end - start + 1)
+        else:
+            start = None
+            end = None
+            taille_transfert = str(taille_fichier)
+
+        # const range = req.headers.range
+        # if(range) {
+        #     debug("Range request : %s, taille fichier %s", range, res.stat.size)
+        #     const infoRange = readRangeHeader(range, res.stat.size)
+        #     debug("Range retourne : %O", infoRange)
+        #     res.range = infoRange
+        #
+        #     res.setHeader('Content-Length', infoRange.End - infoRange.Start + 1)
+        # } else {
+        #     res.setHeader('Content-Length', res.contentLength)
+        # }
+
+        # return web.HTTPInternalServerError()
+        if range_str is not None:
+            status = 206
+        else:
+            status = 200
+
+        # Preparer reponse, headers
+        response = web.StreamResponse(status=status, headers=headers_response)
+        response.content_length = taille_transfert
+        response.content_type = info.mimetype
+        response.etag = etag
+
+        await response.prepare(request)
+        with path_fichier.open(mode='rb') as input_file:
+            if start is not None and start > 0:
+                input_file.seek(start, 0)
+                position = start
+            else:
+                position = 0
+            for chunk in input_file:
+                if end is not None and position + len(chunk) > end:
+                    await response.write(chunk)
+                    break  # Termine
+                else:
+                    await response.write(chunk)
+                position += len(chunk)
+
+        await response.write_eof()
+
+
+def parse_range(range, taille_totale):
+    re_compiled = re.compile('bytes=([0-9]*)\\-([0-9]*)?')
+    m = re_compiled.search(range)
+
+    start = m.group(1)
+    if start is not None:
+        start = int(start)
+    else:
+        start = 0
+
+    end = m.group(2)
+    if end is None:
+        end = taille_totale - 1
+    else:
+        end = int(end)
+        if end > taille_totale:
+            end = taille_totale - 1
+
+    result = {
+        'start': start,
+        'end': end,
+    }
+
+    return result
+
