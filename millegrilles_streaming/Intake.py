@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import json
 import logging
 import os
@@ -13,6 +14,9 @@ from millegrilles_messages.jobs.Intake import IntakeHandler
 from millegrilles_messages.MilleGrillesConnecteur import EtatInstance
 from millegrilles_streaming.Consignation import ConsignationHandler
 from millegrilles_streaming.Configuration import InformationFuuid
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class IntakeJob:
@@ -39,9 +43,32 @@ class IntakeStreaming(IntakeHandler):
 
         self.__jobs: Optional[asyncio.Queue[IntakeJob]] = None
 
+    async def run(self):
+        await asyncio.gather(
+            super().run(),
+            self.entretien_dechiffre_thread(),
+            self.entretien_download_thread()
+        )
+
     async def configurer(self):
         self.__jobs = asyncio.Queue(maxsize=5)
         return await super().configurer()
+
+    async def entretien_download_thread(self):
+        wait_coro = self._stop_event.wait()
+        while self._stop_event.is_set() is False:
+            self.__logger.debug("Entretien download")
+            path_download = pathlib.Path(self.get_path_download())
+            fuuids_supprimes = entretien_download(path_download)
+            await asyncio.wait([wait_coro], timeout=20)
+
+    async def entretien_dechiffre_thread(self):
+        wait_coro = self._stop_event.wait()
+        while self._stop_event.is_set() is False:
+            self.__logger.debug("Entretien dechiffre")
+            path_dechiffre = pathlib.Path(self.get_path_dechiffre())
+            fuuids_supprimes = entretien_dechiffre(path_dechiffre, timeout=120)
+            await asyncio.wait([wait_coro], timeout=300)
 
     async def traiter_prochaine_job(self) -> Optional[dict]:
         self.__logger.debug("Traiter job streaming")
@@ -143,7 +170,7 @@ class IntakeStreaming(IntakeHandler):
         # Test pour voir si la cle est dechiffrable
         clecertificat = self._etat_instance.clecertificat
         cle_chiffree = reponse_cle['cle']
-        cle_dechiffree = clecertificat.dechiffrage_asymmetrique(cle_chiffree)
+        _cle_dechiffree = clecertificat.dechiffrage_asymmetrique(cle_chiffree)
 
         return reponse_cle
 
@@ -231,3 +258,83 @@ class IntakeStreaming(IntakeHandler):
             return info
 
         return self.get_progres_download(fuuid)
+
+
+def entretien_download(path_download: pathlib.Path, timeout=Constantes.CONST_TIMEOUT_DOWNLOAD):
+    dt_expiration = datetime.datetime.utcnow() - datetime.timedelta(seconds=timeout)
+    ts_expiration = dt_expiration.timestamp()
+
+    fuuids_supprimes = list()
+
+    # Supprimer les fichiers .dat (et .json associe)
+    for fichier in path_download.iterdir():
+        if fichier.match('*.work'):
+            fuuid = fichier.name.split('.')[0]
+            LOGGER.debug("Verifier expiration fichier download %s" % str(fichier))
+            stat_fichier = fichier.stat()
+            if stat_fichier.st_mtime < ts_expiration:
+                LOGGER.debug("Download %s est expire, on le supprime" % fuuid)
+                fichier.unlink()
+
+                fichier_json = pathlib.Path(str(fichier).replace('.work', '.json'))
+                try:
+                    fichier_json.unlink()
+                except FileNotFoundError:
+                    pass  # Ok
+                fuuids_supprimes.append(fuuid)
+
+    # Cleanup des .json expires et orphelins
+    for fichier in path_download.iterdir():
+        if fichier.match('*.json'):
+            stat_json = fichier.stat()
+            if stat_json.st_mtime < ts_expiration:
+                # Le json est vieux - verifier s'il existe un fichier .work associe
+                fichier_work = pathlib.Path(str(fichier).replace('.json', '.work'))
+                if fichier_work.exists() is False:
+                    LOGGER.warning("Supprimer fichier json orphelin %s" % str(fichier))
+                    # Le fichier json n'a aucun .dat associe, on supprime
+                    fichier.unlink()
+
+
+def entretien_dechiffre(path_dechiffre: pathlib.Path, timeout=Constantes.CONST_TIMEOUT_DECHIFFRE):
+    pass
+
+    """
+    Supprime les fichiers dechiffres qui ont ete supprimes.
+    :param path_dechiffre:
+    :param timeout:
+    :return: Liste de fuuids qui ont ete supprimes
+    """
+
+    dt_expiration = datetime.datetime.utcnow() - datetime.timedelta(seconds=timeout)
+    ts_expiration = dt_expiration.timestamp()
+
+    fuuids_supprimes = list()
+
+    # Supprimer les fichiers .dat (et .json associe)
+    for fichier in path_dechiffre.iterdir():
+        if fichier.match('*.dat'):
+            LOGGER.debug("Verifier expiration fichier dechiffre %s" % str(fichier))
+            stat_fichier = fichier.stat()
+            if stat_fichier.st_mtime < ts_expiration:
+                # Fichier expire
+                LOGGER.debug("Fichier dechiffre est expire %s" % str(fichier))
+                fuuid = fichier.name
+                fichier.unlink()
+                fichier_json = pathlib.Path(str(fichier).replace('.dat', '.json'))
+                try:
+                    fichier_json.unlink()
+                except FileNotFoundError:
+                    pass  # Ok
+                fuuids_supprimes.append(fuuid)
+
+    # Cleanup des .json orphelins
+    for fichier in path_dechiffre.iterdir():
+        if fichier.match('*.json'):
+            fichier_dat = pathlib.Path(str(fichier).replace('.json', '.dat'))
+            if fichier_dat.exists() is False:
+                LOGGER.warning("Supprimer fichier json orphelin %s" % str(fichier))
+                # Le fichier json n'a aucun .dat associe, on supprime
+                fichier.unlink()
+
+    return fuuids_supprimes

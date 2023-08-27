@@ -10,6 +10,9 @@ DIR_DECHIFFRE = 'dechiffre'
 
 DOMAINE_GROSFICHIERS = 'GrosFichiers'
 
+CONST_TIMEOUT_DECHIFFRE = 60 * 60 * 6
+CONST_TIMEOUT_DOWNLOAD = 30
+
 # FICHIER_BACKUP_COURANT = 'infoBackup.json'
 #
 # COMMANDE_DEMARRER_BACKUP = 'demarrerBackupTransactions'

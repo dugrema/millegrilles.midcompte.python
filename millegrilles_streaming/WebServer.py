@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import urllib.parse
 import jwt
 import pathlib
 import re
@@ -15,7 +14,6 @@ from typing import Optional, Union
 from millegrilles_streaming.Configuration import ConfigurationWeb
 from millegrilles_streaming.EtatStreaming import EtatStreaming
 from millegrilles_streaming.Commandes import CommandHandler, InformationFuuid
-from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 
 
 class WebServer:
@@ -172,12 +170,12 @@ class WebServer:
         range_str = None
 
         headers_response = {
-            # 'Content-Type': info.mimetype,
             'Cache-Control': 'public, max-age=604800, immutable',
             'Accept-Ranges': 'bytes',
-            # 'Content-Range': f'bytes */${taille_fichier}'
         }
+
         if range_bytes is not None:
+            # Calculer le content range, taille transfert
             range_parsed = parse_range(range_bytes, taille_fichier)
             start = range_parsed['start']
             end = range_parsed['end']
@@ -185,23 +183,11 @@ class WebServer:
             headers_response['Content-Range'] = range_str
             taille_transfert = str(end - start + 1)
         else:
+            # Transferer tout le contenu
             start = None
             end = None
             taille_transfert = str(taille_fichier)
 
-        # const range = req.headers.range
-        # if(range) {
-        #     debug("Range request : %s, taille fichier %s", range, res.stat.size)
-        #     const infoRange = readRangeHeader(range, res.stat.size)
-        #     debug("Range retourne : %O", infoRange)
-        #     res.range = infoRange
-        #
-        #     res.setHeader('Content-Length', infoRange.End - infoRange.Start + 1)
-        # } else {
-        #     res.setHeader('Content-Length', res.contentLength)
-        # }
-
-        # return web.HTTPInternalServerError()
         if range_str is not None:
             status = 206
         else:
