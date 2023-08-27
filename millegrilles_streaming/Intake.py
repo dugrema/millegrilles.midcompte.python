@@ -43,6 +43,8 @@ class IntakeStreaming(IntakeHandler):
 
         self.__jobs: Optional[asyncio.Queue[IntakeJob]] = None
 
+        self.__events_fuuids = dict()
+
     async def run(self):
         await asyncio.gather(
             super().run(),
@@ -59,7 +61,7 @@ class IntakeStreaming(IntakeHandler):
         while self._stop_event.is_set() is False:
             self.__logger.debug("Entretien download")
             path_download = pathlib.Path(self.get_path_download())
-            fuuids_supprimes = entretien_download(path_download)
+            fuuids_supprimes = entretien_download(path_download, self.__events_fuuids)
             await asyncio.wait([wait_coro], timeout=20)
 
     async def entretien_dechiffre_thread(self):
@@ -71,9 +73,10 @@ class IntakeStreaming(IntakeHandler):
             await asyncio.wait([wait_coro], timeout=300)
 
     async def traiter_prochaine_job(self) -> Optional[dict]:
-        self.__logger.debug("Traiter job streaming")
         try:
             job = self.__jobs.get_nowait()
+            fuuid = job.fuuid
+            self.__logger.debug("Traiter job streaming pour fuuid %s" % fuuid)
             await self.traiter_job(job)
         except asyncio.QueueEmpty:
             return None  # Condition d'arret de l'intake
@@ -102,6 +105,13 @@ class IntakeStreaming(IntakeHandler):
         os.rename(path_download_fichier, path_dechiffre_fichier)
         os.rename(path_download_json, path_dechiffre_json)
 
+        try:
+            event_download = self.__events_fuuids[fuuid]
+            event_download.set()
+            del self.__events_fuuids[fuuid]
+        except KeyError:
+            pass  # Ok
+
     async def __ajouter_job(self, info: InformationFuuid):
         """
         :param info: Fuuid a downloader et dechiffrer.
@@ -109,6 +119,16 @@ class IntakeStreaming(IntakeHandler):
         :raises asyncio.QueueFull: Si q de jobs est pleine.
         """
         fuuid = info.fuuid
+
+        try:
+            self.__events_fuuids[fuuid]
+        except KeyError:
+            pass  # Ok, la job n'existe pas en memoire
+        else:
+            raise Exception("La job sur fuuid %s existe deja" % fuuid)
+
+        # Creer evenement d'attente pour metter les autres requetes en attente sur ce process
+        self.__events_fuuids[fuuid] = asyncio.Event()
 
         path_download_json = pathlib.Path(os.path.join(self.get_path_download(), fuuid + '.json'))
 
@@ -148,6 +168,12 @@ class IntakeStreaming(IntakeHandler):
         except Exception as e:
             # Cleanup du json, abort le download
             path_download_json.unlink()
+            # Set event attent et supprimer
+            self.__events_fuuids[fuuid].set()
+            try:
+                del self.__events_fuuids[fuuid]
+            except KeyError:
+                pass  # OK
             raise e
 
         return info_fichier
@@ -240,18 +266,22 @@ class IntakeStreaming(IntakeHandler):
             return info
 
         # Verifier si le download existe deja
-        info = self.get_progres_download(fuuid)
-        if info is None:
-            # Creer la job de download
-            info = InformationFuuid(fuuid, jwt_token, params)
-            await info.init()
-            reponse = await self.__ajouter_job(info)
-            if reponse['status'] != 200:
-                info.status = reponse['status']
-                return info
+        try:
+            event_attente = self.__events_fuuids[fuuid]
+        except KeyError:
+            info = self.get_progres_download(fuuid)
+            if info is None:
+                # Creer la job de download
+                info = InformationFuuid(fuuid, jwt_token, params)
+                await info.init()
+                reponse = await self.__ajouter_job(info)
+                if reponse['status'] != 200:
+                    info.status = reponse['status']
+                    return info
+            event_attente = self.__events_fuuids[fuuid]
 
         if timeout is not None:
-            await asyncio.sleep(timeout)
+            await asyncio.wait_for(event_attente.wait(), timeout=timeout)
 
         info = self.get_fichier_dechiffre(fuuid)
         if info is not None:
@@ -260,7 +290,7 @@ class IntakeStreaming(IntakeHandler):
         return self.get_progres_download(fuuid)
 
 
-def entretien_download(path_download: pathlib.Path, timeout=Constantes.CONST_TIMEOUT_DOWNLOAD):
+def entretien_download(path_download: pathlib.Path, dict_attente: dict, timeout=Constantes.CONST_TIMEOUT_DOWNLOAD) -> list:
     dt_expiration = datetime.datetime.utcnow() - datetime.timedelta(seconds=timeout)
     ts_expiration = dt_expiration.timestamp()
 
@@ -270,6 +300,10 @@ def entretien_download(path_download: pathlib.Path, timeout=Constantes.CONST_TIM
     for fichier in path_download.iterdir():
         if fichier.match('*.work'):
             fuuid = fichier.name.split('.')[0]
+            try:
+                del dict_attente[fuuid]
+            except KeyError:
+                pass  # OK
             LOGGER.debug("Verifier expiration fichier download %s" % str(fichier))
             stat_fichier = fichier.stat()
             if stat_fichier.st_mtime < ts_expiration:
@@ -286,14 +320,18 @@ def entretien_download(path_download: pathlib.Path, timeout=Constantes.CONST_TIM
     # Cleanup des .json expires et orphelins
     for fichier in path_download.iterdir():
         if fichier.match('*.json'):
+            fuuid = fichier.name.split('.')[0]
             stat_json = fichier.stat()
             if stat_json.st_mtime < ts_expiration:
                 # Le json est vieux - verifier s'il existe un fichier .work associe
                 fichier_work = pathlib.Path(str(fichier).replace('.json', '.work'))
+                del dict_attente[fuuid]
                 if fichier_work.exists() is False:
                     LOGGER.warning("Supprimer fichier json orphelin %s" % str(fichier))
                     # Le fichier json n'a aucun .dat associe, on supprime
                     fichier.unlink()
+
+    return fuuids_supprimes
 
 
 def entretien_dechiffre(path_dechiffre: pathlib.Path, timeout=Constantes.CONST_TIMEOUT_DECHIFFRE):
