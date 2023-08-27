@@ -7,8 +7,6 @@ import pathlib
 
 from typing import Optional
 
-import multibase
-
 from millegrilles_streaming import Constantes
 from millegrilles_messages.jobs.Intake import IntakeHandler
 from millegrilles_messages.MilleGrillesConnecteur import EtatInstance
@@ -184,7 +182,7 @@ class IntakeStreaming(IntakeHandler):
 
         domaine = 'GrosFichiers'
         action = 'getClesStream'
-        requete_cle = {'user_id': user_id, 'fuuids': [fuuid], 'jwt': jwt_token}
+        requete_cle = { 'user_id': user_id, 'fuuids': [fuuid], 'jwt': jwt_token }
         reponse_cle = await producer.executer_requete(requete_cle, domaine=domaine, action=action, exchange='2.prive')
         reponse_parsed = reponse_cle.parsed
 
@@ -281,7 +279,13 @@ class IntakeStreaming(IntakeHandler):
             event_attente = self.__events_fuuids[fuuid]
 
         if timeout is not None:
-            await asyncio.wait_for(event_attente.wait(), timeout=timeout)
+            coro_stop = self._stop_event.wait()
+            done, pending = await asyncio.wait(
+                [coro_stop, event_attente.wait()], timeout=timeout, return_when=asyncio.tasks.FIRST_COMPLETED)
+            for task in pending:
+                task.cancel()
+            if self._stop_event.is_set():
+                raise Exception('done')
 
         info = self.get_fichier_dechiffre(fuuid)
         if info is not None:
@@ -291,7 +295,7 @@ class IntakeStreaming(IntakeHandler):
 
 
 def entretien_download(path_download: pathlib.Path, dict_attente: dict, timeout=Constantes.CONST_TIMEOUT_DOWNLOAD) -> list:
-    dt_expiration = datetime.datetime.utcnow() - datetime.timedelta(seconds=timeout)
+    dt_expiration = datetime.datetime.now() - datetime.timedelta(seconds=timeout)
     ts_expiration = dt_expiration.timestamp()
 
     fuuids_supprimes = list()
@@ -300,14 +304,17 @@ def entretien_download(path_download: pathlib.Path, dict_attente: dict, timeout=
     for fichier in path_download.iterdir():
         if fichier.match('*.work'):
             fuuid = fichier.name.split('.')[0]
-            try:
-                del dict_attente[fuuid]
-            except KeyError:
-                pass  # OK
             LOGGER.debug("Verifier expiration fichier download %s" % str(fichier))
             stat_fichier = fichier.stat()
             if stat_fichier.st_mtime < ts_expiration:
                 LOGGER.debug("Download %s est expire, on le supprime" % fuuid)
+
+                try:
+                    dict_attente[fuuid].set()
+                    del dict_attente[fuuid]
+                except KeyError:
+                    pass  # OK
+
                 fichier.unlink()
 
                 fichier_json = pathlib.Path(str(fichier).replace('.work', '.json'))
@@ -325,11 +332,17 @@ def entretien_download(path_download: pathlib.Path, dict_attente: dict, timeout=
             if stat_json.st_mtime < ts_expiration:
                 # Le json est vieux - verifier s'il existe un fichier .work associe
                 fichier_work = pathlib.Path(str(fichier).replace('.json', '.work'))
-                del dict_attente[fuuid]
                 if fichier_work.exists() is False:
-                    LOGGER.warning("Supprimer fichier json orphelin %s" % str(fichier))
+                    try:
+                        dict_attente[fuuid].set()
+                        del dict_attente[fuuid]
+                    except KeyError:
+                        pass  # OK
+
                     # Le fichier json n'a aucun .dat associe, on supprime
+                    LOGGER.warning("Supprimer fichier json orphelin %s" % str(fichier))
                     fichier.unlink()
+                    fuuids_supprimes.append(fuuid)
 
     return fuuids_supprimes
 
@@ -344,7 +357,7 @@ def entretien_dechiffre(path_dechiffre: pathlib.Path, timeout=Constantes.CONST_T
     :return: Liste de fuuids qui ont ete supprimes
     """
 
-    dt_expiration = datetime.datetime.utcnow() - datetime.timedelta(seconds=timeout)
+    dt_expiration = datetime.datetime.now() - datetime.timedelta(seconds=timeout)
     ts_expiration = dt_expiration.timestamp()
 
     fuuids_supprimes = list()
