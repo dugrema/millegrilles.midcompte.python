@@ -150,7 +150,8 @@ class IntakeStreaming(IntakeHandler):
 
         try:
             # Recuperer la cle pour dechiffrer la job
-            reponse_cle = await self.recuperer_cle(info.user_id, info.ref, info.jwt_token)
+            ref_fuuid = info.ref or info.fuuid
+            reponse_cle = await self.recuperer_cle(info.user_id, ref_fuuid, info.jwt_token)
             cle_chiffree = reponse_cle['cle']
 
             if info.format is None:
