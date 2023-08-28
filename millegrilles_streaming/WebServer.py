@@ -11,6 +11,8 @@ from asyncio.exceptions import TimeoutError
 from ssl import SSLContext
 from typing import Optional, Union
 
+from millegrilles_messages.messages import Constantes
+
 from millegrilles_streaming.Configuration import ConfigurationWeb
 from millegrilles_streaming.EtatStreaming import EtatStreaming
 from millegrilles_streaming.Commandes import CommandHandler, InformationFuuid
@@ -134,11 +136,25 @@ class WebServer:
         fingerprint = header['kid']
         enveloppe = await self.__etat.charger_certificat(fingerprint)
 
-        roles = enveloppe.get_roles
-        if 'collections' in roles:  # Note - corriger, les JWT devraient etre generes par un domaine
-            pass  # Ok
+        # roles = enveloppe.get_roles
+        # if 'collections' in roles:  # Note - corriger, les JWT devraient etre generes par un domaine
+        #     pass  # Ok
+        # else:
+        #     # Certificat n'est pas autorise a signer des streams
+        #     return False
+
+        domaines = enveloppe.get_domaines
+        if 'GrosFichiers' in domaines or 'Messagerie' in domaines:
+            pass  # OK
         else:
             # Certificat n'est pas autorise a signer des streams
+            self.__logger.warning("Certificat de mauvais domaine pour JWT (doit etre GrosFichiers,Messagerie)")
+            return False
+
+        exchanges = enveloppe.get_exchanges
+        if Constantes.SECURITE_SECURE not in exchanges:
+            # Certificat n'est pas autorise a signer des streams
+            self.__logger.warning("Certificat de mauvais niveau de securite pour JWT (doit etre 4.secure)")
             return False
 
         public_key = enveloppe.get_public_key()
