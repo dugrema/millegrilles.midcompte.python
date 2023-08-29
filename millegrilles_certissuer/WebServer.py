@@ -106,8 +106,10 @@ class WebServer:
         # else:
         #     duree = DUREE_CERT_DEFAUT
 
+        contenu = json.loads(info_cert['contenu'])
+
         # Generer le certificat pour l'application d'instance
-        csr_instance = info_cert['csr']
+        csr_instance = contenu['csr']
         cert_instance = self.__certificat_handler.generer_certificat_instance(csr_instance, niveau_securite, duree)
         self.__logger.debug("Nouveau certificat d'instance\n%s" % cert_instance)
         return web.json_response({'certificat': cert_instance})
