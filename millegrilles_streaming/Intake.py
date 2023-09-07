@@ -112,6 +112,14 @@ class IntakeStreaming(IntakeHandler):
         except KeyError:
             pass  # Ok
 
+    def cleanup_download(self, fuuid):
+        try:
+            event_download = self.__events_fuuids[fuuid]
+            del self.__events_fuuids[fuuid]
+            event_download.set()
+        except (AttributeError, KeyError) as e2:
+            self.__logger.info("cleanup_download Erreur del info download %s en memoire (%s)" % (fuuid, e2))
+
     async def __ajouter_job(self, info: InformationFuuid):
         """
         :param info: Fuuid a downloader et dechiffrer.
@@ -127,28 +135,34 @@ class IntakeStreaming(IntakeHandler):
         else:
             raise Exception("La job sur fuuid %s existe deja" % fuuid)
 
-        # Creer evenement d'attente pour metter les autres requetes en attente sur ce process
-        self.__events_fuuids[fuuid] = asyncio.Event()
+        try:
+            # Creer evenement d'attente pour metter les autres requetes en attente sur ce process
+            self.__events_fuuids[fuuid] = asyncio.Event()
 
-        path_download_json = pathlib.Path(os.path.join(self.get_path_download(), fuuid + '.json'))
+            path_download_json = pathlib.Path(os.path.join(self.get_path_download(), fuuid + '.json'))
 
-        # Verifier que le fichier existe sur la consignation (requete HEAD)
-        reponse_head = await self.__consignation_handler.verifier_existance(fuuid)
-        status_fuuid = reponse_head['status']
-        info_fichier = {
-            'fuuid': fuuid,
-            'mimetype': info.mimetype,
-            'status': status_fuuid,
-            'taille': reponse_head['taille'],
-            'jwt_token': info.jwt_token
-        }
-        with path_download_json.open(mode='w') as fichier:
-            json.dump(info_fichier, fichier)
+            # Verifier que le fichier existe sur la consignation (requete HEAD)
+            reponse_head = await self.__consignation_handler.verifier_existance(fuuid)
+            status_fuuid = reponse_head['status']
+            info_fichier = {
+                'fuuid': fuuid,
+                'mimetype': info.mimetype,
+                'status': status_fuuid,
+                'taille': reponse_head['taille'],
+                'jwt_token': info.jwt_token
+            }
+            with path_download_json.open(mode='w') as fichier:
+                json.dump(info_fichier, fichier)
 
-        if status_fuuid != 200:
-            # Le fichier n'est pas disponible. Plus rien a faire
-            self.__logger.debug('Fichier %s non disponible sur consignation' % fuuid)
-            return info_fichier
+            if status_fuuid != 200:
+                # Le fichier n'est pas disponible. Plus rien a faire
+                self.__logger.debug('Fichier %s non disponible sur consignation' % fuuid)
+                self.cleanup_download(fuuid)
+                return info_fichier
+        except Exception as e:
+            self.__logger.exception("Erreur verification existance fichier %s" % fuuid)
+            self.cleanup_download(fuuid)
+            raise e
 
         try:
             # Recuperer la cle pour dechiffrer la job
@@ -178,12 +192,7 @@ class IntakeStreaming(IntakeHandler):
             await self.trigger_traitement()
         except Exception as e:
             # Set event attent et supprimer
-            try:
-                event_download = self.__events_fuuids[fuuid]
-                del self.__events_fuuids[fuuid]
-                event_download.set()
-            except (AttributeError, KeyError) as e2:
-                self.__logger.info("Erreur del info download %s en memoire (%s)" % (fuuid, e2))
+            self.cleanup_download(fuuid)
 
             # Cleanup du json, abort le download
             path_download_json.unlink(missing_ok=True)
