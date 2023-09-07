@@ -110,18 +110,7 @@ class ConsignationHandler:
         if reponse.parsed['ok'] is True:
             # Conserver configuration topologie - dechiffrer partie chiffree
             configuration_topologie = reponse.parsed
-            try:
-                data_chiffre = reponse.parsed['data_chiffre']
-                ref_hachage_bytes = data_chiffre['ref_hachage_bytes']
-                requete_cle = {'ref_hachage_bytes': ref_hachage_bytes}
-                reponse_cle = await producer.executer_requete(
-                    requete_cle, 'CoreTopologie', 'getCleConfiguration', exchange="2.prive")
-                cle_secrete = reponse_cle.parsed['cles'][ref_hachage_bytes]['cle']
-                document_dechiffre = dechiffrer_document(self.__etat_instance.clecertificat, cle_secrete, data_chiffre)
-                configuration_topologie.update(document_dechiffre)
-            except (TypeError, KeyError) as e:
-                self.__logger.debug("Aucune configuration chiffree ou erreur dechiffrage : %s" % e)
-            self.__etat_instance.topologie = configuration_topologie
+            await self.__etat_instance.maj_topologie(configuration_topologie)
         else:
             # Aucune configuration connue pour l'instance
             # Mettre configuration par defaut et sauvegarder aupres de CoreTopologie

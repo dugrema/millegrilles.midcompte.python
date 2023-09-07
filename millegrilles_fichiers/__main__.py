@@ -46,7 +46,7 @@ class StreamingMain:
         self.__consignation_handler = ConsignationHandler(self._stop_event, self._etat)
         self.__intake = IntakeStreaming(self._stop_event, self._etat, self.__consignation_handler)
 
-        self.__commandes_handler = CommandHandler(self._etat, self.__intake)
+        self.__commandes_handler = CommandHandler(self._etat, self.__intake, self.__consignation_handler)
         self.__rabbitmq_dao = MilleGrillesConnecteur(self._stop_event, self._etat, self.__commandes_handler)
 
         await self.__intake.configurer()

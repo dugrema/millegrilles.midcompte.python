@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import json
 import logging
@@ -9,7 +10,7 @@ from cryptography.x509.extensions import ExtensionNotFound
 from typing import Optional
 
 from millegrilles_messages.messages import Constantes as ConstantesMilleGrilles
-from millegrilles_messages.messages.MessagesModule import MessageWrapper
+from millegrilles_messages.messages.MessagesModule import MessageWrapper, RessourcesConsommation
 from millegrilles_messages.MilleGrillesConnecteur import EtatInstance
 from millegrilles_messages.messages.MessagesThread import MessagesThread
 from millegrilles_messages.messages.MessagesModule import MessageProducerFormatteur
@@ -21,11 +22,12 @@ from millegrilles_fichiers import Constantes
 
 class CommandHandler(CommandesAbstract):
 
-    def __init__(self, etat_instance: EtatInstance, intake: IntakeStreaming):
+    def __init__(self, etat_instance: EtatInstance, intake: IntakeStreaming, consignation):
         super().__init__()
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__etat_instance = etat_instance
         self.__intake = intake
+        self.__consignation = consignation
         self.__messages_thread = None
 
     def get_routing_keys(self):
@@ -35,12 +37,18 @@ class CommandHandler(CommandesAbstract):
         ]
 
     def configurer_consumers(self, messages_thread: MessagesThread):
+        instance_id = self.__etat_instance.clecertificat.enveloppe.subject_common_name
         self.__messages_thread = messages_thread
+        res_evenements = RessourcesConsommation(self.callback_reply_q, channel_separe=True, est_asyncio=True)
 
-        # res_streaming = RessourcesConsommation(self.callback_reply_q,
-        #                                        nom_queue='streaming/volatil', channel_separe=True, est_asyncio=True)
-        # res_streaming.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'commande.backup.backupTransactions')
-        # messages_thread.ajouter_consumer(res_streaming)
+        res_evenements.ajouter_rk(
+            ConstantesMilleGrilles.SECURITE_PRIVE,
+            f'commande.{Constantes.DOMAINE_FICHIERS}.{instance_id}.{Constantes.COMMANDE_MODIFIER_CONFIGURATION}',)
+        res_evenements.ajouter_rk(
+            ConstantesMilleGrilles.SECURITE_PRIVE,
+            f'evenement.{Constantes.DOMAINE_GROSFICHIERS}.{Constantes.EVENEMENT_GROSFICHIERS_CHANGEMENT_CONSIGNATION_PRIMAIRE}',)
+
+        messages_thread.ajouter_consumer(res_evenements)
 
     async def traiter_commande(self, producer: MessageProducerFormatteur, message: MessageWrapper):
         routing_key = message.routing_key
@@ -71,7 +79,17 @@ class CommandHandler(CommandesAbstract):
 
         if type_message == 'commande':
             if ConstantesMilleGrilles.SECURITE_PRIVE in exchanges:
-                pass
+                if action == Constantes.COMMANDE_MODIFIER_CONFIGURATION:
+                    await self.__etat_instance.maj_topologie(message.parsed)
+                elif action == Constantes.EVENEMENT_GROSFICHIERS_CHANGEMENT_CONSIGNATION_PRIMAIRE:
+                    await self.__consignation.charger_topologie()
+                else:
+                    self.__logger.warning(
+                        "Commande non supportee (action %s) - SKIP" % action)
+            else:
+                self.__logger.warning("Commande non supportee (exchange %s, action %s) - SKIP" % (exchanges, action))
+        else:
+            self.__logger.warning("Type message non supporte (type %s, exchange %s, action %s) - SKIP" % (type_message, exchanges, action))
 
         return False  # Empeche de transmettre un message de reponse
 

@@ -16,4 +16,6 @@ DOMAINE_FICHIERS = 'fichiers'
 EVENEMENT_PRESENCE = 'presence'
 EVENEMENT_GROSFICHIERS_CHANGEMENT_CONSIGNATION_PRIMAIRE = 'changementConsignationPrimaire'
 
+COMMANDE_MODIFIER_CONFIGURATION = 'modifierConfiguration'
+
 CONST_CHAMPS_CONFIG = ['type_store', 'url_download', 'consignation_url']
