@@ -16,6 +16,10 @@ class EtatFichiers(EtatInstance):
 
         self.__ssl_context: Optional[SSLContext] = None
 
+        self.__backend: str = 'local'
+        self.__topologie: Optional[dict] = None
+        self.__primaire: Optional[dict] = None
+
     async def reload_configuration(self):
         await super().reload_configuration()
         self.__ssl_context = SSLContext()
@@ -24,3 +28,19 @@ class EtatFichiers(EtatInstance):
     @property
     def ssl_context(self):
         return self.__ssl_context
+
+    @property
+    def topologie(self):
+        return self.__topologie
+
+    @topologie.setter
+    def topologie(self, topologie):
+        self.__topologie = topologie
+
+    @property
+    def primaire(self):
+        return self.primaire
+
+    @primaire.setter
+    def primaire(self, primaire):
+        self.__primaire = primaire

@@ -10,8 +10,7 @@ from typing import Optional
 from millegrilles_fichiers import Constantes
 from millegrilles_messages.jobs.Intake import IntakeHandler
 from millegrilles_messages.MilleGrillesConnecteur import EtatInstance
-from millegrilles_fichiers.Consignation import ConsignationHandler
-from millegrilles_fichiers.Configuration import InformationFuuid
+from millegrilles_fichiers.Consignation import ConsignationHandler, InformationFuuid
 
 
 LOGGER = logging.getLogger(__name__)

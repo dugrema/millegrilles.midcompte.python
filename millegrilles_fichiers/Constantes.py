@@ -11,5 +11,9 @@ DIR_ARCHIVES = 'archives'
 DIR_ORPHELINS = 'orphelins'
 
 DOMAINE_GROSFICHIERS = 'GrosFichiers'
+DOMAINE_FICHIERS = 'fichiers'
 
+EVENEMENT_PRESENCE = 'presence'
 EVENEMENT_GROSFICHIERS_CHANGEMENT_CONSIGNATION_PRIMAIRE = 'changementConsignationPrimaire'
+
+CONST_CHAMPS_CONFIG = ['type_store', 'url_download', 'consignation_url']

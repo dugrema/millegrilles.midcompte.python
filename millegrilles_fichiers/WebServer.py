@@ -13,7 +13,8 @@ from typing import Optional, Union
 
 from millegrilles_messages.messages import Constantes
 
-from millegrilles_fichiers.Configuration import ConfigurationWeb, InformationFuuid
+from millegrilles_fichiers.Configuration import ConfigurationWeb
+from millegrilles_fichiers.Consignation import InformationFuuid
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.Commandes import CommandHandler
 

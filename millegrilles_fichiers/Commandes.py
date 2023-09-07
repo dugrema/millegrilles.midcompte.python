@@ -17,7 +17,6 @@ from millegrilles_messages.MilleGrillesConnecteur import CommandHandler as Comma
 
 from millegrilles_fichiers.Intake import IntakeStreaming
 from millegrilles_fichiers import Constantes
-from millegrilles_fichiers.Configuration import InformationFuuid
 
 
 class CommandHandler(CommandesAbstract):

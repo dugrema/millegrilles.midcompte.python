@@ -78,24 +78,3 @@ class ConfigurationWeb:
         self.web_key_pem_path = dict_params.get(ConstantesMessages.ENV_KEY_PEM) or self.web_key_pem_path
         self.port = int(dict_params.get(Constantes.ENV_WEB_PORT) or self.port)
 
-
-class InformationFuuid:
-
-    def __init__(self, fuuid: str):
-        self.fuuid = fuuid
-        self.taille: Optional[int] = None               # Taille du fichier
-        self.path_complet: Optional[str] = None         # Path complet sur disque du fichier dechiffre
-
-        # if params is not None:
-        #     self.set_params(params)
-
-    @staticmethod
-    def resolve_fuuid(config: ConfigurationFichiers, fuuid: str):
-        """ Trouver le path local du fichier par son fuuid. """
-        info = InformationFuuid(fuuid)
-        return info
-
-    # def set_params(self, params: dict):
-    #     self.taille = params.get('taille')
-    #     self.status = params.get('status')
-    #     self.user_id = params.get('userId') or params.get('user_id')
