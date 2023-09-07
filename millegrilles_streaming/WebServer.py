@@ -91,8 +91,7 @@ class WebServer:
                     'X-File-Size': str(reponse.taille),
                     'X-File-Position': str(reponse.position_courante),
                 }
-                # return web.Response(status=204, headers=headers_response)
-                return web.Response(status=202, headers=headers_response)  # Todo - fix code dans client pour utiliser 204
+                return web.Response(status=204, headers=headers_response)
 
             return web.HTTPInternalServerError()  # Fix me
 
