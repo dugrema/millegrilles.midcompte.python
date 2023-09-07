@@ -16,6 +16,8 @@ from millegrilles_streaming.Configuration import InformationFuuid
 
 LOGGER = logging.getLogger(__name__)
 
+CONST_MAX_RETRIES_CLE = 2
+
 
 class IntakeJob:
 
@@ -151,7 +153,17 @@ class IntakeStreaming(IntakeHandler):
         try:
             # Recuperer la cle pour dechiffrer la job
             ref_fuuid = info.ref or info.fuuid
-            reponse_cle = await self.recuperer_cle(info.user_id, ref_fuuid, info.jwt_token)
+            reponse_cle = None
+            for i in range(1, CONST_MAX_RETRIES_CLE+1):
+                self.__logger.debug("Recuperer_cle (try %d)" % i)
+                try:
+                    reponse_cle = await self.recuperer_cle(info.user_id, ref_fuuid, info.jwt_token, timeout=6)
+                    break
+                except (asyncio.CancelledError, asyncio.TimeoutError) as e:
+                    self.__logger.warning("Timeout recuperer_cle (try %d de %d)" % (i, CONST_MAX_RETRIES_CLE))
+                    if i == CONST_MAX_RETRIES_CLE:
+                        raise e
+
             cle_chiffree = reponse_cle['cle']
 
             if info.format is None:
@@ -165,26 +177,31 @@ class IntakeStreaming(IntakeHandler):
             # S'assurer de demarrer le traitement immediatement
             await self.trigger_traitement()
         except Exception as e:
-            # Cleanup du json, abort le download
-            path_download_json.unlink()
             # Set event attent et supprimer
-            self.__events_fuuids[fuuid].set()
             try:
+                event_download = self.__events_fuuids[fuuid]
                 del self.__events_fuuids[fuuid]
-            except KeyError:
-                pass  # OK
+                event_download.set()
+            except (AttributeError, KeyError) as e2:
+                self.__logger.info("Erreur del info download %s en memoire (%s)" % (fuuid, e2))
+
+            # Cleanup du json, abort le download
+            path_download_json.unlink(missing_ok=True)
+
             raise e
 
         return info_fichier
 
-    async def recuperer_cle(self, user_id: str, fuuid: str, jwt_token: str) -> dict:
+    async def recuperer_cle(self, user_id: str, fuuid: str, jwt_token: str, timeout=15) -> dict:
         producer = self._etat_instance.producer
         await asyncio.wait_for(producer.producer_pret().wait(), 3)
 
         domaine = 'GrosFichiers'
         action = 'getClesStream'
         requete_cle = { 'user_id': user_id, 'fuuids': [fuuid], 'jwt': jwt_token }
-        reponse_cle = await producer.executer_requete(requete_cle, domaine=domaine, action=action, exchange='2.prive')
+        reponse_cle = await producer.executer_requete(
+            requete_cle,
+            domaine=domaine, action=action, exchange='2.prive', timeout=timeout)
         reponse_parsed = reponse_cle.parsed
 
         if reponse_parsed['acces'] != '1.permis':
