@@ -281,31 +281,38 @@ class IntakeStreaming(IntakeHandler):
         if info is not None:
             return info
 
+        event_attente = None
+
         # Verifier si le download existe deja
         try:
             event_attente = self.__events_fuuids[fuuid]
         except KeyError:
             info = self.get_progres_download(fuuid)
             if info is None:
+                timeout = None  # Ne pas attendre pour retourner l'information
+
                 # Creer la job de download
                 info = InformationFuuid(fuuid, jwt_token, params)
                 await info.init()
                 reponse = await self.__ajouter_job(info)
+
                 if reponse['status'] != 200:
                     info.status = reponse['status']
                     return info
-            event_attente = self.__events_fuuids[fuuid]
+            else:
+                event_attente = self.__events_fuuids[fuuid]
 
-        if timeout is not None:
+        if event_attente is not None and timeout is not None:
             done, pending = await asyncio.wait(
-                [self._stop_event.wait(), event_attente.wait()], timeout=timeout, return_when=asyncio.tasks.FIRST_COMPLETED)
+                [self._stop_event.wait(), event_attente.wait()],
+                timeout=timeout, return_when=asyncio.tasks.FIRST_COMPLETED)
             for task in pending:
                 task.cancel()
             if self._stop_event.is_set():
-                raise Exception('done')
-        else:
-            # Pas de timeout, retourner l'info qu'on a deja
-            return info
+                raise Exception('thread stopped')
+        # else:
+        #     # Pas de timeout, retourner l'info qu'on a deja
+        #     return info
 
         info = self.get_fichier_dechiffre(fuuid)
         if info is not None:
