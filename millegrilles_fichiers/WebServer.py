@@ -5,14 +5,16 @@ import pathlib
 import re
 
 from aiohttp import web
-from aiohttp.web_request import Request
+from aiohttp.web_request import Request, StreamResponse
 from asyncio import Event
 from asyncio.exceptions import TimeoutError
 from ssl import SSLContext
 from typing import Optional, Union
 
-from millegrilles_messages.messages import Constantes
+from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
+from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
 
+from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.Configuration import ConfigurationWeb
 from millegrilles_fichiers.Consignation import InformationFuuid
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
@@ -39,9 +41,32 @@ class WebServer:
     def _charger_configuration(self, configuration: Optional[dict] = None):
         self.__configuration.parse_config(configuration)
 
+    def get_path_upload_fuuid(self, cn: str, fuuid: str):
+        return pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_STAGING_UPLOAD, cn, fuuid)
+
+    def get_path_intake_fuuid(self, cn: str, fuuid: str):
+        return pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_STAGING_INTAKE, cn, fuuid)
+
     def _preparer_routes(self):
         self.__app.add_routes([
-            # web.get('/stream_transfert/{fuuid}', self.handle_path_fuuid),
+            # /fichiers_transfert
+            web.get('/fichiers_transfert/{fuuid}', self.handle_get_fuuid),
+            web.put('/fichiers_transfert/{fuuid}/{position}', self.handle_put_fuuid),
+            web.post('/fichiers_transfert/{fuuid}', self.handle_post_fuuid),
+            web.delete('/fichiers_transfert/{fuuid}', self.handle_delete_fuuid),
+
+            # /sync
+            #   route.get('/fuuidsLocaux.txt.gz', (req, res, next) => getFichier(req, res, next, PATH_FUUIDS_LOCAUX))
+            #   route.get('/fuuidsArchives.txt.gz', (req, res, next) => getFichier(req, res, next, PATH_FUUIDS_ARCHIVES))
+            #   route.get('/fuuidsManquants.txt.gz', (req, res, next) => getFichier(req, res, next, PATH_FUUIDS_MANQUANTS))
+            #   route.get('/listingBackup.txt.gz', (req, res, next) => getFichier(req, res, next, PATH_LISTING_BACKUP))
+            #   route.get('/fuuidsNouveaux.txt', (req, res, next) => getFichier(req, res, next, PATH_FUUIDS_NOUVEAUX, {gzip: false}))
+            #   route.post('/fuuidsInfo', express.json(), getFuuidsInfo)
+
+            # /backup
+            #   route.post('/verifierFichiers', express.json(), verifierBackup)
+            #   route.put('/upload/:uuid_backup/:domaine/:nomfichier', recevoirFichier)
+            #   route.get('/download/:uuid_backup/:domaine/:nomfichier', downloaderFichier)
         ])
 
     def _charger_ssl(self):
@@ -50,6 +75,86 @@ class WebServer:
         self.__ssl_context.load_cert_chain(self.__configuration.web_cert_pem_path,
                                            self.__configuration.web_key_pem_path)
         self.__ssl_context.load_verify_locations(cafile=self.__configuration.ca_pem_path)
+
+    async def handle_get_fuuid(self, request: Request):
+        fuuid = request.match_info['fuuid']
+        method = request.method
+        headers = request.headers
+
+        self.__logger.debug("handle_get_fuuid method %s, fuuid %s" % (method, fuuid))
+
+        # TODO Fix me
+        return web.HTTPInternalServerError()
+
+    async def handle_put_fuuid(self, request: Request) -> StreamResponse:
+        fuuid = request.match_info['fuuid']
+        position = request.match_info['position']
+        headers = request.headers
+
+        # Afficher info (debug)
+        self.__logger.debug("handle_put_fuuid fuuid: %s position: %s" % (fuuid, position))
+        for key, value in headers.items():
+            self.__logger.debug('handle_put_fuuid key: %s, value: %s' % (key, value))
+
+        if headers.get('VERIFIED') != 'SUCCESS':
+            return web.HTTPForbidden()
+
+        cert_subject = extract_subject(headers.get('DN'))
+        common_name = cert_subject['CN']
+
+        content_hash = headers.get('x-content-hash')
+        content_length = int(headers['Content-Length'])
+
+        # Creer repertoire pour sauvegader la partie de fichier
+        path_upload = self.get_path_upload_fuuid(common_name, fuuid)
+        path_upload.mkdir(parents=True, exist_ok=True)
+
+        path_fichier = pathlib.Path(path_upload, '%s.part' % position)
+        self.__logger.debug("handle_put_fuuid Conserver part %s" % path_fichier)
+
+        verificateur = VerificateurHachage(content_hash)
+        with open(path_fichier, 'wb') as fichier:
+            async for chunk in request.content.iter_chunked(64 * 1024):
+                verificateur.update(chunk)
+                fichier.write(chunk)
+
+        # Verifier hachage de la partie
+        try:
+            verificateur.verify()
+        except ErreurHachage as e:
+            self.__logger.info("handle_put_fuuid Erreur verification hachage : %s" % str(e))
+            path_fichier.unlink(missing_ok=True)
+            return web.HTTPBadRequest()
+
+        # Verifier que la taille sur disque correspond a la taille attendue
+        # Meme si le hachage est OK, s'assurer d'avoir conserve tous les bytes
+        stat = path_fichier.stat()
+        if stat.st_size != content_length:
+            self.__logger.info("handle_put_fuuid Erreur verification taille, sauvegarde %d, attendu %d" % (stat.st_size, content_length))
+            path_fichier.unlink(missing_ok=True)
+            return web.HTTPBadRequest()
+
+        self.__logger.debug("handle_put_fuuid fuuid: %s position: %s recu OK" % (fuuid, position))
+
+        return web.HTTPOk()
+
+    async def handle_post_fuuid(self, request: Request) -> StreamResponse:
+        fuuid = request.match_info['fuuid']
+        headers = request.headers
+
+        self.__logger.debug("handle_post_fuuid %s" % fuuid)
+
+        # TODO Fix me
+        return web.HTTPInternalServerError()
+
+    async def handle_delete_fuuid(self, request: Request) -> StreamResponse:
+        fuuid = request.match_info['fuuid']
+        headers = request.headers
+
+        self.__logger.debug("handle_delete_fuuid %s" % fuuid)
+
+        # TODO Fix me
+        return web.HTTPInternalServerError()
 
     # async def handle_path_fuuid(self, request: Request):
     #     fuuid = request.match_info['fuuid']
@@ -153,7 +258,7 @@ class WebServer:
             return False
 
         exchanges = enveloppe.get_exchanges
-        if Constantes.SECURITE_SECURE not in exchanges:
+        if ConstantesMillegrilles.SECURITE_SECURE not in exchanges:
             # Certificat n'est pas autorise a signer des streams
             self.__logger.warning("Certificat de mauvais niveau de securite pour JWT (doit etre 4.secure)")
             return False
@@ -260,3 +365,11 @@ def parse_range(range, taille_totale):
 
     return result
 
+
+def extract_subject(dn: str):
+    cert_subject = dict()
+    for e in dn.split(','):
+        key, value = e.split('=')
+        cert_subject[key] = value
+
+    return cert_subject

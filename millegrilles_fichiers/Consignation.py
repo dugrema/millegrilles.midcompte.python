@@ -54,13 +54,18 @@ class ConsignationHandler:
         self.__session_http_requests: Optional[aiohttp.ClientSession] = None
 
         self.__est_primaire: Optional[bool] = None
+        self.__store_pret_event: Optional[asyncio.Event] = None
 
     async def run(self):
         self.__logger.info("Demarrage run")
+
+        self.__store_pret_event = asyncio.Event()
+
         await asyncio.gather(
             self.entretien(),
             self.thread_emettre_etat(),
         )
+
         self.__logger.info("Fin run")
 
     async def entretien(self):
@@ -92,7 +97,36 @@ class ConsignationHandler:
             timeout_requests = aiohttp.ClientTimeout(connect=5, total=15)
             self.__session_http_requests = aiohttp.ClientSession(timeout=timeout_requests)
 
+    async def modifier_topologie(self, configuration_topologie: dict):
+        await self.__etat_instance.maj_topologie(configuration_topologie)
+
+        producer = self.__etat_instance.producer
+        await asyncio.wait_for(producer.producer_pret().wait(), 3)
+        try:
+            if self.__etat_instance.topologie.get('primaire') is True:
+                # Faire un lien direct entre primaire et topologie (meme reference)
+                self.__etat_instance.primaire = self.__etat_instance.topologie
+            else:
+                # Charger l'information sur la consignation primaire
+                requete = {'primaire': True}
+                reponse = await producer.executer_requete(
+                    requete, 'CoreTopologie', 'getConsignationFichiers', exchange="2.prive")
+                info_primaire = reponse.parsed
+                if info_primaire['ok'] is True:
+                    self.__etat_instance.primaire = info_primaire
+
+        except Exception as e:
+            self.__logger.exception("Erreur chargement consignation primaire")
+
+        # TODO Ajuster le type de store au besoin
+
+        # La configuration du store est prete
+        self.__store_pret_event.set()
+
     async def charger_topologie(self):
+        # Indiquer qu'on rafrachi la topologie
+        self.__store_pret_event.clear()
+
         """ Charge la configuration a partir de CoreTopologie """
         producer = self.__etat_instance.producer
         if producer is None:
@@ -110,27 +144,11 @@ class ConsignationHandler:
         if reponse.parsed['ok'] is True:
             # Conserver configuration topologie - dechiffrer partie chiffree
             configuration_topologie = reponse.parsed
-            await self.__etat_instance.maj_topologie(configuration_topologie)
+            await self.modifier_topologie(configuration_topologie)
         else:
             # Aucune configuration connue pour l'instance
             # Mettre configuration par defaut et sauvegarder aupres de CoreTopologie
             await self.initialiser_nouvelle_consignation()
-
-        try:
-            if self.__etat_instance.topologie.get('primaire') is True:
-                # Faire un lien direct entre primaire et topologie (meme reference)
-                self.__etat_instance.primaire = self.__etat_instance.topologie
-            else:
-                # Charger l'information sur la consignation primaire
-                requete = {'primaire': True}
-                reponse = await producer.executer_requete(
-                    requete, 'CoreTopologie', 'getConsignationFichiers', exchange="2.prive")
-                info_primaire = reponse.parsed
-                if info_primaire['ok'] is True:
-                    self.__etat_instance.primaire = info_primaire
-
-        except Exception as e:
-            self.__logger.exception("Erreur chargement consignation primaire")
 
     async def emettre_etat(self):
         producer = self.__etat_instance.producer
@@ -163,7 +181,8 @@ class ConsignationHandler:
             'type_store': 'millegrille',
             'consignation_url': 'https://fichiers:443',
         }
-        self.__etat_instance.topologie = configuration_topologie_defaut
+        await self.modifier_topologie(configuration_topologie_defaut)
+
         await self.emettre_etat()
 
     # async def charger_consignation_primaire(self):

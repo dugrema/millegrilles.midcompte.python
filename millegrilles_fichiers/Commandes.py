@@ -80,7 +80,7 @@ class CommandHandler(CommandesAbstract):
         if type_message == 'commande':
             if ConstantesMilleGrilles.SECURITE_PRIVE in exchanges:
                 if action == Constantes.COMMANDE_MODIFIER_CONFIGURATION:
-                    await self.__etat_instance.maj_topologie(message.parsed)
+                    await self.__consignation.modifier_topologie(message.parsed)
                 elif action == Constantes.EVENEMENT_GROSFICHIERS_CHANGEMENT_CONSIGNATION_PRIMAIRE:
                     await self.__consignation.charger_topologie()
                 else:
