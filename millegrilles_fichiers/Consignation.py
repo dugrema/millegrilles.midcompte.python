@@ -128,6 +128,7 @@ class ConsignationHandler:
             self.__logger.info("Changer store consignation pour type %s" % type_store)
             instance_store = class_type(self.__etat_instance)
             self.__store_consignation = instance_store
+            self.__store_consignation.initialiser_db()
 
         # La configuration du store est prete
         self.__store_pret_event.set()

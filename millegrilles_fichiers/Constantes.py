@@ -13,6 +13,8 @@ DIR_DATA = 'data'
 DIR_STAGING_UPLOAD = 'staging/upload'
 DIR_STAGING_INTAKE = 'staging/intake'
 
+FICHIER_DATABASE = 'consignation.db'
+
 FICHIER_ETAT = 'etat.json'
 FICHIER_TRANSACTION = 'transaction.json'
 FICHIER_CLES = 'cles.json'
@@ -30,3 +32,8 @@ CONST_CHAMPS_CONFIG = ['type_store', 'url_download', 'consignation_url']
 TYPE_STORE_MILLEGRILLE = 'millegrille'
 TYPE_STORE_SFTP = 'sftp'
 TYPE_STORE_AWSS3 = 'awss3'
+
+DATABASE_ETAT_ACTIF = 'actif'
+DATABASE_ETAT_ARCHIVE = 'archive'
+DATABASE_ETAT_ORPHELIN = 'orphelin'
+DATABASE_ETAT_MANQUANT = 'manquant'

@@ -1,12 +1,17 @@
+import datetime
 import errno
 import logging
 import pathlib
 import shutil
+import sqlite3
 
 from typing import Type
 
+import pytz
+
 from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
+import millegrilles_fichiers.DatabaseScripts as scripts_database
 
 
 class ConsignationStore:
@@ -15,6 +20,11 @@ class ConsignationStore:
         self._etat = etat
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
 
+        # Creer repertoire data, path database
+        path_database = pathlib.Path(
+            self._etat.configuration.dir_consignation, Constantes.DIR_DATA, Constantes.FICHIER_DATABASE)
+        self.__path_database = path_database
+
     def get_path_actif(self, fuuid: str) -> pathlib.Path:
         raise NotImplementedError('must override')
 
@@ -22,13 +32,55 @@ class ConsignationStore:
         raise NotImplementedError('must override')
 
     async def consigner(self, path_src: pathlib.Path, fuuid: str):
-        raise NotImplementedError('must override')
+        # Tenter d'inserer le fichier comme nouveau actif dans la base de donnees
+        con = sqlite3.connect(self.__path_database, check_same_thread=True)
+        stat = path_src.stat()
+
+        date_now = datetime.datetime.now(tz=pytz.UTC)
+        data = {
+            'fuuid': fuuid,
+            'taille': stat.st_size,
+            'etat_fichier': Constantes.DATABASE_ETAT_ACTIF,
+            'date_presence': date_now,
+            'date_verification': date_now,
+            'date_reclamation': date_now,
+        }
+        cur = con.cursor()
+        try:
+            cur.execute(scripts_database.CONST_INSERT_FICHIER, data)
+        except sqlite3.IntegrityError as e:
+            if 'FICHIERS.fuuid' in e.args[0]:
+                self.__logger.debug("ConsignationStore.consigner fuuid %s existe deja - OK" % fuuid)
+                cur.execute(scripts_database.CONST_ACTIVER_SI_MANQUANT, data)
+                cur.execute(scripts_database.CONST_VERIFIER_FICHIER, data)
+            else:
+                raise e
+        finally:
+            cur.close()
+            con.commit()
+            con.close()
 
     async def archiver(self, path_src: pathlib.Path, fuuid: str):
         raise NotImplementedError('must override')
 
     async def supprimer(self, path_src: pathlib.Path, fuuid: str):
         raise NotImplementedError('must override')
+
+    def ouvrir_database(self, ro=False) -> sqlite3.Connection:
+        # if ro:
+        #     mode_acces = 'ro'
+        # else:
+        #     mode_acces = 'rw'
+        # uri_database = 'file:%s?mode=%s' % (self.__path_database, mode_acces)
+        # self.__logger.info("ConsignationStore.ouvrir_database uri %s" % uri_database)
+        # return sqlite3.connect(uri_database, check_same_thread=True, uri=True)
+        return sqlite3.connect(self.__path_database, check_same_thread=True)
+
+    def initialiser_db(self):
+        self.__path_database.parent.mkdir(parents=True, exist_ok=True)
+        con = self.ouvrir_database()
+        con.execute(scripts_database.CONST_CREATE_FICHIERS)
+        con.close()
 
 
 class ConsignationStoreMillegrille(ConsignationStore):
@@ -50,6 +102,8 @@ class ConsignationStoreMillegrille(ConsignationStore):
         return path_fuuid
 
     async def consigner(self, path_src: pathlib.Path, fuuid: str):
+        await super().consigner(path_src, fuuid)
+
         path_dest = self.get_path_actif(fuuid)
         # Tenter de deplacer avec rename
         try:
