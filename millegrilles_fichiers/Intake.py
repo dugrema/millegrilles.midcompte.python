@@ -44,6 +44,9 @@ class IntakeStreaming(IntakeHandler):
 
         self.__events_fuuids = dict()
 
+    def get_path_intake_fuuid(self, fuuid: str):
+        return pathlib.Path(self._etat_instance.configuration.dir_consignation, Constantes.DIR_STAGING_INTAKE, fuuid)
+
     async def run(self):
         await asyncio.gather(
             super().run(),
@@ -91,6 +94,10 @@ class IntakeStreaming(IntakeHandler):
     async def traiter_job(self, job):
         fuuid = job.fuuid
         raise NotImplementedError('must override')
+
+    async def ajouter_upload(self, path_upload):
+        """ Ajoute un upload au intake. Transfere path source vers repertoire intake. """
+        raise NotImplementedError('todo')
 
     # def cleanup_download(self, fuuid):
     #     try:

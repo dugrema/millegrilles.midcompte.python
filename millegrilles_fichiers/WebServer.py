@@ -1,5 +1,9 @@
 import asyncio
 import logging
+import json
+import os.path
+import shutil
+
 import jwt
 import pathlib
 import re
@@ -19,19 +23,33 @@ from millegrilles_fichiers.Configuration import ConfigurationWeb
 from millegrilles_fichiers.Consignation import InformationFuuid
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.Commandes import CommandHandler
+from millegrilles_fichiers.Intake import IntakeStreaming
+
+
+class JobVerifierParts:
+
+    def __init__(self, path_upload: pathlib.Path, hachage: str):
+        self.path_upload = path_upload
+        self.hachage = hachage
+        self.done = asyncio.Event()
+        self.valide: Optional[bool] = None
+        self.exception: Optional[Exception] = None
 
 
 class WebServer:
 
-    def __init__(self, etat: EtatFichiers, commandes: CommandHandler):
+    def __init__(self, etat: EtatFichiers, commandes: CommandHandler, intake: IntakeStreaming):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__etat = etat
         self.__commandes = commandes
+        self.__intake = intake
 
         self.__app = web.Application()
         self.__stop_event: Optional[Event] = None
         self.__configuration = ConfigurationWeb()
         self.__ssl_context: Optional[SSLContext] = None
+
+        self.__queue_verifier_parts: Optional[asyncio.Queue] = None
 
     def setup(self, configuration: Optional[dict] = None):
         self._charger_configuration(configuration)
@@ -43,9 +61,6 @@ class WebServer:
 
     def get_path_upload_fuuid(self, cn: str, fuuid: str):
         return pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_STAGING_UPLOAD, cn, fuuid)
-
-    def get_path_intake_fuuid(self, cn: str, fuuid: str):
-        return pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_STAGING_INTAKE, cn, fuuid)
 
     def _preparer_routes(self):
         self.__app.add_routes([
@@ -140,21 +155,95 @@ class WebServer:
 
     async def handle_post_fuuid(self, request: Request) -> StreamResponse:
         fuuid = request.match_info['fuuid']
-        headers = request.headers
-
         self.__logger.debug("handle_post_fuuid %s" % fuuid)
 
-        # TODO Fix me
-        return web.HTTPInternalServerError()
+        headers = request.headers
+        body = await request.json()
+
+        # Afficher info (debug)
+        self.__logger.debug("handle_post_fuuid fuuid: %s" % fuuid)
+        for key, value in headers.items():
+            self.__logger.debug('handle_post_fuuid key: %s, value: %s' % (key, value))
+        self.__logger.debug("handle_post_fuuid body\n%s" % json.dumps(body, indent=2))
+
+        if headers.get('VERIFIED') != 'SUCCESS':
+            return web.HTTPForbidden()
+
+        cert_subject = extract_subject(headers.get('DN'))
+        common_name = cert_subject['CN']
+
+        path_upload = self.get_path_upload_fuuid(common_name, fuuid)
+
+        # Valider body, conserver json sur disque
+        path_etat = pathlib.Path(path_upload, Constantes.FICHIER_ETAT)
+        etat = body['etat']
+        hachage = etat['hachage']
+        with open(path_etat, 'wt') as fichier:
+            json.dump(etat, fichier)
+
+        try:
+            transaction = body['transaction']
+            await self.__etat.validateur_message.verifier(transaction)  # Lance exception si echec verification
+            path_transaction = pathlib.Path(path_upload, Constantes.FICHIER_TRANSACTION)
+            with open(path_transaction, 'wt') as fichier:
+                json.dump(transaction, fichier)
+        except KeyError:
+            pass
+
+        try:
+            cles = body['cles']
+            await self.__etat.validateur_message.verifier(cles)  # Lance exception si echec verification
+            path_cles = pathlib.Path(path_upload, Constantes.FICHIER_CLES)
+            with open(path_cles, 'wt') as fichier:
+                json.dump(cles, fichier)
+        except KeyError:
+            pass
+
+        # Valider hachage du fichier complet (parties assemblees)
+        try:
+            job_valider = JobVerifierParts(path_upload, hachage)
+            await self.__queue_verifier_parts.put(job_valider)
+            await asyncio.wait_for(job_valider.done.wait(), timeout=270)
+            if job_valider.exception is not None:
+                raise job_valider.exception
+        except Exception as e:
+            self.__logger.warning('handle_post_fuuid Erreur verification hachage fichier %s assemble : %s' % (fuuid, e))
+            shutil.rmtree(path_upload)
+            return web.HTTPFailedDependency()
+
+        # Transferer vers intake
+        try:
+            await self.__intake.ajouter_upload(path_upload)
+        except Exception as e:
+            self.__logger.warning('handle_post_fuuid Erreur ajout fichier %s assemble au intake : %s' % (fuuid, e))
+            shutil.rmtree(path_upload)
+            return web.HTTPServerError()
+
+        return web.HTTPAccepted()
 
     async def handle_delete_fuuid(self, request: Request) -> StreamResponse:
         fuuid = request.match_info['fuuid']
         headers = request.headers
 
+        # Afficher info (debug)
         self.__logger.debug("handle_delete_fuuid %s" % fuuid)
 
-        # TODO Fix me
-        return web.HTTPInternalServerError()
+        if headers.get('VERIFIED') != 'SUCCESS':
+            return web.HTTPForbidden()
+
+        cert_subject = extract_subject(headers.get('DN'))
+        common_name = cert_subject['CN']
+
+        path_upload = self.get_path_upload_fuuid(common_name, fuuid)
+        try:
+            shutil.rmtree(path_upload)
+        except FileNotFoundError:
+            return web.HTTPNotFound()
+        except Exception as e:
+            self.__logger.info("handle_delete_fuuid Erreur suppression upload %s : %s" % (fuuid, e))
+            return web.HTTPServerError()
+
+        return web.HTTPOk()
 
     # async def handle_path_fuuid(self, request: Request):
     #     fuuid = request.match_info['fuuid']
@@ -206,8 +295,47 @@ class WebServer:
     #         self.__logger.exception("handle_path_fuuid ERROR")
     #         return web.HTTPInternalServerError()
 
-    async def entretien(self):
+    async def thread_entretien(self):
         self.__logger.debug('Entretien web')
+
+        while not self.__stop_event.is_set():
+
+            # TODO Entretien uploads
+
+            try:
+                await asyncio.wait_for(self.__stop_event.wait(), 30)
+            except TimeoutError:
+                pass
+
+    async def thread_verifier_parts(self):
+        self.__queue_verifier_parts = asyncio.Queue(maxsize=20)
+        pending = [self.__stop_event.wait(), self.__queue_verifier_parts.get()]
+        while self.__stop_event.is_set() is False:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+
+            # Conditions de fin de thread
+            if self.__stop_event.is_set() is True:
+                return  # Stopped
+
+            for t in done:
+                if t.exception():
+                    raise t.exception()
+
+            job_verifier_parts: JobVerifierParts = done.pop().result()
+            try:
+                path_upload = job_verifier_parts.path_upload
+                hachage = job_verifier_parts.hachage
+                args = [path_upload, hachage]
+                # Utiliser thread pool pour validation
+                await asyncio.to_thread(valider_hachage_upload_parts, *args)
+            except Exception as e:
+                self.__logger.exception("thread_verifier_parts Erreur verification hachage %s" % job_verifier_parts.hachage)
+                job_verifier_parts.exception = e
+
+            # Liberer job
+            job_verifier_parts.done.set()
+
+            pending.add(self.__queue_verifier_parts.get())
 
     async def run(self, stop_event: Optional[Event] = None):
         if stop_event is not None:
@@ -226,58 +354,13 @@ class WebServer:
             await site.start()
             self.__logger.info("Site demarre")
 
-            while not self.__stop_event.is_set():
-                await self.entretien()
-                try:
-                    await asyncio.wait_for(self.__stop_event.wait(), 30)
-                except TimeoutError:
-                    pass
+            await asyncio.gather(
+                self.thread_entretien(),
+                self.thread_verifier_parts()
+            )
         finally:
             self.__logger.info("Site arrete")
             await runner.cleanup()
-
-    async def verifier_token_jwt(self, token: str, fuuid: str) -> Union[bool, dict]:
-        # Recuperer kid, charger certificat pour validation
-        header = jwt.get_unverified_header(token)
-        fingerprint = header['kid']
-        enveloppe = await self.__etat.charger_certificat(fingerprint)
-
-        # roles = enveloppe.get_roles
-        # if 'collections' in roles:  # Note - corriger, les JWT devraient etre generes par un domaine
-        #     pass  # Ok
-        # else:
-        #     # Certificat n'est pas autorise a signer des streams
-        #     return False
-
-        domaines = enveloppe.get_domaines
-        if 'GrosFichiers' in domaines or 'Messagerie' in domaines:
-            pass  # OK
-        else:
-            # Certificat n'est pas autorise a signer des streams
-            self.__logger.warning("Certificat de mauvais domaine pour JWT (doit etre GrosFichiers,Messagerie)")
-            return False
-
-        exchanges = enveloppe.get_exchanges
-        if ConstantesMillegrilles.SECURITE_SECURE not in exchanges:
-            # Certificat n'est pas autorise a signer des streams
-            self.__logger.warning("Certificat de mauvais niveau de securite pour JWT (doit etre 4.secure)")
-            return False
-
-        public_key = enveloppe.get_public_key()
-
-        try:
-            claims = jwt.decode(token, public_key, algorithms=['EdDSA'])
-        except jwt.exceptions.InvalidSignatureError:
-            # Signature invalide
-            return False
-
-        self.__logger.debug("JWT claims pour %s = %s" % (fuuid, claims))
-
-        if claims['sub'] != fuuid:
-            # JWT pour le mauvais fuuid
-            return False
-
-        return claims
 
     async def stream_reponse(self, request, info: InformationFuuid):
         range_bytes = request.headers.get('Range')
@@ -373,3 +456,30 @@ def extract_subject(dn: str):
         cert_subject[key] = value
 
     return cert_subject
+
+
+def valider_hachage_upload_parts(path_upload: pathlib.Path, hachage: str):
+    positions = list()
+
+    for item in path_upload.iterdir():
+        if item.is_file():
+            nom_fichier = str(item)
+            if nom_fichier.endswith('.part'):
+                position = int(item.name.split('.')[0])
+                positions.append(position)
+
+    positions = sorted(positions)
+
+    verificateur = VerificateurHachage(hachage)
+
+    for position in positions:
+        path_fichier = pathlib.Path(path_upload, '%d.part' % position)
+
+        with open(path_fichier, 'rb') as fichier:
+            while True:
+                chunk = fichier.read(64*1024)
+                if not chunk:
+                    break
+                verificateur.update(chunk)
+
+    verificateur.verify()  # Lance une exception si le hachage est incorrect
