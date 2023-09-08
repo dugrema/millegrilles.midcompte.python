@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import errno
 import logging
@@ -9,9 +10,11 @@ from typing import Type
 
 import pytz
 
+from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
+
+import millegrilles_fichiers.DatabaseScripts as scripts_database
 from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
-import millegrilles_fichiers.DatabaseScripts as scripts_database
 
 
 class ConsignationStore:
@@ -60,6 +63,9 @@ class ConsignationStore:
             con.commit()
             con.close()
 
+        # await self.emettre_batch_visites([fuuid], verification=True)
+        await self.emettre_evenement_consigne(fuuid)
+
     async def archiver(self, path_src: pathlib.Path, fuuid: str):
         raise NotImplementedError('must override')
 
@@ -92,6 +98,31 @@ class ConsignationStore:
             }
 
         return resultats_dict
+
+    async def emettre_batch_visites(self, fuuids: list[str], verification=False):
+        producer = self._etat.producer
+        await asyncio.wait_for(producer.producer_pret().wait(), timeout=10)
+
+        message = {
+            'fuuids': fuuids,
+            'verification': verification,
+        }
+        await producer.emettre_evenement(
+            message,
+            domaine=Constantes.DOMAINE_FICHIERS, action=Constantes.EVENEMENT_VISITER_FUUIDS,
+            exchanges=ConstantesMillegrilles.SECURITE_PRIVE
+        )
+
+    async def emettre_evenement_consigne(self, fuuid: str):
+        producer = self._etat.producer
+        await asyncio.wait_for(producer.producer_pret().wait(), timeout=10)
+
+        message = {'hachage_bytes': fuuid}
+        await producer.emettre_evenement(
+            message,
+            domaine=Constantes.DOMAINE_FICHIERS, action=Constantes.EVENEMENT_FICHIER_CONSIGNE,
+            exchanges=ConstantesMillegrilles.SECURITE_PRIVE
+        )
 
 
 class ConsignationStoreMillegrille(ConsignationStore):

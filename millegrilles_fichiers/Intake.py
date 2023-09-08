@@ -29,7 +29,7 @@ class IntakeJob:
         self.path_job = path_job
 
 
-class IntakeStreaming(IntakeHandler):
+class IntakeFichiers(IntakeHandler):
     """
     Gere le dechiffrage des videos.
     """
@@ -90,14 +90,14 @@ class IntakeStreaming(IntakeHandler):
             path_repertoire = repertoires[0].path_fichier
             fuuid = path_repertoire.name
             repertoires = None
-            self.__logger.debug("Traiter job streaming pour fuuid %s" % fuuid)
+            self.__logger.debug("traiter_prochaine_job Traiter job intake fichier pour fuuid %s" % fuuid)
             path_repertoire.touch()  # Touch pour mettre a la fin en cas de probleme de traitement
             job = IntakeJob(fuuid, path_repertoire)
             await self.traiter_job(job)
         except IndexError:
             return None  # Condition d'arret de l'intake
         except Exception as e:
-            self.__logger.exception("Erreur traitement job download")
+            self.__logger.exception("traiter_prochaine_job Erreur traitement job download")
             return {'ok': False, 'err': str(e)}
 
         return {'ok': True}

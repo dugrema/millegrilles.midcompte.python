@@ -12,7 +12,7 @@ from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.Configuration import ConfigurationFichiers
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.Commandes import CommandHandler
-from millegrilles_fichiers.Intake import IntakeStreaming
+from millegrilles_fichiers.Intake import IntakeFichiers
 from millegrilles_fichiers.Consignation import ConsignationHandler
 from millegrilles_fichiers.WebServer import WebServer
 
@@ -30,7 +30,7 @@ class StreamingMain:
         self.__web_server: Optional[WebServer] = None
 
         self.__commandes_handler: Optional[CommandHandler] = None
-        self.__intake: Optional[IntakeStreaming] = None
+        self.__intake: Optional[IntakeFichiers] = None
         self.__consignation_handler: Optional[ConsignationHandler] = None
 
         # Asyncio lifecycle handlers
@@ -44,7 +44,7 @@ class StreamingMain:
 
         await self._etat.reload_configuration()
         self.__consignation_handler = ConsignationHandler(self._stop_event, self._etat)
-        self.__intake = IntakeStreaming(self._stop_event, self._etat, self.__consignation_handler)
+        self.__intake = IntakeFichiers(self._stop_event, self._etat, self.__consignation_handler)
 
         self.__commandes_handler = CommandHandler(self._etat, self.__intake, self.__consignation_handler)
         self.__rabbitmq_dao = MilleGrillesConnecteur(self._stop_event, self._etat, self.__commandes_handler)

@@ -21,7 +21,7 @@ from millegrilles_fichiers.Configuration import ConfigurationWeb
 from millegrilles_fichiers.Consignation import InformationFuuid
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.Commandes import CommandHandler
-from millegrilles_fichiers.Intake import IntakeStreaming
+from millegrilles_fichiers.Intake import IntakeFichiers
 
 
 class JobVerifierParts:
@@ -36,7 +36,7 @@ class JobVerifierParts:
 
 class WebServer:
 
-    def __init__(self, etat: EtatFichiers, commandes: CommandHandler, intake: IntakeStreaming):
+    def __init__(self, etat: EtatFichiers, commandes: CommandHandler, intake: IntakeFichiers):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__etat = etat
         self.__commandes = commandes

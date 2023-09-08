@@ -16,13 +16,13 @@ from millegrilles_messages.messages.MessagesThread import MessagesThread
 from millegrilles_messages.messages.MessagesModule import MessageProducerFormatteur
 from millegrilles_messages.MilleGrillesConnecteur import CommandHandler as CommandesAbstract
 
-from millegrilles_fichiers.Intake import IntakeStreaming
+from millegrilles_fichiers.Intake import IntakeFichiers
 from millegrilles_fichiers import Constantes
 
 
 class CommandHandler(CommandesAbstract):
 
-    def __init__(self, etat_instance: EtatInstance, intake: IntakeStreaming, consignation):
+    def __init__(self, etat_instance: EtatInstance, intake: IntakeFichiers, consignation):
         super().__init__()
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__etat_instance = etat_instance
