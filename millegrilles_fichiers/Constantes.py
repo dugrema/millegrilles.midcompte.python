@@ -26,3 +26,7 @@ EVENEMENT_GROSFICHIERS_CHANGEMENT_CONSIGNATION_PRIMAIRE = 'changementConsignatio
 COMMANDE_MODIFIER_CONFIGURATION = 'modifierConfiguration'
 
 CONST_CHAMPS_CONFIG = ['type_store', 'url_download', 'consignation_url']
+
+TYPE_STORE_MILLEGRILLE = 'millegrille'
+TYPE_STORE_SFTP = 'sftp'
+TYPE_STORE_AWSS3 = 'awss3'

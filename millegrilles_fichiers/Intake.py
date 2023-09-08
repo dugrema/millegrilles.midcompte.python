@@ -9,11 +9,13 @@ import shutil
 
 from typing import Optional
 
-from millegrilles_fichiers import Constantes
+from millegrilles_messages.messages import Constantes as ConstantesMillegrille
+from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
 from millegrilles_messages.jobs.Intake import IntakeHandler
 from millegrilles_messages.MilleGrillesConnecteur import EtatInstance
-from millegrilles_fichiers.Consignation import ConsignationHandler, InformationFuuid
 
+from millegrilles_fichiers import Constantes
+from millegrilles_fichiers.Consignation import ConsignationHandler, InformationFuuid
 
 LOGGER = logging.getLogger(__name__)
 
@@ -22,13 +24,9 @@ LOGGER = logging.getLogger(__name__)
 
 class IntakeJob:
 
-    def __init__(self, info: InformationFuuid, cle_chiffree):
-        self.info = info
-        self.cle_chiffree = cle_chiffree
-
-    @property
-    def fuuid(self):
-        return self.info.fuuid
+    def __init__(self, fuuid: str, path_job: pathlib.Path):
+        self.fuuid = fuuid
+        self.path_job = path_job
 
 
 class IntakeStreaming(IntakeHandler):
@@ -42,22 +40,32 @@ class IntakeStreaming(IntakeHandler):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__consignation_handler = consignation_handler
 
-        self.__jobs: Optional[asyncio.Queue[IntakeJob]] = None
-
         self.__events_fuuids = dict()
 
+        self.__path_intake = pathlib.Path(self._etat_instance.configuration.dir_consignation, Constantes.DIR_STAGING_INTAKE)
+
     def get_path_intake_fuuid(self, fuuid: str):
-        return pathlib.Path(self._etat_instance.configuration.dir_consignation, Constantes.DIR_STAGING_INTAKE, fuuid)
+        return pathlib.Path(self.__path_intake, fuuid)
 
     async def run(self):
         await asyncio.gather(
             super().run(),
+            self.trigger_regulier(),
             # self.entretien_dechiffre_thread(),
             # self.entretien_download_thread()
         )
 
+    async def trigger_regulier(self):
+        wait_coro = self._stop_event.wait()
+
+        # Declenchement initial du traitement (recovery)
+        await asyncio.wait([wait_coro], timeout=5)
+
+        while self._stop_event.is_set() is False:
+            await self.trigger_traitement()
+            await asyncio.wait([wait_coro], timeout=300)
+
     async def configurer(self):
-        self.__jobs = asyncio.Queue(maxsize=5)
         return await super().configurer()
 
     # async def entretien_download_thread(self):
@@ -78,11 +86,15 @@ class IntakeStreaming(IntakeHandler):
 
     async def traiter_prochaine_job(self) -> Optional[dict]:
         try:
-            job = self.__jobs.get_nowait()
-            fuuid = job.fuuid
+            repertoires = repertoires_par_date(self.__path_intake)
+            path_repertoire = repertoires[0].path_fichier
+            fuuid = path_repertoire.name
+            repertoires = None
             self.__logger.debug("Traiter job streaming pour fuuid %s" % fuuid)
+            path_repertoire.touch()  # Touch pour mettre a la fin en cas de probleme de traitement
+            job = IntakeJob(fuuid, path_repertoire)
             await self.traiter_job(job)
-        except asyncio.QueueEmpty:
+        except IndexError:
             return None  # Condition d'arret de l'intake
         except Exception as e:
             self.__logger.exception("Erreur traitement job download")
@@ -94,8 +106,41 @@ class IntakeStreaming(IntakeHandler):
         raise NotImplementedError('must override')
 
     async def traiter_job(self, job):
+        await self.handle_retries(job)
+
+        # Reassembler et valider le fichier
+        args = [job]
+        path_fichier = await asyncio.to_thread(reassembler_fichier, *args)
+
+        # Consigner : deplacer fichier vers repertoire final
+        await self.__consignation_handler.consigner(path_fichier, job.fuuid)
+
+        # Charger transactions, cles. Emettre.
+        await self.emettre_transactions(job)
+
+        # Supprimer le repertoire de la job
+        shutil.rmtree(job.path_job)
+
+    async def handle_retries(self, job: IntakeJob):
+        path_repertoire = job.path_job
         fuuid = job.fuuid
-        raise NotImplementedError('must override')
+        path_fichier_retry = pathlib.Path(path_repertoire, 'retry.json')
+
+        # Conserver marqueur pour les retries en cas d'erreur
+        try:
+            with open(path_fichier_retry, 'rt') as fichier:
+                info_retry = json.load(fichier)
+        except FileNotFoundError:
+            info_retry = {'retry': -1}
+
+        if info_retry['retry'] > 3:
+            self.__logger.error("Job %s irrecuperable, trop de retries" % fuuid)
+            shutil.rmtree(path_repertoire)
+            raise Exception('too many retries')
+        else:
+            info_retry['retry'] += 1
+            with open(path_fichier_retry, 'wt') as fichier:
+                json.dump(info_retry, fichier)
 
     async def ajouter_upload(self, path_upload: pathlib.Path):
         """ Ajoute un upload au intake. Transfere path source vers repertoire intake. """
@@ -124,6 +169,44 @@ class IntakeStreaming(IntakeHandler):
 
         # Declencher traitement si pas deja en cours
         await self.trigger_traitement()
+
+    async def emettre_transactions(self, job: IntakeJob):
+        producer = self._etat_instance.producer
+        await asyncio.wait_for(producer.producer_pret().wait(), 20)
+
+        path_transaction = pathlib.Path(job.path_job, Constantes.FICHIER_TRANSACTION)
+        try:
+            with open(path_transaction, 'rb') as fichier:
+                transaction = json.load(fichier)
+        except FileNotFoundError:
+            pass  # OK
+        else:
+            # Emettre transaction
+            routage = transaction['routage']
+            await producer.executer_commande(
+                transaction,
+                action=routage['action'], domaine=routage['domaine'], partition=routage.get('partition'),
+                exchange=ConstantesMillegrille.SECURITE_PRIVE,
+                timeout=60,
+                noformat=True
+            )
+
+        path_cles = pathlib.Path(job.path_job, Constantes.FICHIER_CLES)
+        try:
+            with open(path_cles, 'rb') as fichier:
+                cles = json.load(fichier)
+        except FileNotFoundError:
+            pass  # OK
+        else:
+            # Emettre transaction
+            routage = cles['routage']
+            producer.executer_commande(
+                cles,
+                action=routage['action'], domaine=routage['domaine'], partition=routage.get('partition'),
+                exchange=ConstantesMillegrille.SECURITE_PRIVE,
+                timeout=60,
+                noformat=True
+            )
 
     # def cleanup_download(self, fuuid):
     #     try:
@@ -310,3 +393,75 @@ class IntakeStreaming(IntakeHandler):
 #                 fichier.unlink()
 #
 #     return fuuids_supprimes
+
+class RepertoireStat:
+
+    def __init__(self, path_fichier: pathlib.Path):
+        self.path_fichier = path_fichier
+        self.stat = path_fichier.stat()
+
+    @property
+    def modification_date(self) -> float:
+        return self.stat.st_mtime
+
+
+def repertoires_par_date(path_parent: pathlib.Path) -> list[RepertoireStat]:
+
+    repertoires = list()
+    for item in path_parent.iterdir():
+        if item.is_dir():
+            repertoires.append(RepertoireStat(item))
+
+    # Trier repertoires par date
+    repertoires = sorted(repertoires, key=get_modification_date)
+
+    return repertoires
+
+
+def get_modification_date(item: RepertoireStat) -> float:
+    return item.modification_date
+
+
+def reassembler_fichier(job: IntakeJob) -> pathlib.Path:
+    path_repertoire = job.path_job
+    fuuid = job.fuuid
+    path_fuuid = pathlib.Path(path_repertoire, fuuid)
+
+    if path_fuuid.exists() is True:
+        # Le fichier reassemble existe deja
+        return path_fuuid
+
+    path_work = pathlib.Path(path_repertoire, '%s.work' % fuuid)
+    path_work.unlink(missing_ok=True)
+
+    parts = sort_parts(path_repertoire)
+    verificateur = VerificateurHachage(fuuid)
+    with open(path_work, 'wb') as output:
+        for position in parts:
+            path_part = pathlib.Path(path_repertoire, '%d.part' % position)
+            with open(path_part, 'rb') as part_file:
+                while True:
+                    chunk = part_file.read(64*1024)
+                    if not chunk:
+                        break
+                    output.write(chunk)
+                    verificateur.update(chunk)
+
+    verificateur.verify()  # Lance ErreurHachage en cas de mismatch
+
+    # Renommer le fichier .work
+    path_work.rename(path_fuuid)
+
+    return path_fuuid
+
+
+def sort_parts(path_upload: pathlib.Path):
+    positions = list()
+    for item in path_upload.iterdir():
+        if item.is_file():
+            nom_fichier = str(item)
+            if nom_fichier.endswith('.part'):
+                position = int(item.name.split('.')[0])
+                positions.append(position)
+    positions = sorted(positions)
+    return positions

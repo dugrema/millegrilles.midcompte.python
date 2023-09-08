@@ -1,4 +1,5 @@
 import enum
+import pathlib
 import shutil
 
 import aiohttp
@@ -14,6 +15,7 @@ from millegrilles_fichiers import Constantes
 from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_document
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
+from millegrilles_fichiers.ConsignationStore import ConsignationStore, map_type
 
 
 class InformationFuuid:
@@ -47,6 +49,8 @@ class ConsignationHandler:
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__stop_event = stop_event
         self.__etat_instance = etat_instance
+
+        self.__store_consignation: Optional[ConsignationStore] = None
 
         self.__url_consignation_primaire: Optional[str] = None
 
@@ -118,7 +122,12 @@ class ConsignationHandler:
         except Exception as e:
             self.__logger.exception("Erreur chargement consignation primaire")
 
-        # TODO Ajuster le type de store au besoin
+        type_store = self.__etat_instance.topologie['type_store']
+        class_type = map_type(type_store)
+        if self.__store_consignation is None or self.__store_consignation.__class__ != class_type:
+            self.__logger.info("Changer store consignation pour type %s" % type_store)
+            instance_store = class_type(self.__etat_instance)
+            self.__store_consignation = instance_store
 
         # La configuration du store est prete
         self.__store_pret_event.set()
@@ -184,6 +193,11 @@ class ConsignationHandler:
         await self.modifier_topologie(configuration_topologie_defaut)
 
         await self.emettre_etat()
+
+    async def consigner(self, path_source: pathlib.Path, fuuid: str):
+        if self.__store_consignation is None:
+            raise Exception("Store non initialise")
+        await self.__store_consignation.consigner(path_source, fuuid)
 
     # async def charger_consignation_primaire(self):
     #     producer = self.__etat_instance.producer

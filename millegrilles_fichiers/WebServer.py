@@ -458,14 +458,12 @@ def extract_subject(dn: str):
 
 def valider_hachage_upload_parts(path_upload: pathlib.Path, hachage: str):
     positions = list()
-
     for item in path_upload.iterdir():
         if item.is_file():
             nom_fichier = str(item)
             if nom_fichier.endswith('.part'):
                 position = int(item.name.split('.')[0])
                 positions.append(position)
-
     positions = sorted(positions)
 
     verificateur = VerificateurHachage(hachage)
