@@ -179,6 +179,9 @@ class ConsignationHandler:
                 pass
 
         # Charger etat des fichiers (taille totale par type)
+        if self.__store_consignation is not None:
+            stats = self.__store_consignation.get_stats()
+            etat.update(stats)
 
         # Charger etat downloads et uploads si secondaire
 

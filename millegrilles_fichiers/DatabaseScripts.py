@@ -23,13 +23,19 @@ CONST_ACTIVER_SI_MANQUANT = """
 CONST_VERIFIER_FICHIER = """
     UPDATE FICHIERS
     SET taille = :taille, 
-        date_presence = datetime('now'), 
-        date_verification = datetime('now')
+        date_presence = datetime('now', 'utc'), 
+        date_verification = :date_verification
     WHERE fuuid = :fuuid
 """
 
 CONST_RECLAMER_FICHIER = """
     UPDATE FICHIERS
-    SET date_reclamation = datetime('now')
+    SET date_reclamation = :date_reclamation
     WHERE fuuid = :fuuid
+"""
+
+CONST_STATS_FICHIERS = """
+    SELECT etat_fichier, count(fuuid) as nombre, sum(taille) as taille
+    FROM fichiers
+    GROUP BY etat_fichier;
 """

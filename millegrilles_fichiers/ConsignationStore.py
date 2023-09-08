@@ -67,13 +67,6 @@ class ConsignationStore:
         raise NotImplementedError('must override')
 
     def ouvrir_database(self, ro=False) -> sqlite3.Connection:
-        # if ro:
-        #     mode_acces = 'ro'
-        # else:
-        #     mode_acces = 'rw'
-        # uri_database = 'file:%s?mode=%s' % (self.__path_database, mode_acces)
-        # self.__logger.info("ConsignationStore.ouvrir_database uri %s" % uri_database)
-        # return sqlite3.connect(uri_database, check_same_thread=True, uri=True)
         return sqlite3.connect(self.__path_database, check_same_thread=True)
 
     def initialiser_db(self):
@@ -81,6 +74,24 @@ class ConsignationStore:
         con = self.ouvrir_database()
         con.execute(scripts_database.CONST_CREATE_FICHIERS)
         con.close()
+
+    def get_stats(self):
+        con = self.ouvrir_database()
+        cur = con.cursor()
+        cur.execute(scripts_database.CONST_STATS_FICHIERS)
+        resultats = cur.fetchmany(4)  # Il y a 4 types de classements (actif, archive, orphelin, manquant)
+        cur.close()
+        con.close()
+
+        resultats_dict = dict()
+        for row in resultats:
+            etat_fichier = '%ss' % row[0]  # Ajouter s a la fin de l'etat (e.g. actif devient actifs)
+            resultats_dict[etat_fichier] = {
+                'nombre': row[1],
+                'taille': row[2]
+            }
+
+        return resultats_dict
 
 
 class ConsignationStoreMillegrille(ConsignationStore):
