@@ -1,9 +1,11 @@
 import asyncio
 import datetime
+import errno
 import json
 import logging
 import os
 import pathlib
+import shutil
 
 from typing import Optional
 
@@ -95,9 +97,33 @@ class IntakeStreaming(IntakeHandler):
         fuuid = job.fuuid
         raise NotImplementedError('must override')
 
-    async def ajouter_upload(self, path_upload):
+    async def ajouter_upload(self, path_upload: pathlib.Path):
         """ Ajoute un upload au intake. Transfere path source vers repertoire intake. """
-        raise NotImplementedError('todo')
+        path_etat = pathlib.Path(path_upload, Constantes.FICHIER_ETAT)
+        path_fichier_str = str(path_etat)
+        self.__logger.debug("Charger fichier %s" % path_fichier_str)
+        with open(path_fichier_str, 'rt') as fichier:
+            etat = json.load(fichier)
+        fuuid = etat['hachage']
+        path_intake = self.get_path_intake_fuuid(fuuid)
+
+        # S'assurer que le repertoire parent existe
+        path_intake.parent.mkdir(parents=True, exist_ok=True)
+
+        # Deplacer le repertoire d'upload vers repertoire intake
+        self.__logger.debug("ajouter_upload Deplacer repertoire upload vers %s" % path_intake)
+        try:
+            path_upload.rename(path_intake)
+        except OSError as e:
+            if e.errno == errno.ENOTEMPTY:
+                self.__logger.info("ajouter_upload Repertoire intake pour %s existe deja (OK) - supprimer upload redondant" % fuuid)
+                shutil.rmtree(path_upload)
+                return
+            else:
+                raise e
+
+        # Declencher traitement si pas deja en cours
+        await self.trigger_traitement()
 
     # def cleanup_download(self, fuuid):
     #     try:

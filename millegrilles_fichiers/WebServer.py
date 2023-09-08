@@ -1,10 +1,8 @@
 import asyncio
 import logging
 import json
-import os.path
 import shutil
 
-import jwt
 import pathlib
 import re
 
