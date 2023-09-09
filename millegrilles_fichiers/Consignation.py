@@ -241,7 +241,7 @@ class ConsignationHandler:
         # Supprimer les backups qui ne sont pas dans la liste
         uuid_backups = commande['uuid_backups']
         if self.__store_consignation is not None:
-            self.__store_consignation.rotation_backups(uuid_backups)
+            await self.__store_consignation.rotation_backups(uuid_backups)
             return {'ok': True}
         else:
             return {'ok': False, 'err': 'Consignation non prete'}
