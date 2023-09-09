@@ -13,6 +13,7 @@ DIR_ORPHELINS = 'orphelins'
 DIR_DATA = 'data'
 DIR_STAGING_UPLOAD = 'staging/upload'
 DIR_STAGING_INTAKE = 'staging/intake'
+DIR_BACKUP = 'backup_transactions'
 
 FICHIER_DATABASE = 'consignation.db'
 

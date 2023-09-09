@@ -1,5 +1,7 @@
 import asyncio
 import datetime
+import errno
+import gzip
 import logging
 import json
 import shutil
@@ -80,8 +82,8 @@ class WebServer:
             #   route.post('/fuuidsInfo', express.json(), getFuuidsInfo)
 
             # /backup
-            #   route.post('/verifierFichiers', express.json(), verifierBackup)
-            #   route.put('/upload/:uuid_backup/:domaine/:nomfichier', recevoirFichier)
+            web.post('/fichiers_transfert/backup/verifierFichiers', self.handle_post_backup_verifierfichiers),
+            web.put('/fichiers_transfert/backup/upload/{uuid_backup}/{domaine}/{nomfichier}', self.handle_put_backup)
             #   route.get('/download/:uuid_backup/:domaine/:nomfichier', downloaderFichier)
         ])
 
@@ -445,6 +447,82 @@ class WebServer:
         #         position += len(chunk)
 
         await response.write_eof()
+
+    async def handle_post_backup_verifierfichiers(self, request: Request) -> StreamResponse:
+        headers = request.headers
+        body = await request.json()
+        uuid_backup = body['uuid_backup']
+        domaine = body['domaine']
+        fichiers = body['fichiers']
+
+        # Afficher info (debug)
+        self.__logger.debug("handle_post_backup_verifierfichiers %s/%s" % (uuid_backup, domaine))
+
+        if headers.get('VERIFIED') != 'SUCCESS':
+            return web.HTTPForbidden()
+
+        # Creer un dict avec fichier:bool pour la reponse
+        dict_fichiers = dict()
+        for fichier in fichiers:
+            dict_fichiers[fichier] = False
+
+        # Parcourir les fichier dans le repertoire de backup
+        path_backup = pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
+        path_fichiers = pathlib.Path(path_backup, uuid_backup, domaine)
+
+        try:
+            for item in path_fichiers.iterdir():
+                if item.is_file() and item.name.endswith('.json.gz'):
+                    dict_fichiers[item.name] = True
+        except OSError as e:
+            if e.errno == errno.ENOENT:
+                pass  # Ok, aucuns fichiers
+            else:
+                raise e
+
+        return web.json_response(dict_fichiers)
+
+    async def handle_put_backup(self, request: Request) -> StreamResponse:
+        # {uuid_backup}/{domaine}/{nomfichier}
+        uuid_backup = request.match_info['uuid_backup']
+        domaine = request.match_info['domaine']
+        nom_fichier = request.match_info['nomfichier']
+        headers = request.headers
+
+        # Afficher info (debug)
+        self.__logger.debug("handle_put_backup %s/%s/%s" % (uuid_backup, domaine, nom_fichier))
+        for key, value in headers.items():
+            self.__logger.debug('handle_put_backup key: %s, value: %s' % (key, value))
+
+        if headers.get('VERIFIED') != 'SUCCESS':
+            return web.HTTPForbidden()
+
+        # Parcourir les fichier dans le repertoire de backup
+        path_backup = pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
+        path_fichier = pathlib.Path(path_backup, uuid_backup, domaine, nom_fichier)
+        path_fichier_work = pathlib.Path(path_backup, uuid_backup, domaine, '%s.work' % nom_fichier)
+        path_fichier.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(path_fichier_work, 'wb') as fichier:
+            async for chunk in request.content.iter_chunked(64*1024):
+                fichier.write(chunk)
+
+        with gzip.open(path_fichier_work, 'r') as fichier:
+            backup = json.load(fichier)
+
+        try:
+            enveloppe = await self.__etat.validateur_message.verifier(backup)
+            if ConstantesMillegrilles.SECURITE_SECURE not in enveloppe.get_exchanges:
+                raise Exception('Fichier ne backup signe par mauvais certificat (doit etre 4.secure)')
+        except Exception:
+            self.__logger.info("Erreur validation fichier de backup %s - SKIP" % nom_fichier)
+            path_fichier_work.unlink()  # Supprimer fichier backup
+            return web.HTTPBadRequest()
+
+        # Renommer fichier backup (retirer .work)
+        path_fichier_work.rename(path_fichier)
+
+        return web.HTTPOk()
 
 
 def parse_range(range, taille_totale):
