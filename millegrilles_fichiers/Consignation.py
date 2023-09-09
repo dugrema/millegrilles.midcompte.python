@@ -76,15 +76,19 @@ class ConsignationHandler:
                 self.__logger.exception("entretien Erreur charger_topologie")
             await asyncio.wait([stop_event_wait], timeout=300)
 
+        if self.__store_consignation is not None:
+            await self.__store_consignation.stop()
+
     async def entretien_store(self):
         stop_event_wait = self.__stop_event.wait()
-        await asyncio.wait([stop_event_wait], timeout=5)  # Attente premier entretien
+        # Attente configuration store
         while self.__stop_event.is_set() is False:
+            await asyncio.wait([stop_event_wait, self.__store_pret_event.wait()], return_when=asyncio.FIRST_COMPLETED)
             try:
-                await self.__store_consignation.entretien()
+                await self.__store_consignation.run()
             except Exception:
-                self.__logger.exception("entretien_store Erreur store_consignation.entretien()")
-            await asyncio.wait([stop_event_wait], timeout=60)
+                self.__logger.exception("entretien_store Erreur store_consignation.run()")
+            await asyncio.wait([stop_event_wait], timeout=15)
 
     async def thread_emettre_etat(self):
         stop_event_wait = self.__stop_event.wait()
@@ -128,11 +132,16 @@ class ConsignationHandler:
 
         type_store = self.__etat_instance.topologie['type_store']
         class_type = map_type(type_store)
+
+        # Arreter store courant si present
+        if self.__store_consignation is not None:
+            await self.__store_consignation.stop()
+
         if self.__store_consignation is None or self.__store_consignation.__class__ != class_type:
             self.__logger.info("Changer store consignation pour type %s" % type_store)
             instance_store = class_type(self.__etat_instance)
             self.__store_consignation = instance_store
-            self.__store_consignation.initialiser_db()
+            self.__store_consignation.initialiser()
 
         # La configuration du store est prete
         self.__store_pret_event.set()

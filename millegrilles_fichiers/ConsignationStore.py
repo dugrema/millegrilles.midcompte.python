@@ -29,6 +29,22 @@ class ConsignationStore:
             self._etat.configuration.dir_consignation, Constantes.DIR_DATA, Constantes.FICHIER_DATABASE)
         self.__path_database = path_database
 
+        self._stop_store: Optional[asyncio.Event] = None
+
+    def initialiser(self):
+        self._stop_store = asyncio.Event()
+
+        self.__path_database.parent.mkdir(parents=True, exist_ok=True)
+        con = self.ouvrir_database()
+        con.execute(scripts_database.CONST_CREATE_FICHIERS)
+        con.close()
+
+    async def run(self):
+        raise NotImplementedError('must override')
+
+    async def stop(self):
+        self._stop_store.set()
+
     def get_path_actif(self, fuuid: str) -> pathlib.Path:
         raise NotImplementedError('must override')
 
@@ -68,26 +84,36 @@ class ConsignationStore:
         # await self.emettre_batch_visites([fuuid], verification=True)
         await self.emettre_evenement_consigne(fuuid)
 
-    async def archiver(self, path_src: pathlib.Path, fuuid: str):
+    async def changer_bucket(self, fuuid: str, bucket: str):
+        """ Deplace le fichier vers un bucket """
         raise NotImplementedError('must override')
 
-    async def supprimer(self, path_src: pathlib.Path, fuuid: str):
+    async def supprimer(self, fuuid: str):
+        """ Marquer orphelin si fichier est actif """
+        raise NotImplementedError('must override')
+
+    async def recuperer(self, fuuid: str):
+        """ Marquer le fichier orphelin comme actif """
+        raise NotImplementedError('must override')
+
+    async def purger(self, fuuid: str):
+        """ Retirer le fichier du bucket """
         raise NotImplementedError('must override')
 
     async def stream_fuuid(self, fuuid: str, response: web.StreamResponse, start: Optional[int] = None, end: Optional[int] = None):
+        """ Stream les bytes du fichier en utilisant la response """
         raise NotImplementedError('must override')
 
     async def entretien(self):
+        """ Declenche un entretien (visite, verification, purge, etc.) """
+        raise NotImplementedError('must override')
+
+    async def visiter_fuuids(self):
+        """ Visiter tous les fichiers presents, s'assurer qu'ils sont dans la base de donnees. """
         raise NotImplementedError('must override')
 
     def ouvrir_database(self, ro=False) -> sqlite3.Connection:
         return sqlite3.connect(self.__path_database, check_same_thread=True)
-
-    def initialiser_db(self):
-        self.__path_database.parent.mkdir(parents=True, exist_ok=True)
-        con = self.ouvrir_database()
-        con.execute(scripts_database.CONST_CREATE_FICHIERS)
-        con.close()
 
     def get_stats(self):
         con = self.ouvrir_database()
@@ -207,12 +233,26 @@ class ConsignationStoreMillegrille(ConsignationStore):
             else:
                 raise e
 
-    async def archiver(self, path_src: pathlib.Path, fuuid: str):
-        await super().archiver(path_src, fuuid)
+    async def thread_visiter(self):
+        stop_coro = self._stop_store.wait()
+        await asyncio.wait([stop_coro], timeout=30)
+        while self._stop_store.is_set() is False:
+            self.__logger.info("thread_visiter Debut visiter fuuids")
+
+            await asyncio.wait([stop_coro], timeout=Constantes.CONST_INTERVALLE_VISITE_MILLEGRILLE)
+
+    async def run(self):
+        await asyncio.gather(
+            self.thread_visiter()
+        )
+
+    async def changer_bucket(self, fuuid: str, bucket: str):
         raise NotImplementedError('todo')
 
-    async def supprimer(self, path_src: pathlib.Path, fuuid: str):
-        await super().supprimer(path_src, fuuid)
+    async def supprimer(self, fuuid: str):
+        raise NotImplementedError('todo')
+
+    async def purger(self, fuuid: str):
         raise NotImplementedError('todo')
 
     async def stream_fuuid(
@@ -240,6 +280,9 @@ class ConsignationStoreMillegrille(ConsignationStore):
                 else:
                     await response.write(chunk)
                 position += len(chunk)
+
+    async def visiter_fuuids(self):
+        dir_consignation = pathlib.Path(self._etat.configuration.dir_consignation)
 
 
 def map_type(type_store: str) -> Type[ConsignationStore]:
