@@ -7,6 +7,7 @@ import asyncio
 import logging
 import json
 import os
+import tempfile
 
 from aiohttp import web
 from typing import Optional
@@ -225,6 +226,25 @@ class ConsignationHandler:
         if self.__store_consignation is None:
             raise Exception("Store non initialise")
         return await self.__store_consignation.stream_fuuid(fuuid, response, start, end)
+
+    async def conserver_backup(self, fichier_temp: tempfile.TemporaryFile, uuid_backup: str, domaine: str, nom_fichier: str):
+        await self.__store_consignation.conserver_backup(fichier_temp, uuid_backup, domaine, nom_fichier)
+
+    async def rotation_backup(self, commande: dict):
+        self.__logger.debug("Rotation backup %s" % commande)
+
+        # Verifier que la commande vient d'un module de backup
+        enveloppe = await self.__etat_instance.validateur_message.verifier(commande['__original'])
+        if ConstantesMillegrilles.ROLE_BACKUP not in enveloppe.get_roles:
+            return {'ok': False, 'err': 'rotation_backup acces refuse (role invalide)'}
+
+        # Supprimer les backups qui ne sont pas dans la liste
+        uuid_backups = commande['uuid_backups']
+        if self.__store_consignation is not None:
+            self.__store_consignation.rotation_backups(uuid_backups)
+            return {'ok': True}
+        else:
+            return {'ok': False, 'err': 'Consignation non prete'}
 
     # async def charger_consignation_primaire(self):
     #     producer = self.__etat_instance.producer

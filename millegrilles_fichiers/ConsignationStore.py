@@ -5,6 +5,7 @@ import logging
 import pathlib
 import shutil
 import sqlite3
+import tempfile
 
 from aiohttp import web
 from typing import Optional, Type
@@ -149,6 +150,14 @@ class ConsignationStore:
 
     async def visiter_fuuids(self):
         """ Visiter tous les fichiers presents, s'assurer qu'ils sont dans la base de donnees. """
+        raise NotImplementedError('must override')
+
+    async def conserver_backup(self, fichier_temp: tempfile.TemporaryFile, uuid_backup: str, domaine: str,
+                               nom_fichier: str):
+        raise NotImplementedError('must override')
+
+    async def rotation_backups(self, uuid_backups_conserver: list[str]):
+        """ Supprime tous les backups qui ne sont pas dans la liste """
         raise NotImplementedError('must override')
 
     def ouvrir_database(self, ro=False) -> sqlite3.Connection:
@@ -338,6 +347,35 @@ class ConsignationStoreMillegrille(ConsignationStore):
             elif item.is_file():
                 stat = item.stat()
                 entretien_db.ajouter_visite(bucket, item.name, stat.st_size)
+
+    async def conserver_backup(self, fichier_temp: tempfile.TemporaryFile, uuid_backup: str, domaine: str,
+                               nom_fichier: str):
+        path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP, uuid_backup, domaine)
+        await asyncio.to_thread(self.__conserver_backup, fichier_temp, path_backup, nom_fichier)
+
+    def __conserver_backup(self, fichier_temp: tempfile.TemporaryFile, repertoire: pathlib.Path, nom_fichier):
+        fichier_temp.seek(0)
+        path_fichier_fichier = pathlib.Path(repertoire, nom_fichier)
+        path_fichier_work = pathlib.Path(repertoire, '%s.work' % nom_fichier)
+        repertoire.mkdir(parents=True, exist_ok=True)
+        with open(path_fichier_work, 'wb') as fichier:
+            while True:
+                chunk = fichier_temp.read(64*1024)
+                if not chunk:
+                    break
+                fichier.write(chunk)
+
+        # Renommer fichier (retrirer .work)
+        path_fichier_work.rename(path_fichier_fichier)
+
+    async def rotation_backups(self, uuid_backups_conserver: list[str]):
+        """ Supprime tous les backups qui ne sont pas dans la liste """
+        dir_consignation = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
+        for item in dir_consignation.iterdir():
+            if item.is_dir():
+                if item.name not in uuid_backups_conserver:
+                    self.__logger.info("Supprimer repertoire de backup %s" % item.name)
+                    shutil.rmtree(item)
 
 
 def map_type(type_store: str) -> Type[ConsignationStore]:

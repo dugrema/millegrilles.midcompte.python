@@ -30,6 +30,7 @@ EVENEMENT_VISITER_FUUIDS = 'visiterFuuids'
 EVENEMENT_FICHIER_CONSIGNE = 'consigne'
 
 COMMANDE_MODIFIER_CONFIGURATION = 'modifierConfiguration'
+COMMANDE_ENTRETIEN_BACKUP = 'entretienBackup'
 
 CONST_CHAMPS_CONFIG = ['type_store', 'url_download', 'consignation_url']
 

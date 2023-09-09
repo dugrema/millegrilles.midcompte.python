@@ -41,12 +41,18 @@ class CommandHandler(CommandesAbstract):
         self.__messages_thread = messages_thread
         res_evenements = RessourcesConsommation(self.callback_reply_q, channel_separe=True, est_asyncio=True)
 
+        # Configuration et topologie
         res_evenements.ajouter_rk(
             ConstantesMilleGrilles.SECURITE_PRIVE,
             f'commande.{Constantes.DOMAINE_FICHIERS}.{instance_id}.{Constantes.COMMANDE_MODIFIER_CONFIGURATION}',)
         res_evenements.ajouter_rk(
             ConstantesMilleGrilles.SECURITE_PRIVE,
             f'evenement.{Constantes.DOMAINE_GROSFICHIERS}.{Constantes.EVENEMENT_GROSFICHIERS_CHANGEMENT_CONSIGNATION_PRIMAIRE}',)
+
+        # Backup
+        res_evenements.ajouter_rk(
+            ConstantesMilleGrilles.SECURITE_PRIVE,
+            f'commande.{Constantes.DOMAINE_FICHIERS}.{Constantes.COMMANDE_ENTRETIEN_BACKUP}',)
 
         messages_thread.ajouter_consumer(res_evenements)
 
@@ -83,6 +89,8 @@ class CommandHandler(CommandesAbstract):
                     await self.__consignation.modifier_topologie(message.parsed)
                 elif action == Constantes.EVENEMENT_GROSFICHIERS_CHANGEMENT_CONSIGNATION_PRIMAIRE:
                     await self.__consignation.charger_topologie()
+                elif action == Constantes.COMMANDE_ENTRETIEN_BACKUP:
+                    await self.__consignation.rotation_backup(message.parsed)
                 else:
                     self.__logger.warning(
                         "Commande non supportee (action %s) - SKIP" % action)

@@ -4,6 +4,7 @@ import errno
 import gzip
 import logging
 import json
+import tempfile
 import shutil
 
 import pathlib
@@ -497,30 +498,49 @@ class WebServer:
         if headers.get('VERIFIED') != 'SUCCESS':
             return web.HTTPForbidden()
 
-        # Parcourir les fichier dans le repertoire de backup
-        path_backup = pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
-        path_fichier = pathlib.Path(path_backup, uuid_backup, domaine, nom_fichier)
-        path_fichier_work = pathlib.Path(path_backup, uuid_backup, domaine, '%s.work' % nom_fichier)
-        path_fichier.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(path_fichier_work, 'wb') as fichier:
+        # Conserver le fichier dans un tempfile
+        with tempfile.TemporaryFile() as fichier_temp:
             async for chunk in request.content.iter_chunked(64*1024):
-                fichier.write(chunk)
+                fichier_temp.write(chunk)
 
-        with gzip.open(path_fichier_work, 'r') as fichier:
-            backup = json.load(fichier)
+            fichier_temp.seek(0)
 
-        try:
-            enveloppe = await self.__etat.validateur_message.verifier(backup)
-            if ConstantesMillegrilles.SECURITE_SECURE not in enveloppe.get_exchanges:
-                raise Exception('Fichier ne backup signe par mauvais certificat (doit etre 4.secure)')
-        except Exception:
-            self.__logger.info("Erreur validation fichier de backup %s - SKIP" % nom_fichier)
-            path_fichier_work.unlink()  # Supprimer fichier backup
-            return web.HTTPBadRequest()
+            with gzip.open(fichier_temp, 'r') as fichier:
+                backup = json.load(fichier)
 
-        # Renommer fichier backup (retirer .work)
-        path_fichier_work.rename(path_fichier)
+            try:
+                enveloppe = await self.__etat.validateur_message.verifier(backup)
+                if ConstantesMillegrilles.SECURITE_SECURE not in enveloppe.get_exchanges:
+                    raise Exception('Fichier ne backup signe par mauvais certificat (doit etre 4.secure)')
+            except Exception:
+                self.__logger.info("Erreur validation fichier de backup %s - SKIP" % nom_fichier)
+                return web.HTTPBadRequest()
+
+            # Consigner le fichier de backup
+            await self.__consignation.conserver_backup(fichier_temp, uuid_backup, domaine, nom_fichier)
+
+        # # Parcourir les fichier dans le repertoire de backup
+        # path_backup = pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
+        # path_fichier = pathlib.Path(path_backup, uuid_backup, domaine, nom_fichier)
+        #
+        # path_fichier_work = pathlib.Path(path_backup, uuid_backup, domaine, '%s.work' % nom_fichier)
+        # path_fichier.parent.mkdir(parents=True, exist_ok=True)
+        #
+        # with open(path_fichier_work, 'wb') as fichier:
+        #     async for chunk in request.content.iter_chunked(64*1024):
+        #         fichier.write(chunk)
+        #
+        # with gzip.open(path_fichier_work, 'r') as fichier:
+        #     backup = json.load(fichier)
+        #
+        # try:
+        #     enveloppe = await self.__etat.validateur_message.verifier(backup)
+        #     if ConstantesMillegrilles.SECURITE_SECURE not in enveloppe.get_exchanges:
+        #         raise Exception('Fichier ne backup signe par mauvais certificat (doit etre 4.secure)')
+        # except Exception:
+        #     self.__logger.info("Erreur validation fichier de backup %s - SKIP" % nom_fichier)
+        #     path_fichier_work.unlink()  # Supprimer fichier backup
+        #     return web.HTTPBadRequest()
 
         return web.HTTPOk()
 
