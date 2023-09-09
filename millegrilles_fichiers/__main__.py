@@ -53,12 +53,8 @@ class StreamingMain:
 
         # S'assurer d'avoir le repertoire de staging
 
-        dir_actifs = os.path.join(self._etat.configuration.dir_consignation, Constantes.DIR_ACTIFS)
-        dir_archives = os.path.join(self._etat.configuration.dir_consignation, Constantes.DIR_ARCHIVES)
-        dir_orphelins = os.path.join(self._etat.configuration.dir_consignation, Constantes.DIR_ORPHELINS)
-        os.makedirs(dir_actifs, exist_ok=True)
-        os.makedirs(dir_archives, exist_ok=True)
-        os.makedirs(dir_orphelins, exist_ok=True)
+        dir_buckets = os.path.join(self._etat.configuration.dir_consignation, Constantes.DIR_BUCKETS)
+        os.makedirs(dir_buckets, exist_ok=True)
 
         self.__web_server = WebServer(self._etat, self.__commandes_handler, self.__intake, self.__consignation_handler)
         self.__web_server.setup()

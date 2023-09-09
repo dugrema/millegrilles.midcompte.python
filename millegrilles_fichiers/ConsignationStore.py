@@ -18,6 +18,48 @@ from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 
 
+class EntretienDatabase:
+
+    def __init__(self, etat: EtatFichiers):
+        self._etat = etat
+
+        path_database = pathlib.Path(
+            self._etat.configuration.dir_consignation, Constantes.DIR_DATA, Constantes.FICHIER_DATABASE)
+        self.__path_database = path_database
+
+        self.__con = sqlite3.connect(self.__path_database, check_same_thread=True)
+        self.__cur = self.__con.cursor()
+
+        self.__batch_visites: Optional[dict] = None
+
+        self.__limite_batch = 100
+
+    def ajouter_visite(self, bucket: str, fuuid: str, taille: int):
+        if self.__batch_visites is None:
+            self.__batch_visites = list()
+        row = {
+            'fuuid': fuuid,
+            'etat_fichier': Constantes.DATABASE_ETAT_ACTIF,
+            'taille': taille,
+            'bucket': bucket,
+            'date_presence': datetime.datetime.now(tz=pytz.UTC),
+        }
+        self.__batch_visites.append(row)
+
+        if len(self.__batch_visites) >= self.__limite_batch:
+            self.commit_visites()
+
+    def commit_visites(self):
+        batch = self.__batch_visites
+        self.__batch_visites = None
+        self.__cur.executemany(scripts_database.CONST_PRESENCE_FICHIERS, batch)
+        self.__con.commit()
+
+    def close(self):
+        self.__cur.close()
+        self.__con.close()
+
+
 class ConsignationStore:
 
     def __init__(self, etat: EtatFichiers):
@@ -45,10 +87,7 @@ class ConsignationStore:
     async def stop(self):
         self._stop_store.set()
 
-    def get_path_actif(self, fuuid: str) -> pathlib.Path:
-        raise NotImplementedError('must override')
-
-    def get_path_archive(self, fuuid: str) -> pathlib.Path:
+    def get_path_fuuid(self, bucket: str, fuuid: str) -> pathlib.Path:
         raise NotImplementedError('must override')
 
     async def consigner(self, path_src: pathlib.Path, fuuid: str):
@@ -205,22 +244,16 @@ class ConsignationStoreMillegrille(ConsignationStore):
         super().__init__(etat)
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
 
-    def get_path_actif(self, fuuid) -> pathlib.Path:
+    def get_path_fuuid(self, bucket: str, fuuid: str) -> pathlib.Path:
         dir_consignation = pathlib.Path(self._etat.configuration.dir_consignation)
         sub_folder = fuuid[-2:]
-        path_fuuid = pathlib.Path(dir_consignation, Constantes.DIR_ACTIFS, sub_folder, fuuid)
-        return path_fuuid
-
-    def get_path_archives(self, fuuid) -> pathlib.Path:
-        dir_consignation = pathlib.Path(self._etat.configuration.dir_consignation)
-        sub_folder = fuuid[-2:]
-        path_fuuid = pathlib.Path(dir_consignation, Constantes.DIR_ARCHIVES, sub_folder, fuuid)
+        path_fuuid = pathlib.Path(dir_consignation, Constantes.DIR_BUCKETS, bucket, sub_folder, fuuid)
         return path_fuuid
 
     async def consigner(self, path_src: pathlib.Path, fuuid: str):
         await super().consigner(path_src, fuuid)
 
-        path_dest = self.get_path_actif(fuuid)
+        path_dest = self.get_path_fuuid(Constantes.BUCKET_PRINCIPAL, fuuid)
         # Tenter de deplacer avec rename
         try:
             path_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -238,7 +271,10 @@ class ConsignationStoreMillegrille(ConsignationStore):
         await asyncio.wait([stop_coro], timeout=30)
         while self._stop_store.is_set() is False:
             self.__logger.info("thread_visiter Debut visiter fuuids")
-
+            try:
+                await asyncio.to_thread(self.visiter_fuuids)
+            except Exception:
+                self.__logger.exception('thread_visiter Erreur visite fuuids')
             await asyncio.wait([stop_coro], timeout=Constantes.CONST_INTERVALLE_VISITE_MILLEGRILLE)
 
     async def run(self):
@@ -260,9 +296,9 @@ class ConsignationStoreMillegrille(ConsignationStore):
             start: Optional[int] = None, end: Optional[int] = None
     ):
         # Pour local FS, ignore la base de donnes. On verifie si le fichier existe dans actif ou archives
-        path_fichier = self.get_path_actif(fuuid)
+        path_fichier = self.get_path_fuuid(Constantes.BUCKET_PRINCIPAL, fuuid)
         if path_fichier.exists() is False:
-            path_fichier = self.get_path_archives(fuuid)
+            path_fichier = self.get_path_fuuid(Constantes.BUCKET_ARCHIVES, fuuid)
             if path_fichier.exists() is False:
                 raise Exception('fichier inconnu %s' % fuuid)
 
@@ -281,8 +317,27 @@ class ConsignationStoreMillegrille(ConsignationStore):
                     await response.write(chunk)
                 position += len(chunk)
 
-    async def visiter_fuuids(self):
-        dir_consignation = pathlib.Path(self._etat.configuration.dir_consignation)
+    def visiter_fuuids(self):
+        dir_buckets = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BUCKETS)
+        entretien_db = EntretienDatabase(self._etat)
+
+        try:
+            # Parcourir tous les buckets recursivement (depth-first)
+            for bucket in dir_buckets.iterdir():
+                self.visiter_bucket(bucket.name, bucket, entretien_db)
+
+            entretien_db.commit_visites()
+        finally:
+            entretien_db.close()
+
+    def visiter_bucket(self, bucket: str, path_repertoire: pathlib.Path, entretien_db: EntretienDatabase):
+        for item in path_repertoire.iterdir():
+            if item.is_dir():
+                # Parcourir recursivement
+                self.visiter_bucket(bucket, item, entretien_db)
+            elif item.is_file():
+                stat = item.stat()
+                entretien_db.ajouter_visite(bucket, item.name, stat.st_size)
 
 
 def map_type(type_store: str) -> Type[ConsignationStore]:

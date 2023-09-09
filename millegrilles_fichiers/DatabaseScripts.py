@@ -31,9 +31,11 @@ CONST_VERIFIER_FICHIER = """
 """
 
 CONST_PRESENCE_FICHIERS = """
-    UPDATE FICHIERS
-    SET date_presence = :date_presence
-    WHERE fuuid IN (:fuuid)
+    INSERT INTO FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation)
+    VALUES (:fuuid, :etat_fichier, :taille, :bucket, :date_presence, :date_presence, :date_presence)
+    ON CONFLICT(fuuid) DO UPDATE
+    SET taille = :taille, 
+        date_presence = :date_presence;
 """
 
 CONST_RECLAMER_FICHIER = """
