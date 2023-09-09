@@ -91,11 +91,18 @@ class EtatFichiers(EtatInstance):
 
     @property
     def primaire(self):
-        return self.primaire
+        return self.__primaire
 
     @primaire.setter
     def primaire(self, primaire):
         self.__primaire = primaire
+
+    @property
+    def est_primaire(self):
+        try:
+            return self.primaire['instance_id'] == self.clecertificat.enveloppe.subject_common_name
+        except KeyError:
+            return None
 
     def get_public_key_ssh(self) -> dict:
         return {'rsa': self.__public_key_ssh_rsa, 'ed25519': self.__public_key_ssh_ed25519}

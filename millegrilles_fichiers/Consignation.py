@@ -18,6 +18,7 @@ from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_document
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.ConsignationStore import ConsignationStore, map_type
+from millegrilles_fichiers.Synchronisation import SyncManager
 
 
 class InformationFuuid:
@@ -44,6 +45,8 @@ class ConsignationHandler:
         self.__stop_event = stop_event
         self.__etat_instance = etat_instance
 
+        self.__sync_manager = SyncManager(self)
+
         self.__store_consignation: Optional[ConsignationStore] = None
 
         self.__url_consignation_primaire: Optional[str] = None
@@ -51,7 +54,7 @@ class ConsignationHandler:
         self.__session_http_download: Optional[aiohttp.ClientSession] = None
         self.__session_http_requests: Optional[aiohttp.ClientSession] = None
 
-        self.__est_primaire: Optional[bool] = None
+        # self.__est_primaire: Optional[bool] = None
         self.__store_pret_event: Optional[asyncio.Event] = None
 
     async def run(self):
@@ -63,6 +66,7 @@ class ConsignationHandler:
             self.entretien(),
             self.entretien_store(),
             self.thread_emettre_etat(),
+            self.__sync_manager.run(),
         )
 
         self.__logger.info("Fin run")
@@ -245,6 +249,23 @@ class ConsignationHandler:
             return {'ok': True}
         else:
             return {'ok': False, 'err': 'Consignation non prete'}
+
+    async def declencher_sync(self, commande: dict):
+        if self.__etat_instance.est_primaire is not True:
+            raise Exception('Message sync - pas primaire')
+        if self.__store_consignation is None:
+            return {'ok': False, 'err': 'Message sync - store consignation non pret'}
+
+        self.__sync_manager.demarrer_sync()
+        return {'ok': True}
+
+    @property
+    def stop_event(self) -> asyncio.Event:
+        return self.__stop_event
+
+    @property
+    def etat_instance(self):
+        return self.__etat_instance
 
     # async def charger_consignation_primaire(self):
     #     producer = self.__etat_instance.producer

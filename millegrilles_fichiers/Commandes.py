@@ -55,6 +55,11 @@ class CommandHandler(CommandesAbstract):
             ConstantesMilleGrilles.SECURITE_PRIVE,
             f'requete.{Constantes.DOMAINE_FICHIERS}.{Constantes.REQUETE_PUBLIC_KEY_SSH}',)
 
+        # Sync
+        res_evenements.ajouter_rk(
+            ConstantesMilleGrilles.SECURITE_PRIVE,
+            f'commande.{Constantes.DOMAINE_FICHIERS}.{Constantes.COMMANDE_DECLENCHER_SYNC}',)
+
         # Backup
         res_evenements.ajouter_rk(
             ConstantesMilleGrilles.SECURITE_PRIVE,
@@ -100,6 +105,12 @@ class CommandHandler(CommandesAbstract):
                 else:
                     self.__logger.warning(
                         "Commande non supportee (action %s) - SKIP" % action)
+            elif ConstantesMilleGrilles.DELEGATION_GLOBALE_PROPRIETAIRE == delegation_globale:
+                if action == Constantes.COMMANDE_DECLENCHER_SYNC:
+                    return await self.__consignation.declencher_sync(message.parsed)
+                else:
+                    self.__logger.warning(
+                        "Commande non supportee pour delegation globale (action %s) - SKIP" % action)
             else:
                 self.__logger.warning("Commande non supportee (exchange %s, action %s) - SKIP" % (exchanges, action))
         elif type_message == 'requete':
