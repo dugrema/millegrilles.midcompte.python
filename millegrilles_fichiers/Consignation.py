@@ -26,19 +26,11 @@ class InformationFuuid:
         self.taille: Optional[int] = None               # Taille du fichier
         self.path_complet: Optional[str] = None         # Path complet sur disque du fichier dechiffre
 
-        # if params is not None:
-        #     self.set_params(params)
-
     @staticmethod
     def resolve_fuuid(etat_fichiers: EtatFichiers, fuuid: str):
         """ Trouver le path local du fichier par son fuuid. """
         info = InformationFuuid(fuuid)
         return info
-
-    # def set_params(self, params: dict):
-    #     self.taille = params.get('taille')
-    #     self.status = params.get('status')
-    #     self.user_id = params.get('userId') or params.get('user_id')
 
 
 class ConsignationHandler:
@@ -68,6 +60,7 @@ class ConsignationHandler:
 
         await asyncio.gather(
             self.entretien(),
+            self.entretien_store(),
             self.thread_emettre_etat(),
         )
 
@@ -80,8 +73,18 @@ class ConsignationHandler:
             try:
                 await self.charger_topologie()
             except Exception:
-                self.__logger.exception("Erreur charger_topologie")
+                self.__logger.exception("entretien Erreur charger_topologie")
             await asyncio.wait([stop_event_wait], timeout=300)
+
+    async def entretien_store(self):
+        stop_event_wait = self.__stop_event.wait()
+        await asyncio.wait([stop_event_wait], timeout=5)  # Attente premier entretien
+        while self.__stop_event.is_set() is False:
+            try:
+                await self.__store_consignation.entretien()
+            except Exception:
+                self.__logger.exception("entretien_store Erreur store_consignation.entretien()")
+            await asyncio.wait([stop_event_wait], timeout=60)
 
     async def thread_emettre_etat(self):
         stop_event_wait = self.__stop_event.wait()

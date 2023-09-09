@@ -43,8 +43,9 @@ class ConsignationStore:
         date_now = datetime.datetime.now(tz=pytz.UTC)
         data = {
             'fuuid': fuuid,
-            'taille': stat.st_size,
             'etat_fichier': Constantes.DATABASE_ETAT_ACTIF,
+            'taille': stat.st_size,
+            'bucket': Constantes.BUCKET_PRINCIPAL,
             'date_presence': date_now,
             'date_verification': date_now,
             'date_reclamation': date_now,
@@ -76,6 +77,9 @@ class ConsignationStore:
     async def stream_fuuid(self, fuuid: str, response: web.StreamResponse, start: Optional[int] = None, end: Optional[int] = None):
         raise NotImplementedError('must override')
 
+    async def entretien(self):
+        raise NotImplementedError('must override')
+
     def ouvrir_database(self, ro=False) -> sqlite3.Connection:
         return sqlite3.connect(self.__path_database, check_same_thread=True)
 
@@ -89,17 +93,40 @@ class ConsignationStore:
         con = self.ouvrir_database()
         cur = con.cursor()
         cur.execute(scripts_database.CONST_STATS_FICHIERS)
-        resultats = cur.fetchmany(4)  # Il y a 4 types de classements (actif, archive, orphelin, manquant)
+
+        resultats_dict = dict()
+        nombre_orphelins = 0
+        taille_orphelins = 0
+        nombre_manquants = 0
+
+        while True:
+            row = cur.fetchone()
+            if row is None:
+                break
+
+            etat_fichier, bucket, nombre, taille = row
+            if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
+                resultats_dict[bucket] = {
+                    'nombre': nombre,
+                    'taille': taille
+                }
+            elif etat_fichier == Constantes.DATABASE_ETAT_ORPHELIN:
+                nombre_orphelins += nombre
+                taille_orphelins += taille
+            elif etat_fichier == Constantes.DATABASE_ETAT_MANQUANT:
+                nombre_manquants += nombre
+
         cur.close()
         con.close()
 
-        resultats_dict = dict()
-        for row in resultats:
-            etat_fichier = '%ss' % row[0]  # Ajouter s a la fin de l'etat (e.g. actif devient actifs)
-            resultats_dict[etat_fichier] = {
-                'nombre': row[1],
-                'taille': row[2]
-            }
+        resultats_dict[Constantes.DATABASE_ETAT_ORPHELIN] = {
+            'nombre': nombre_orphelins,
+            'taille': taille_orphelins
+        }
+
+        resultats_dict[Constantes.DATABASE_ETAT_MANQUANT] = {
+            'nombre': nombre_manquants,
+        }
 
         return resultats_dict
 
@@ -107,7 +134,7 @@ class ConsignationStore:
         con = self.ouvrir_database()
         cur = con.cursor()
         cur.execute(scripts_database.CONST_INFO_FICHIER, {'fuuid': fuuid})
-        _fuuid, taille, etat_fichier, date_presence, date_verification, date_reclamation = cur.fetchone()
+        _fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation = cur.fetchone()
         cur.close()
         con.close()
 
@@ -181,9 +208,11 @@ class ConsignationStoreMillegrille(ConsignationStore):
                 raise e
 
     async def archiver(self, path_src: pathlib.Path, fuuid: str):
+        await super().archiver(path_src, fuuid)
         raise NotImplementedError('todo')
 
     async def supprimer(self, path_src: pathlib.Path, fuuid: str):
+        await super().supprimer(path_src, fuuid)
         raise NotImplementedError('todo')
 
     async def stream_fuuid(

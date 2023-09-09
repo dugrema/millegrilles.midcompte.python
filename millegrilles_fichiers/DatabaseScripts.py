@@ -1,8 +1,9 @@
 CONST_CREATE_FICHIERS = """
     CREATE TABLE IF NOT EXISTS FICHIERS(
         fuuid VARCHAR PRIMARY KEY,
-        taille INTEGER,
         etat_fichier VARCHAR NOT NULL,
+        taille INTEGER,
+        bucket VARCHAR,
         date_presence TIMESTAMP NOT NULL,
         date_verification TIMESTAMP NOT NULL,
         date_reclamation TIMESTAMP NOT NULL     
@@ -10,22 +11,29 @@ CONST_CREATE_FICHIERS = """
 """
 
 CONST_INSERT_FICHIER = """
-    INSERT INTO FICHIERS(fuuid, taille, etat_fichier, date_presence, date_verification, date_reclamation)
-    VALUES(:fuuid, :taille, :etat_fichier, :date_presence, :date_verification, :date_reclamation);
+    INSERT INTO FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation)
+    VALUES(:fuuid, :etat_fichier, :taille, :bucket, :date_presence, :date_verification, :date_reclamation);
 """
 
 CONST_ACTIVER_SI_MANQUANT = """
     UPDATE FICHIERS
-    SET etat_fichier = :etat_fichier
+    SET etat_fichier = :etat_fichier,
+        bucket = :bucket
     WHERE fuuid = :fuuid AND etat_fichier = 'manquant'
 """
 
 CONST_VERIFIER_FICHIER = """
     UPDATE FICHIERS
     SET taille = :taille, 
-        date_presence = datetime('now', 'utc'), 
+        date_presence = :date_verification, 
         date_verification = :date_verification
     WHERE fuuid = :fuuid
+"""
+
+CONST_PRESENCE_FICHIERS = """
+    UPDATE FICHIERS
+    SET date_presence = :date_presence
+    WHERE fuuid IN (:fuuid)
 """
 
 CONST_RECLAMER_FICHIER = """
@@ -35,13 +43,13 @@ CONST_RECLAMER_FICHIER = """
 """
 
 CONST_STATS_FICHIERS = """
-    SELECT etat_fichier, count(fuuid) as nombre, sum(taille) as taille
+    SELECT etat_fichier, bucket, count(fuuid) as nombre, sum(taille) as taille
     FROM fichiers
-    GROUP BY etat_fichier;
+    GROUP BY etat_fichier, bucket;
 """
 
 CONST_INFO_FICHIER = """
-    SELECT fuuid, taille, etat_fichier, date_presence, date_verification, date_reclamation
+    SELECT fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation
     FROM fichiers 
     WHERE fuuid = :fuuid;
 """
