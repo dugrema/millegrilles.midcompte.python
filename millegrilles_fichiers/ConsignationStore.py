@@ -6,7 +6,8 @@ import pathlib
 import shutil
 import sqlite3
 
-from typing import Type
+from aiohttp import web
+from typing import Optional, Type
 
 import pytz
 
@@ -72,6 +73,9 @@ class ConsignationStore:
     async def supprimer(self, path_src: pathlib.Path, fuuid: str):
         raise NotImplementedError('must override')
 
+    async def stream_fuuid(self, fuuid: str, response: web.StreamResponse, start: Optional[int] = None, end: Optional[int] = None):
+        raise NotImplementedError('must override')
+
     def ouvrir_database(self, ro=False) -> sqlite3.Connection:
         return sqlite3.connect(self.__path_database, check_same_thread=True)
 
@@ -98,6 +102,23 @@ class ConsignationStore:
             }
 
         return resultats_dict
+
+    def get_info_fichier(self, fuuid: str):
+        con = self.ouvrir_database()
+        cur = con.cursor()
+        cur.execute(scripts_database.CONST_INFO_FICHIER, {'fuuid': fuuid})
+        _fuuid, taille, etat_fichier, date_presence, date_verification, date_reclamation = cur.fetchone()
+        cur.close()
+        con.close()
+
+        return {
+            'fuuid': fuuid,
+            'taille': taille,
+            'etat_fichier': etat_fichier,
+            'date_presence': date_presence,
+            'date_verification': date_verification,
+            'date_reclamation': date_reclamation
+        }
 
     async def emettre_batch_visites(self, fuuids: list[str], verification=False):
         producer = self._etat.producer
@@ -160,10 +181,36 @@ class ConsignationStoreMillegrille(ConsignationStore):
                 raise e
 
     async def archiver(self, path_src: pathlib.Path, fuuid: str):
-        pass
+        raise NotImplementedError('todo')
 
     async def supprimer(self, path_src: pathlib.Path, fuuid: str):
-        pass
+        raise NotImplementedError('todo')
+
+    async def stream_fuuid(
+            self, fuuid: str, response: web.StreamResponse,
+            start: Optional[int] = None, end: Optional[int] = None
+    ):
+        # Pour local FS, ignore la base de donnes. On verifie si le fichier existe dans actif ou archives
+        path_fichier = self.get_path_actif(fuuid)
+        if path_fichier.exists() is False:
+            path_fichier = self.get_path_archives(fuuid)
+            if path_fichier.exists() is False:
+                raise Exception('fichier inconnu %s' % fuuid)
+
+        with path_fichier.open(mode='rb') as input_file:
+            if start is not None and start > 0:
+                input_file.seek(start, 0)
+                position = start
+            else:
+                position = 0
+            for chunk in input_file:
+                if end is not None and position + len(chunk) > end:
+                    taille_chunk = end - position + 1
+                    await response.write(chunk[:taille_chunk])
+                    break  # Termine
+                else:
+                    await response.write(chunk)
+                position += len(chunk)
 
 
 def map_type(type_store: str) -> Type[ConsignationStore]:

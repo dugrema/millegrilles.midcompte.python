@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import logging
 import json
 import shutil
@@ -22,6 +23,7 @@ from millegrilles_fichiers.Consignation import InformationFuuid
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.Commandes import CommandHandler
 from millegrilles_fichiers.Intake import IntakeFichiers
+from millegrilles_fichiers.Consignation import ConsignationHandler
 
 
 class JobVerifierParts:
@@ -36,11 +38,12 @@ class JobVerifierParts:
 
 class WebServer:
 
-    def __init__(self, etat: EtatFichiers, commandes: CommandHandler, intake: IntakeFichiers):
+    def __init__(self, etat: EtatFichiers, commandes: CommandHandler, intake: IntakeFichiers, consignation: ConsignationHandler):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__etat = etat
         self.__commandes = commandes
         self.__intake = intake
+        self.__consignation = consignation
 
         self.__app = web.Application()
         self.__stop_event: Optional[Event] = None
@@ -92,12 +95,10 @@ class WebServer:
     async def handle_get_fuuid(self, request: Request):
         fuuid = request.match_info['fuuid']
         method = request.method
-        headers = request.headers
-
         self.__logger.debug("handle_get_fuuid method %s, fuuid %s" % (method, fuuid))
 
-        # TODO Fix me
-        return web.HTTPInternalServerError()
+        # Streamer le fichier
+        await self.stream_reponse(request)
 
     async def handle_put_fuuid(self, request: Request) -> StreamResponse:
         fuuid = request.match_info['fuuid']
@@ -115,7 +116,7 @@ class WebServer:
         cert_subject = extract_subject(headers.get('DN'))
         common_name = cert_subject['CN']
 
-        content_hash = headers.get('x-content-hash')
+        content_hash = headers.get('x-content-hash') or headers.get('x-fuuid')
         content_length = int(headers['Content-Length'])
 
         # Creer repertoire pour sauvegader la partie de fichier
@@ -156,13 +157,17 @@ class WebServer:
         self.__logger.debug("handle_post_fuuid %s" % fuuid)
 
         headers = request.headers
-        body = await request.json()
+        if request.body_exists:
+            body = await request.json()
+            self.__logger.debug("handle_post_fuuid body\n%s" % json.dumps(body, indent=2))
+        else:
+            # Aucun body - transferer le contenu du fichier sans transactions (e.g. image small)
+            body = None
 
         # Afficher info (debug)
         self.__logger.debug("handle_post_fuuid fuuid: %s" % fuuid)
         for key, value in headers.items():
             self.__logger.debug('handle_post_fuuid key: %s, value: %s' % (key, value))
-        self.__logger.debug("handle_post_fuuid body\n%s" % json.dumps(body, indent=2))
 
         if headers.get('VERIFIED') != 'SUCCESS':
             return web.HTTPForbidden()
@@ -172,30 +177,37 @@ class WebServer:
 
         path_upload = self.get_path_upload_fuuid(common_name, fuuid)
 
-        # Valider body, conserver json sur disque
         path_etat = pathlib.Path(path_upload, Constantes.FICHIER_ETAT)
-        etat = body['etat']
-        hachage = etat['hachage']
-        with open(path_etat, 'wt') as fichier:
-            json.dump(etat, fichier)
+        if body is not None:
+            # Valider body, conserver json sur disque
+            etat = body['etat']
+            hachage = etat['hachage']
+            with open(path_etat, 'wt') as fichier:
+                json.dump(etat, fichier)
 
-        try:
-            transaction = body['transaction']
-            await self.__etat.validateur_message.verifier(transaction)  # Lance exception si echec verification
-            path_transaction = pathlib.Path(path_upload, Constantes.FICHIER_TRANSACTION)
-            with open(path_transaction, 'wt') as fichier:
-                json.dump(transaction, fichier)
-        except KeyError:
-            pass
+            try:
+                transaction = body['transaction']
+                await self.__etat.validateur_message.verifier(transaction)  # Lance exception si echec verification
+                path_transaction = pathlib.Path(path_upload, Constantes.FICHIER_TRANSACTION)
+                with open(path_transaction, 'wt') as fichier:
+                    json.dump(transaction, fichier)
+            except KeyError:
+                pass
 
-        try:
-            cles = body['cles']
-            await self.__etat.validateur_message.verifier(cles)  # Lance exception si echec verification
-            path_cles = pathlib.Path(path_upload, Constantes.FICHIER_CLES)
-            with open(path_cles, 'wt') as fichier:
-                json.dump(cles, fichier)
-        except KeyError:
-            pass
+            try:
+                cles = body['cles']
+                await self.__etat.validateur_message.verifier(cles)  # Lance exception si echec verification
+                path_cles = pathlib.Path(path_upload, Constantes.FICHIER_CLES)
+                with open(path_cles, 'wt') as fichier:
+                    json.dump(cles, fichier)
+            except KeyError:
+                pass
+        else:
+            # Sauvegarder etat.json sans body
+            etat = {'hachage': fuuid, 'retryCount': 0, 'created': int(datetime.datetime.utcnow().timestamp()*1000)}
+            hachage = fuuid
+            with open(path_etat, 'wt') as fichier:
+                json.dump(etat, fichier)
 
         # Valider hachage du fichier complet (parties assemblees)
         try:
@@ -360,15 +372,24 @@ class WebServer:
             self.__logger.info("Site arrete")
             await runner.cleanup()
 
-    async def stream_reponse(self, request, info: InformationFuuid):
-        range_bytes = request.headers.get('Range')
+    async def stream_reponse(self, request: Request):
+        method = request.method
+        fuuid = request.match_info['fuuid']
+        headers = request.headers
 
-        fuuid = info.fuuid
+        range_bytes = headers.get('Range')
+
         etag = fuuid[-16:]  # ETag requis pour caching, utiliser 16 derniers caracteres du fuuid
 
-        path_fichier = pathlib.Path(info.path_complet)
-        stat_fichier = path_fichier.stat()
-        taille_fichier = stat_fichier.st_size
+        # path_fichier = pathlib.Path(info.path_complet)
+        # stat_fichier = path_fichier.stat()
+        # taille_fichier = stat_fichier.st_size
+        info_fichier = await self.__consignation.get_info_fichier(fuuid)
+        if info_fichier is None:
+            self.__logger.debug("stream_reponse Fichier inconnu : %s" % fuuid)
+            return web.HTTPNotFound()
+
+        taille_fichier: int = info_fichier['taille']
 
         range_str = None
 
@@ -399,24 +420,29 @@ class WebServer:
         # Preparer reponse, headers
         response = web.StreamResponse(status=status, headers=headers_response)
         response.content_length = taille_transfert
-        response.content_type = info.mimetype
+        response.content_type = 'application/stream'
         response.etag = etag
 
         await response.prepare(request)
-        with path_fichier.open(mode='rb') as input_file:
-            if start is not None and start > 0:
-                input_file.seek(start, 0)
-                position = start
-            else:
-                position = 0
-            for chunk in input_file:
-                if end is not None and position + len(chunk) > end:
-                    taille_chunk = end - position + 1
-                    await response.write(chunk[:taille_chunk])
-                    break  # Termine
-                else:
-                    await response.write(chunk)
-                position += len(chunk)
+        if method == 'HEAD':
+            return await response.write_eof()
+
+        await self.__consignation.stream_fuuid(fuuid, response)
+
+        # with path_fichier.open(mode='rb') as input_file:
+        #     if start is not None and start > 0:
+        #         input_file.seek(start, 0)
+        #         position = start
+        #     else:
+        #         position = 0
+        #     for chunk in input_file:
+        #         if end is not None and position + len(chunk) > end:
+        #             taille_chunk = end - position + 1
+        #             await response.write(chunk[:taille_chunk])
+        #             break  # Termine
+        #         else:
+        #             await response.write(chunk)
+        #         position += len(chunk)
 
         await response.write_eof()
 

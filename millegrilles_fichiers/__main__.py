@@ -60,7 +60,7 @@ class StreamingMain:
         os.makedirs(dir_archives, exist_ok=True)
         os.makedirs(dir_orphelins, exist_ok=True)
 
-        self.__web_server = WebServer(self._etat, self.__commandes_handler, self.__intake)
+        self.__web_server = WebServer(self._etat, self.__commandes_handler, self.__intake, self.__consignation_handler)
         self.__web_server.setup()
 
     async def run(self):

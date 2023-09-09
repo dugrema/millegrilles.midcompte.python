@@ -8,6 +8,7 @@ import logging
 import json
 import os
 
+from aiohttp import web
 from typing import Optional
 
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
@@ -202,6 +203,16 @@ class ConsignationHandler:
         if self.__store_consignation is None:
             raise Exception("Store non initialise")
         await self.__store_consignation.consigner(path_source, fuuid)
+
+    async def get_info_fichier(self, fuuid: str):
+        if self.__store_consignation is None:
+            raise Exception("Store non initialise")
+        return self.__store_consignation.get_info_fichier(fuuid)
+
+    async def stream_fuuid(self, fuuid: str, response: web.StreamResponse, start: Optional[int] = None, end: Optional[int] = None):
+        if self.__store_consignation is None:
+            raise Exception("Store non initialise")
+        return await self.__store_consignation.stream_fuuid(fuuid, response, start, end)
 
     # async def charger_consignation_primaire(self):
     #     producer = self.__etat_instance.producer

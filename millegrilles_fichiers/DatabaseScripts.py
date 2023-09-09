@@ -39,3 +39,9 @@ CONST_STATS_FICHIERS = """
     FROM fichiers
     GROUP BY etat_fichier;
 """
+
+CONST_INFO_FICHIER = """
+    SELECT fuuid, taille, etat_fichier, date_presence, date_verification, date_reclamation
+    FROM fichiers 
+    WHERE fuuid = :fuuid;
+"""
