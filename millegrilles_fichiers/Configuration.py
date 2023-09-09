@@ -9,6 +9,8 @@ from millegrilles_messages.MilleGrillesConnecteur import Configuration as Config
 
 CONST_FICHIERS_PARAMS = [
     Constantes.ENV_DIR_CONSIGNATION,
+    Constantes.ENV_PATH_KEY_SSH_ED25519,
+    Constantes.ENV_PATH_KEY_SSH_RSA
 ]
 
 CONST_WEB_PARAMS = [
@@ -24,6 +26,8 @@ class ConfigurationFichiers(ConfigurationAbstract):
     def __init__(self):
         super().__init__()
         self.dir_consignation = '/var/opt/millegrilles/consignation'
+        self.path_key_ssh_ed25519 = '/run/secrets/sftp.ed25519.key.pem'
+        self.path_key_ssh_rsa = '/run/secrets/sftp.rsa.key.pem'
 
     def get_params_list(self) -> list:
         params = super().get_params_list()
@@ -40,6 +44,8 @@ class ConfigurationFichiers(ConfigurationAbstract):
 
         # Params optionnels
         self.dir_consignation = dict_params.get(Constantes.ENV_DIR_CONSIGNATION) or self.dir_consignation
+        self.path_key_ssh_ed25519 = dict_params.get(Constantes.ENV_PATH_KEY_SSH_ED25519) or self.path_key_ssh_ed25519
+        self.path_key_ssh_rsa = dict_params.get(Constantes.ENV_PATH_KEY_SSH_RSA) or self.path_key_ssh_rsa
 
 
 class ConfigurationWeb:

@@ -48,6 +48,12 @@ class CommandHandler(CommandesAbstract):
         res_evenements.ajouter_rk(
             ConstantesMilleGrilles.SECURITE_PRIVE,
             f'evenement.{Constantes.DOMAINE_GROSFICHIERS}.{Constantes.EVENEMENT_GROSFICHIERS_CHANGEMENT_CONSIGNATION_PRIMAIRE}',)
+        res_evenements.ajouter_rk(
+            ConstantesMilleGrilles.SECURITE_PRIVE,
+            f'requete.{Constantes.DOMAINE_FICHIERS}.{instance_id}.{Constantes.REQUETE_PUBLIC_KEY_SSH}',)
+        res_evenements.ajouter_rk(
+            ConstantesMilleGrilles.SECURITE_PRIVE,
+            f'requete.{Constantes.DOMAINE_FICHIERS}.{Constantes.REQUETE_PUBLIC_KEY_SSH}',)
 
         # Backup
         res_evenements.ajouter_rk(
@@ -96,6 +102,12 @@ class CommandHandler(CommandesAbstract):
                         "Commande non supportee (action %s) - SKIP" % action)
             else:
                 self.__logger.warning("Commande non supportee (exchange %s, action %s) - SKIP" % (exchanges, action))
+        elif type_message == 'requete':
+            if action == Constantes.REQUETE_PUBLIC_KEY_SSH:
+                return await self.requete_cles_ssh()
+            else:
+                self.__logger.warning(
+                    "Requete non supportee (action %s) - SKIP" % action)
         else:
             self.__logger.warning("Type message non supporte (type %s, exchange %s, action %s) - SKIP" % (type_message, exchanges, action))
 
@@ -133,3 +145,13 @@ class CommandHandler(CommandesAbstract):
     #     reponse = await self.__intake.attendre_download(fuuid, jwt_token, params, timeout=3)
     #
     #     return reponse
+
+    async def requete_cles_ssh(self):
+        cles_ssh = self.__etat_instance.get_public_key_ssh()
+
+        reponse = {
+            'clePubliqueEd25519': cles_ssh['ed25519'],
+            'clePubliqueRsa': cles_ssh['rsa']
+        }
+
+        return reponse
