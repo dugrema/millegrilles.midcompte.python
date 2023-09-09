@@ -351,11 +351,12 @@ class ConsignationStoreMillegrille(ConsignationStore):
     async def conserver_backup(self, fichier_temp: tempfile.TemporaryFile, uuid_backup: str, domaine: str,
                                nom_fichier: str):
         path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP, uuid_backup, domaine)
+        # Utiliser thread separee pour processus de copie (blocking)
         await asyncio.to_thread(self.__conserver_backup, fichier_temp, path_backup, nom_fichier)
 
     def __conserver_backup(self, fichier_temp: tempfile.TemporaryFile, repertoire: pathlib.Path, nom_fichier):
         fichier_temp.seek(0)
-        path_fichier_fichier = pathlib.Path(repertoire, nom_fichier)
+        path_fichier_backup = pathlib.Path(repertoire, nom_fichier)
         path_fichier_work = pathlib.Path(repertoire, '%s.work' % nom_fichier)
         repertoire.mkdir(parents=True, exist_ok=True)
         with open(path_fichier_work, 'wb') as fichier:
@@ -366,7 +367,7 @@ class ConsignationStoreMillegrille(ConsignationStore):
                 fichier.write(chunk)
 
         # Renommer fichier (retrirer .work)
-        path_fichier_work.rename(path_fichier_fichier)
+        path_fichier_work.rename(path_fichier_backup)
 
     async def rotation_backups(self, uuid_backups_conserver: list[str]):
         """ Supprime tous les backups qui ne sont pas dans la liste """

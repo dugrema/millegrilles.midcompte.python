@@ -430,22 +430,7 @@ class WebServer:
         if method == 'HEAD':
             return await response.write_eof()
 
-        await self.__consignation.stream_fuuid(fuuid, response)
-
-        # with path_fichier.open(mode='rb') as input_file:
-        #     if start is not None and start > 0:
-        #         input_file.seek(start, 0)
-        #         position = start
-        #     else:
-        #         position = 0
-        #     for chunk in input_file:
-        #         if end is not None and position + len(chunk) > end:
-        #             taille_chunk = end - position + 1
-        #             await response.write(chunk[:taille_chunk])
-        #             break  # Termine
-        #         else:
-        #             await response.write(chunk)
-        #         position += len(chunk)
+        await self.__consignation.stream_fuuid(fuuid, response, start, end)
 
         await response.write_eof()
 
