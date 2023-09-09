@@ -4,6 +4,7 @@ CONST_CREATE_FICHIERS = """
         etat_fichier VARCHAR NOT NULL,
         taille INTEGER,
         bucket VARCHAR,
+        bucket_visite VARCHAR,
         date_presence TIMESTAMP NOT NULL,
         date_verification TIMESTAMP NOT NULL,
         date_reclamation TIMESTAMP NOT NULL     
@@ -31,11 +32,12 @@ CONST_VERIFIER_FICHIER = """
 """
 
 CONST_PRESENCE_FICHIERS = """
-    INSERT INTO FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation)
-    VALUES (:fuuid, :etat_fichier, :taille, :bucket, :date_presence, :date_presence, :date_presence)
+    INSERT INTO FICHIERS(fuuid, etat_fichier, taille, bucket, bucket_visite, date_presence, date_verification, date_reclamation)
+    VALUES (:fuuid, :etat_fichier, :taille, :bucket, :bucket, :date_presence, :date_presence, :date_presence)
     ON CONFLICT(fuuid) DO UPDATE
     SET taille = :taille, 
-        date_presence = :date_presence;
+        date_presence = :date_presence,
+        bucket_visite = :bucket;
 """
 
 CONST_RECLAMER_FICHIER = """
