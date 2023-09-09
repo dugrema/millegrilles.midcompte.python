@@ -246,6 +246,44 @@ class ConsignationStore:
             exchanges=ConstantesMillegrilles.SECURITE_PRIVE
         )
 
+    async def reclamer_fuuids_database(self, fuuids: list, bucket: str):
+        await asyncio.to_thread(self.__reclamer_fuuids_database, fuuids, bucket)
+
+    def __reclamer_fuuids_database(self, fuuids: list, bucket: str):
+        rows = list()
+        for fuuid in fuuids:
+            rows.append({
+                'fuuid': fuuid,
+                'etat_fichier': Constantes.DATABASE_ETAT_MANQUANT,
+                'bucket': bucket,
+                'date_reclamation': datetime.datetime.now(tz=pytz.UTC)
+            })
+
+        con = self.ouvrir_database()
+        cur = con.cursor()
+        cur.executemany(scripts_database.CONST_RECLAMER_FICHIER, rows)
+        con.commit()
+        cur.close()
+        con.close()
+
+    async def marquer_orphelins(self, debut_reclamation: datetime.datetime, complet=False):
+        await asyncio.to_thread(self.__marquer_orphelins, debut_reclamation, complet)
+
+    def __marquer_orphelins(self, debut_reclamation: datetime.datetime, complet=False):
+        con = self.ouvrir_database()
+        cur = con.cursor()
+
+        if complet:
+            # Marquer les fichiers avec vieille date de reclamation comme non reclames (orphelins)
+            cur.execute(scripts_database.CONST_MARQUER_ORPHELINS, {'date_reclamation': debut_reclamation})
+
+        # Marquer fichiers orphelins qui viennent d'etre reclames comme actif
+        cur.execute(scripts_database.CONST_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
+
+        con.commit()
+        cur.close()
+        con.close()
+
 
 class ConsignationStoreMillegrille(ConsignationStore):
 

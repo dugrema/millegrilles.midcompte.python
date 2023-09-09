@@ -24,6 +24,7 @@ FICHIER_TRANSACTION = 'transaction.json'
 FICHIER_CLES = 'cles.json'
 
 DOMAINE_GROSFICHIERS = 'GrosFichiers'
+DOMAINE_CORE_TOPOLOGIE = 'CoreTopologie'
 DOMAINE_FICHIERS = 'fichiers'
 
 EVENEMENT_PRESENCE = 'presence'
@@ -35,8 +36,11 @@ EVENEMENT_SYNC_PRIMAIRE = 'syncPrimaire'
 COMMANDE_MODIFIER_CONFIGURATION = 'modifierConfiguration'
 COMMANDE_ENTRETIEN_BACKUP = 'entretienBackup'
 COMMANDE_DECLENCHER_SYNC = 'declencherSync'
+COMMANDE_ACTIVITE_FUUIDS = 'confirmerActiviteFuuids'
+COMMANDE_RECLAMER_FUUIDS = 'reclamerFuuids'
 
 REQUETE_PUBLIC_KEY_SSH = 'getPublicKeySsh'
+REQUETE_LISTE_DOMAINES = 'listeDomaines'
 
 CONST_CHAMPS_CONFIG = ['type_store', 'url_download', 'consignation_url']
 

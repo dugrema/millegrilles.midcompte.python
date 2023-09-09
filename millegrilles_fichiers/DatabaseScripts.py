@@ -39,9 +39,11 @@ CONST_PRESENCE_FICHIERS = """
 """
 
 CONST_RECLAMER_FICHIER = """
-    UPDATE FICHIERS
-    SET date_reclamation = :date_reclamation
-    WHERE fuuid = :fuuid
+    INSERT INTO FICHIERS(fuuid, etat_fichier, bucket, date_presence, date_verification, date_reclamation)
+    VALUES (:fuuid, :etat_fichier, :bucket, :date_reclamation, :date_reclamation, :date_reclamation)
+    ON CONFLICT(fuuid) DO UPDATE
+    SET bucket = :bucket,
+        date_reclamation = :date_reclamation;
 """
 
 CONST_STATS_FICHIERS = """
@@ -54,4 +56,17 @@ CONST_INFO_FICHIER = """
     SELECT fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation
     FROM fichiers 
     WHERE fuuid = :fuuid;
+"""
+
+CONST_MARQUER_ORPHELINS = """
+    UPDATE FICHIERS
+    SET etat_fichier = 'orphelin'
+    WHERE date_reclamation < :date_reclamation
+"""
+
+CONST_MARQUER_ACTIF = """
+    UPDATE FICHIERS
+    SET etat_fichier = 'actif'
+    WHERE date_reclamation >= :date_reclamation
+      AND etat_fichier = 'orphelin'
 """

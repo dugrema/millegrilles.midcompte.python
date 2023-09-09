@@ -1,3 +1,4 @@
+import datetime
 import enum
 import pathlib
 import shutil
@@ -259,6 +260,9 @@ class ConsignationHandler:
         self.__sync_manager.demarrer_sync()
         return {'ok': True}
 
+    async def conserver_activite_fuuids(self, commande: dict):
+        await self.__sync_manager.conserver_activite_fuuids(commande)
+
     @property
     def stop_event(self) -> asyncio.Event:
         return self.__stop_event
@@ -266,6 +270,12 @@ class ConsignationHandler:
     @property
     def etat_instance(self):
         return self.__etat_instance
+
+    async def reclamer_fuuids_database(self, fuuids: list, bucket: str):
+        await self.__store_consignation.reclamer_fuuids_database(fuuids, bucket)
+
+    async def marquer_orphelins(self, debut_reclamation: datetime.datetime, complet=False):
+        await self.__store_consignation.marquer_orphelins(debut_reclamation, complet)
 
     # async def charger_consignation_primaire(self):
     #     producer = self.__etat_instance.producer

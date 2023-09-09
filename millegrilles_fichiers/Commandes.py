@@ -59,6 +59,9 @@ class CommandHandler(CommandesAbstract):
         res_evenements.ajouter_rk(
             ConstantesMilleGrilles.SECURITE_PRIVE,
             f'commande.{Constantes.DOMAINE_FICHIERS}.{Constantes.COMMANDE_DECLENCHER_SYNC}',)
+        res_evenements.ajouter_rk(
+            ConstantesMilleGrilles.SECURITE_PRIVE,
+            f'commande.{Constantes.DOMAINE_FICHIERS}.{Constantes.COMMANDE_ACTIVITE_FUUIDS}',)
 
         # Backup
         res_evenements.ajouter_rk(
@@ -102,6 +105,8 @@ class CommandHandler(CommandesAbstract):
                     await self.__consignation.charger_topologie()
                 elif action == Constantes.COMMANDE_ENTRETIEN_BACKUP:
                     await self.__consignation.rotation_backup(message.parsed)
+                elif action == Constantes.COMMANDE_ACTIVITE_FUUIDS:
+                    await self.__consignation.conserver_activite_fuuids(message.parsed)
                 else:
                     self.__logger.warning(
                         "Commande non supportee (action %s) - SKIP" % action)
