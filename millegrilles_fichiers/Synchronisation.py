@@ -28,7 +28,6 @@ class SyncManager:
         self.__sync_event = asyncio.Event()
         await asyncio.gather(
             self.thread_sync_primaire(),
-            self.thread_emettre_evenement(),
         )
 
     async def thread_sync_primaire(self):
@@ -44,25 +43,38 @@ class SyncManager:
 
             self.__sync_event.clear()
 
-    async def thread_emettre_evenement(self):
-        wait_coro = self.__stop_event.wait()
-        while self.__stop_event.is_set() is False:
-            if self.__sync_event.is_set() is True:
-                try:
-                    await self.emettre_etat_sync()
-                except Exception as e:
-                    self.__logger.info("thread_emettre_evenement Erreur emettre etat sync : %s" % e)
+    async def thread_emettre_evenement(self, event_sync: asyncio.Event):
+        wait_coro = event_sync.wait()
+        while event_sync.is_set() is False:
+            try:
+                await self.emettre_etat_sync()
+            except Exception as e:
+                self.__logger.info("thread_emettre_evenement Erreur emettre etat sync : %s" % e)
 
-            await asyncio.wait([wait_coro], timeout=15)
+            await asyncio.wait([wait_coro], timeout=5)
 
     async def run_sync(self):
         self.__logger.info("thread_sync_primaire Demarrer sync")
         await self.emettre_etat_sync()
 
-        await self.reclamer_fuuids()
+        event_sync = asyncio.Event()
+
+        done, pending = await asyncio.wait(
+            [
+                self.thread_emettre_evenement(event_sync),
+                self.__sequence_sync()
+            ],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        event_sync.set()  # Complete
+        for t in pending:
+            t.cancel('done')
 
         await self.emettre_etat_sync(termine=True)
         self.__logger.info("thread_sync_primaire Fin sync")
+
+    async def __sequence_sync(self):
+        await self.reclamer_fuuids()
 
     async def reclamer_fuuids(self):
         pass
