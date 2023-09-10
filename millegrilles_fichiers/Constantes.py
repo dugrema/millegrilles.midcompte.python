@@ -29,6 +29,7 @@ DOMAINE_FICHIERS = 'fichiers'
 
 QUEUE_PRIMAIRE_NOM = 'fichiers/primaire'
 
+EVENEMENT_CEDULE = 'cedule'
 EVENEMENT_PRESENCE = 'presence'
 EVENEMENT_GROSFICHIERS_CHANGEMENT_CONSIGNATION_PRIMAIRE = 'changementConsignationPrimaire'
 EVENEMENT_VISITER_FUUIDS = 'visiterFuuids'

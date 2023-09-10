@@ -389,21 +389,22 @@ class ConsignationStoreMillegrille(ConsignationStore):
             else:
                 raise e
 
-    async def thread_visiter(self):
-        stop_coro = self._stop_store.wait()
-        await asyncio.wait([stop_coro], timeout=30)
-        while self._stop_store.is_set() is False:
-            self.__logger.info("thread_visiter Debut visiter fuuids")
-            try:
-                await asyncio.to_thread(self.visiter_fuuids)
-            except Exception:
-                self.__logger.exception('thread_visiter Erreur visite fuuids')
-            await asyncio.wait([stop_coro], timeout=Constantes.CONST_INTERVALLE_VISITE_MILLEGRILLE)
+    # async def thread_visiter(self):
+    #     stop_coro = self._stop_store.wait()
+    #     await asyncio.wait([stop_coro], timeout=30)
+    #     while self._stop_store.is_set() is False:
+    #         self.__logger.info("thread_visiter Debut visiter fuuids")
+    #         try:
+    #             await asyncio.to_thread(self.visiter_fuuids)
+    #         except Exception:
+    #             self.__logger.exception('thread_visiter Erreur visite fuuids')
+    #         await asyncio.wait([stop_coro], timeout=Constantes.CONST_INTERVALLE_VISITE_MILLEGRILLE)
 
     async def run(self):
-        await asyncio.gather(
-            self.thread_visiter()
-        )
+        # await asyncio.gather(
+        #     self.thread_visiter()
+        # )
+        await self._stop_store.wait()
 
     async def changer_bucket(self, fuuid: str, bucket: str):
         raise NotImplementedError('todo')
@@ -440,7 +441,10 @@ class ConsignationStoreMillegrille(ConsignationStore):
                     await response.write(chunk)
                 position += len(chunk)
 
-    def visiter_fuuids(self):
+    async def visiter_fuuids(self):
+        await asyncio.to_thread(self.__visiter_fuuids)
+
+    def __visiter_fuuids(self):
         dir_buckets = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BUCKETS)
         entretien_db = EntretienDatabase(self._etat)
 

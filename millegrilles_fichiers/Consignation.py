@@ -14,6 +14,9 @@ from aiohttp import web
 from typing import Optional
 
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
+from millegrilles_messages.messages.MessagesModule import MessageWrapper
+from millegrilles_messages.messages.MessagesModule import MessageProducerFormatteur
+
 from millegrilles_fichiers import Constantes
 from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_document
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher
@@ -57,6 +60,13 @@ class ConsignationHandler:
 
         # self.__est_primaire: Optional[bool] = None
         self.__store_pret_event: Optional[asyncio.Event] = None
+        self.__traiter_cedule_event: Optional[asyncio.Event] = None
+
+        self.__timestamp_dernier_sync: Optional[datetime.datetime] = None
+        self.__timestamp_visite: Optional[datetime.datetime] = None
+        self.__timestamp_verification: Optional[datetime.datetime] = None
+
+        self.__intervalle_visites = datetime.timedelta(hours=1)
 
     async def run(self):
         self.__logger.info("Demarrage run")
@@ -68,6 +78,7 @@ class ConsignationHandler:
             self.entretien_store(),
             self.thread_emettre_etat(),
             self.__sync_manager.run(),
+            self.thread_traiter_cedule()
         )
 
         self.__logger.info("Fin run")
@@ -95,6 +106,43 @@ class ConsignationHandler:
             except Exception:
                 self.__logger.exception("entretien_store Erreur store_consignation.run()")
             await asyncio.wait([stop_event_wait], timeout=15)
+
+    async def traiter_cedule(self, producer: MessageProducerFormatteur, message: MessageWrapper):
+        self.__traiter_cedule_event.set()
+
+    async def thread_traiter_cedule(self):
+        self.__traiter_cedule_event = asyncio.Event()
+        wait_coro = self.__stop_event.wait()
+
+        while self.__stop_event.is_set() is False:
+            await asyncio.wait([wait_coro, self.__traiter_cedule_event.wait()], return_when=asyncio.FIRST_COMPLETED)
+            if self.__stop_event.is_set():
+                break  # Termine
+
+            self.__logger.debug("thread_traiter_cedule Debut")
+            if self.__etat_instance.est_primaire:
+                await self.__traiter_cedule_primaire()
+            await self.__traiter_cedule_local()
+
+            self.__logger.debug("thread_traiter_cedule Fin")
+            self.__traiter_cedule_event.clear()
+
+    async def __traiter_cedule_primaire(self):
+        self.__logger.debug("__traiter_cedule_primaire Debut")
+
+        self.__logger.debug("__traiter_cedule_primaire Fin")
+
+    async def __traiter_cedule_local(self):
+        self.__logger.debug("__traiter_cedule_local Debut")
+        now = datetime.datetime.utcnow()
+        if self.__timestamp_visite is None or now - self.__intervalle_visites > self.__timestamp_visite:
+            try:
+                self.__timestamp_visite = datetime.datetime.utcnow()
+                await self.__store_consignation.visiter_fuuids()
+            except Exception:
+                self.__logger.exception("__traiter_cedule_local Erreur visiter fuuids")
+
+        self.__logger.debug("__traiter_cedule_local Fin")
 
     async def thread_emettre_etat(self):
         stop_event_wait = self.__stop_event.wait()
