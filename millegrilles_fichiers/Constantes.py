@@ -27,20 +27,26 @@ DOMAINE_GROSFICHIERS = 'GrosFichiers'
 DOMAINE_CORE_TOPOLOGIE = 'CoreTopologie'
 DOMAINE_FICHIERS = 'fichiers'
 
+QUEUE_PRIMAIRE_NOM = 'fichiers/primaire'
+
 EVENEMENT_PRESENCE = 'presence'
 EVENEMENT_GROSFICHIERS_CHANGEMENT_CONSIGNATION_PRIMAIRE = 'changementConsignationPrimaire'
 EVENEMENT_VISITER_FUUIDS = 'visiterFuuids'
 EVENEMENT_FICHIER_CONSIGNE = 'consigne'
 EVENEMENT_SYNC_PRIMAIRE = 'syncPrimaire'
+EVENEMENT_SYNC_PRET = 'syncPret'
+EVENEMENT_CHANGEMENT_CONSIGNATION_PRIMAIRE = 'changementConsignationPrimaire'
 
 COMMANDE_MODIFIER_CONFIGURATION = 'modifierConfiguration'
 COMMANDE_ENTRETIEN_BACKUP = 'entretienBackup'
 COMMANDE_DECLENCHER_SYNC = 'declencherSync'
 COMMANDE_ACTIVITE_FUUIDS = 'confirmerActiviteFuuids'
 COMMANDE_RECLAMER_FUUIDS = 'reclamerFuuids'
+COMMANDE_REACTIVER_FUUIDS = 'reactiverFuuids'
 
 REQUETE_PUBLIC_KEY_SSH = 'getPublicKeySsh'
 REQUETE_LISTE_DOMAINES = 'listeDomaines'
+REQUETE_VERIFIER_EXISTANCE = 'verifierExistance'
 
 CONST_CHAMPS_CONFIG = ['type_store', 'url_download', 'consignation_url']
 

@@ -160,6 +160,82 @@ class ConsignationStore:
         """ Supprime tous les backups qui ne sont pas dans la liste """
         raise NotImplementedError('must override')
 
+    async def get_stat_fichier(self, fuuid: str, bucket: Optional[str] = None) -> Optional[dict]:
+        """
+        Retourne de l'information de base d'un fichier
+        :param fuuid:
+        :param bucket:
+        :return: dict ou None
+        """
+        raise NotImplementedError('must override')
+
+    async def reactiver_fuuids(self, commande: dict):
+        """ Reactiver un fuuid (orphelin -> actif) si applicable. Retourne """
+        fuuids = commande['fuuids']
+        sur_echec = commande.get('sur_echec') or False
+
+        fuuids_actifs = await asyncio.to_thread(self.__reactiver_fuuids, fuuids)
+
+        if len(fuuids_actifs) == 0 and sur_echec is False:
+            return  # Aucun message de retour
+
+        # Verifier l'existence des fichiers
+        fuuids_inconnus = set(fuuids)
+        fuuids_trouves = list()
+        erreurs = list()
+        for fuuid in fuuids_actifs:
+            fuuids_inconnus.remove(fuuid)  # Retirer de la liste inconnu - va etre actif ou erreur
+            # Acceder au fichier sur disque
+            info = await self.get_stat_fichier(fuuid)
+            if info is not None:
+                fuuids_trouves.append(fuuid)
+            else:
+                erreurs.append({'fuuid': fuuid, 'code': 1, 'err': 'FileNotFound'})
+
+        reponse = {
+            'recuperes': fuuids_actifs,
+            'inconnus': list(fuuids_inconnus),
+            'errors': erreurs,
+        }
+
+        return reponse
+
+    def __reactiver_fuuids(self, fuuids: list) -> list[str]:
+        con = self.ouvrir_database()
+        cur = con.cursor()
+
+        dict_fuuids = dict()
+        idx = 0
+        for fuuid in fuuids:
+            dict_fuuids['f%d' % idx] = fuuid
+            idx += 1
+
+        params = {
+            'date_reclamation': datetime.datetime.now(tz=pytz.UTC)
+        }
+        params.update(dict_fuuids)
+
+        requete = scripts_database.CONST_ACTIVER_SI_ORPHELIN.replace('$fuuids', ','.join([':%s' % f for f in dict_fuuids.keys()]))
+
+        cur.execute(requete, params)
+        con.commit()
+
+        liste_fichiers_actifs = list()
+        requete = scripts_database.CONST_INFO_FICHIERS_ACTIFS.replace('$fuuids', ','.join([':%s' % f for f in dict_fuuids.keys()]))
+        cur.execute(requete, dict_fuuids)
+
+        while True:
+            row = cur.fetchone()
+            if row is None:
+                break
+            fuuid = row[0]
+            liste_fichiers_actifs.append(fuuid)
+
+        cur.close()
+        con.close()
+
+        return liste_fichiers_actifs
+
     def ouvrir_database(self, ro=False) -> sqlite3.Connection:
         return sqlite3.connect(self.__path_database, check_same_thread=True)
 
@@ -416,6 +492,34 @@ class ConsignationStoreMillegrille(ConsignationStore):
                     self.__logger.info("Supprimer repertoire de backup %s" % item.name)
                     shutil.rmtree(item)
 
+    async def get_stat_fichier(self, fuuid: str, bucket: Optional[str] = None) -> Optional[dict]:
+        stat = None
+        if bucket is None:
+            path_fichier = self.get_path_fuuid(Constantes.BUCKET_PRINCIPAL, fuuid)
+            try:
+                stat = path_fichier.stat()
+            except FileNotFoundError:
+                path_fichier = self.get_path_fuuid(Constantes.BUCKET_ARCHIVES, fuuid)
+                try:
+                    stat = path_fichier.stat()
+                except FileNotFoundError:
+                    pass
+        else:
+            path_fichier = self.get_path_fuuid(bucket, fuuid)
+            try:
+                stat = path_fichier.stat()
+            except FileNotFoundError:
+                pass
+
+        if stat is None:
+            return None
+
+        info = {
+            'size': stat.st_size,
+            'ctime': int(stat.st_ctime),
+        }
+
+        return info
 
 def map_type(type_store: str) -> Type[ConsignationStore]:
     if type_store == Constantes.TYPE_STORE_MILLEGRILLE:

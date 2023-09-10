@@ -60,6 +60,19 @@ CONST_INFO_FICHIER = """
     WHERE fuuid = :fuuid;
 """
 
+CONST_INFO_FICHIERS = """
+    SELECT fuuid, etat_fichier, taille, bucket, bucket_visite, date_presence, date_verification, date_reclamation
+    FROM fichiers 
+    WHERE fuuid IN ($fuuids);
+"""
+
+CONST_INFO_FICHIERS_ACTIFS = """
+    SELECT fuuid, taille, bucket
+    FROM fichiers 
+    WHERE fuuid IN ($fuuids)
+      AND etat_fichier = 'actif';
+"""
+
 CONST_MARQUER_ORPHELINS = """
     UPDATE FICHIERS
     SET etat_fichier = 'orphelin'
@@ -70,5 +83,13 @@ CONST_MARQUER_ACTIF = """
     UPDATE FICHIERS
     SET etat_fichier = 'actif'
     WHERE date_reclamation >= :date_reclamation
+      AND etat_fichier = 'orphelin'
+"""
+
+CONST_ACTIVER_SI_ORPHELIN = """
+    UPDATE FICHIERS
+    SET etat_fichier = 'actif',
+        date_reclamation = :date_reclamation
+    WHERE fuuid IN ($fuuids) 
       AND etat_fichier = 'orphelin'
 """

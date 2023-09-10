@@ -263,6 +263,9 @@ class ConsignationHandler:
     async def conserver_activite_fuuids(self, commande: dict):
         await self.__sync_manager.conserver_activite_fuuids(commande)
 
+    async def reactiver_fuuids(self, commande: dict):
+        return await self.__store_consignation.reactiver_fuuids(commande)
+
     @property
     def stop_event(self) -> asyncio.Event:
         return self.__stop_event
