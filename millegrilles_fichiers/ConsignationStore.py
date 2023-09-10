@@ -13,6 +13,7 @@ from typing import Optional, Type
 import pytz
 
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
+from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
 
 import millegrilles_fichiers.DatabaseScripts as scripts_database
 from millegrilles_fichiers import Constantes
@@ -35,6 +36,8 @@ class EntretienDatabase:
 
         self.__limite_batch = 100
 
+        self.__debut_entretien = datetime.datetime.now(tz=pytz.UTC)
+
     def ajouter_visite(self, bucket: str, fuuid: str, taille: int):
         if self.__batch_visites is None:
             self.__batch_visites = list()
@@ -54,6 +57,28 @@ class EntretienDatabase:
         batch = self.__batch_visites
         self.__batch_visites = None
         self.__cur.executemany(scripts_database.CONST_PRESENCE_FICHIERS, batch)
+        self.__con.commit()
+
+    def marquer_actifs_visites(self):
+        """ Sert a marquer tous les fichiers "manquants" comme actifs si visites recemment. """
+        self.__cur.execute(scripts_database.UPDATE_ACTIFS_VISITES, {'date_presence': self.__debut_entretien})
+        self.__con.commit()
+
+    def marquer_verification(self, fuuid: str, etat_fichier: str):
+        if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
+            # Mettre a jour la date de verification
+            params = {
+                'fuuid': fuuid,
+                'date_verification': datetime.datetime.now(tz=pytz.UTC)
+            }
+            self.__cur.execute(scripts_database.UPDATE_DATE_VERIFICATION, params)
+        else:
+            # Erreur - mettre a jour l'etat seulement
+            params = {
+                'fuuid': fuuid,
+                'etat_fichier': etat_fichier
+            }
+            self.__cur.execute(scripts_database.UPDATE_DATE_ETATFICHIER, params)
         self.__con.commit()
 
     def close(self):
@@ -150,6 +175,26 @@ class ConsignationStore:
 
     async def visiter_fuuids(self):
         """ Visiter tous les fichiers presents, s'assurer qu'ils sont dans la base de donnees. """
+        raise NotImplementedError('must override')
+
+    async def verifier_fuuids(self, limite=Constantes.CONST_LIMITE_TAILLE_VERIFICATION):
+        await asyncio.to_thread(self.__verifier_fuuids, limite)
+
+    def __verifier_fuuids(self, limite=Constantes.CONST_LIMITE_TAILLE_VERIFICATION):
+        """ Visiter tous les fichiers presents, s'assurer qu'ils sont dans la base de donnees. """
+        liste_fichiers = self.__charger_verifier_fuuids(limite)
+
+        entretien_db = EntretienDatabase(self._etat)
+
+        # Verifier chaque fichier individuellement
+        try:
+            for fichier in liste_fichiers:
+                self.verifier_fichier(entretien_db, **fichier)
+        finally:
+            entretien_db.close()
+
+    def verifier_fichier(self, entretien_db: EntretienDatabase, fuuid: str, taille: int, bucket: str):
+        """ Verifie un fichier individuellement. Marque resultat dans la base de donnees. """
         raise NotImplementedError('must override')
 
     async def conserver_backup(self, fichier_temp: tempfile.TemporaryFile, uuid_backup: str, domaine: str,
@@ -360,6 +405,38 @@ class ConsignationStore:
         cur.close()
         con.close()
 
+    def __charger_verifier_fuuids(self, limite_taille: Constantes.CONST_LIMITE_TAILLE_VERIFICATION) -> list[dict]:
+        # Generer une batch de fuuids a verifier
+        limite_nombre = 1000
+
+        # expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(days=31)
+        expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(minutes=2)
+        params = {
+            'expiration_verification': expiration,
+            'limit': limite_nombre
+        }
+
+        con = self.ouvrir_database()
+        cur = con.cursor()
+        cur.execute(scripts_database.REQUETE_BATCH_VERIFIER, params)
+
+        taille_totale = 0
+        fuuids = list()
+        while True:
+            row = cur.fetchone()
+            if row is None:
+                break
+            fuuid, taille, bucket_visite = row
+            taille_totale += taille
+            if len(fuuids) > 0 and taille_totale > limite_taille:
+                break  # On a atteint la limite en bytes
+            fuuids.append({'fuuid': fuuid, 'taille': taille, 'bucket': bucket_visite})
+
+        cur.close()
+        con.close()
+
+        return fuuids
+
 
 class ConsignationStoreMillegrille(ConsignationStore):
 
@@ -454,6 +531,9 @@ class ConsignationStoreMillegrille(ConsignationStore):
                 self.visiter_bucket(bucket.name, bucket, entretien_db)
 
             entretien_db.commit_visites()
+
+            # Marquer tous les fichiers 'manquants' qui viennent d'etre visites comme actifs (utilise date debut)
+            entretien_db.marquer_actifs_visites()
         finally:
             entretien_db.close()
 
@@ -524,6 +604,29 @@ class ConsignationStoreMillegrille(ConsignationStore):
         }
 
         return info
+
+    def verifier_fichier(self, entretien_db: EntretienDatabase, fuuid: str, taille: int, bucket: str):
+        path_fichier = self.get_path_fuuid(bucket, fuuid)
+        verificateur = VerificateurHachage(fuuid)
+
+        try:
+            with open(path_fichier, 'rb') as fichier:
+                while True:
+                    chunk = fichier.read(64*1024)
+                    if not chunk:
+                        break
+                    verificateur.update(chunk)
+            try:
+                verificateur.verify()
+                entretien_db.marquer_verification(fuuid, Constantes.DATABASE_ETAT_ACTIF)
+            except ErreurHachage:
+                self.__logger.error("verifier_fichier Fichier %s est corrompu, marquer manquant" % fuuid)
+                entretien_db.marquer_verification(fuuid, Constantes.DATABASE_ETAT_MANQUANT)
+                path_fichier.unlink()  # Supprimer le fichier invalide
+        except FileNotFoundError:
+            self.__logger.error("verifier_fichier Fichier %s est absent, marquer manquant" % fuuid)
+            entretien_db.marquer_verification(fuuid, Constantes.DATABASE_ETAT_MANQUANT)
+
 
 def map_type(type_store: str) -> Type[ConsignationStore]:
     if type_store == Constantes.TYPE_STORE_MILLEGRILLE:

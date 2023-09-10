@@ -66,7 +66,8 @@ class ConsignationHandler:
         self.__timestamp_visite: Optional[datetime.datetime] = None
         self.__timestamp_verification: Optional[datetime.datetime] = None
 
-        self.__intervalle_visites = datetime.timedelta(hours=1)
+        self.__intervalle_visites = datetime.timedelta(hours=Constantes.CONST_INTERVALLE_VISITE_MILLEGRILLE)
+        self.__intervalle_verification = datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_VERIFICATION)
 
     async def run(self):
         self.__logger.info("Demarrage run")
@@ -121,8 +122,14 @@ class ConsignationHandler:
 
             self.__logger.debug("thread_traiter_cedule Debut")
             if self.__etat_instance.est_primaire:
-                await self.__traiter_cedule_primaire()
-            await self.__traiter_cedule_local()
+                try:
+                    await self.__traiter_cedule_primaire()
+                except Exception:
+                    self.__logger.exception("thread_traiter_cedule Erreur __traiter_cedule_primaire")
+            try:
+                await self.__traiter_cedule_local()
+            except Exception:
+                self.__logger.exception("thread_traiter_cedule Erreur __traiter_cedule_local")
 
             self.__logger.debug("thread_traiter_cedule Fin")
             self.__traiter_cedule_event.clear()
@@ -150,6 +157,10 @@ class ConsignationHandler:
                 await self.__store_consignation.visiter_fuuids()
             except Exception:
                 self.__logger.exception("__traiter_cedule_local Erreur visiter fuuids")
+
+        if self.__timestamp_verification is None or now - self.__intervalle_verification > self.__timestamp_verification:
+            self.__timestamp_verification = datetime.datetime.utcnow()
+            await self.__store_consignation.verifier_fuuids()
 
         self.__logger.debug("__traiter_cedule_local Fin")
 
@@ -332,10 +343,16 @@ class ConsignationHandler:
         return self.__etat_instance
 
     async def reclamer_fuuids_database(self, fuuids: list, bucket: str):
-        await self.__store_consignation.reclamer_fuuids_database(fuuids, bucket)
+        if self.__store_consignation is not None:
+            await self.__store_consignation.reclamer_fuuids_database(fuuids, bucket)
+        else:
+            self.__logger.warning("reclamer_fuuids_database Reception message avant initialisation store")
 
     async def marquer_orphelins(self, debut_reclamation: datetime.datetime, complet=False):
-        await self.__store_consignation.marquer_orphelins(debut_reclamation, complet)
+        if self.__store_consignation is not None:
+            await self.__store_consignation.marquer_orphelins(debut_reclamation, complet)
+        else:
+            self.__logger.warning("marquer_orphelins Reception message avant initialisation store")
 
     # async def charger_consignation_primaire(self):
     #     producer = self.__etat_instance.producer

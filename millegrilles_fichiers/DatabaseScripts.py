@@ -93,3 +93,30 @@ CONST_ACTIVER_SI_ORPHELIN = """
     WHERE fuuid IN ($fuuids) 
       AND etat_fichier = 'orphelin'
 """
+
+REQUETE_BATCH_VERIFIER = """
+    SELECT fuuid, taille, bucket_visite
+    FROM FICHIERS
+    WHERE date_verification < :expiration_verification
+      AND etat_fichier = 'actif'
+    LIMIT :limit;
+"""
+
+UPDATE_DATE_VERIFICATION = """
+    UPDATE FICHIERS
+    SET date_verification = :date_verification
+    WHERE fuuid = :fuuid;
+"""
+
+UPDATE_DATE_ETATFICHIER = """
+    UPDATE FICHIERS
+    SET etat_fichier = :etat_fichier
+    WHERE fuuid = :fuuid;
+"""
+
+UPDATE_ACTIFS_VISITES = """
+    UPDATE FICHIERS
+    SET etat_fichier = 'actif'
+    WHERE date_presence > :date_presence
+      AND etat_fichier = 'manquant';
+"""

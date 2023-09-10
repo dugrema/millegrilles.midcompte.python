@@ -81,7 +81,7 @@ class SyncManager:
 
             await self.__consignation.reclamer_fuuids_database(fuuids, bucket)
 
-            if termine:
+            if self.__attente_domaine_event is not None and termine:
                 self.__attente_domaine_event.set()
 
     async def run_sync(self):
