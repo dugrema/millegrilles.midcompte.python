@@ -130,6 +130,15 @@ class ConsignationHandler:
     async def __traiter_cedule_primaire(self):
         self.__logger.debug("__traiter_cedule_primaire Debut")
 
+        now = datetime.datetime.utcnow()
+        config_topologie = self.__etat_instance.topologie
+        intervalle_sync_secs = config_topologie.get('sync_intervalle') or Constantes.CONST_DEFAUT_SYNC_INTERVALLE
+        intervalle_sync = datetime.timedelta(seconds=intervalle_sync_secs)
+        if self.__timestamp_dernier_sync is None or now - intervalle_sync > self.__timestamp_dernier_sync:
+            self.__logger.info("__traiter_cedule_primaire Demarrer sync primaire")
+            self.__timestamp_dernier_sync = datetime.datetime.utcnow()
+            self.__sync_manager.demarrer_sync()
+
         self.__logger.debug("__traiter_cedule_primaire Fin")
 
     async def __traiter_cedule_local(self):
