@@ -14,6 +14,7 @@ from aiohttp import web
 from typing import Optional
 
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
+from millegrilles_messages.MilleGrillesConnecteur import MilleGrillesConnecteur
 from millegrilles_messages.messages.MessagesModule import MessageWrapper
 from millegrilles_messages.messages.MessagesModule import MessageProducerFormatteur
 
@@ -23,7 +24,6 @@ from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.ConsignationStore import ConsignationStore, map_type
 from millegrilles_fichiers.Synchronisation import SyncManager
-
 
 class InformationFuuid:
 
@@ -70,6 +70,8 @@ class ConsignationHandler:
         self.__intervalle_visites = datetime.timedelta(hours=Constantes.CONST_INTERVALLE_VISITE_MILLEGRILLE)
         self.__intervalle_verification = datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_VERIFICATION)
         self.__intervalle_orphelins = datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_ORPHELINS)
+
+        self.__rabbitmq_dao: Optional[MilleGrillesConnecteur] = None
 
     async def run(self):
         self.__logger.info("Demarrage run")
@@ -216,6 +218,14 @@ class ConsignationHandler:
         except Exception as e:
             self.__logger.exception("Erreur chargement consignation primaire")
 
+        est_primaire = self.__etat_instance.est_primaire
+        if est_primaire:
+            # Activer le consumer sur Q fichiers/primaire
+            await self.rabbitmq_dao.mq_thread.start_consumer('fichiers/primaire')
+        else:
+            # Desactiver le consumer sur Q fichiers/primaire
+            await self.rabbitmq_dao.mq_thread.stop_consumer('fichiers/primaire')
+
         type_store = self.__etat_instance.topologie['type_store']
         class_type = map_type(type_store)
 
@@ -353,6 +363,14 @@ class ConsignationHandler:
     @property
     def etat_instance(self):
         return self.__etat_instance
+
+    @property
+    def rabbitmq_dao(self) -> Optional[MilleGrillesConnecteur]:
+        return self.__rabbitmq_dao
+
+    @rabbitmq_dao.setter
+    def rabbitmq_dao(self, rabbitmq_dao: MilleGrillesConnecteur):
+        self.__rabbitmq_dao = rabbitmq_dao
 
     async def reclamer_fuuids_database(self, fuuids: list, bucket: str):
         if self.__store_consignation is not None:

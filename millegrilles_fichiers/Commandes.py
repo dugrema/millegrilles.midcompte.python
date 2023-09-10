@@ -42,9 +42,10 @@ class CommandHandler(CommandesAbstract):
         self.__messages_thread = messages_thread
 
         # Queue primaire
+        # Demarrer sans consumer (actif = False), activer si configuration confirme qu'on est primaire
         res_primaire = RessourcesConsommation(
             self.callback_reply_q,
-            nom_queue=Constantes.QUEUE_PRIMAIRE_NOM, channel_separe=True, est_asyncio=True)
+            nom_queue=Constantes.QUEUE_PRIMAIRE_NOM, channel_separe=True, est_asyncio=True, actif=False)
 
         # requete.fichiers.verifierExistance
         res_primaire.ajouter_rk(

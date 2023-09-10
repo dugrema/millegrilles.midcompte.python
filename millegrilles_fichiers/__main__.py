@@ -49,6 +49,8 @@ class StreamingMain:
         self.__commandes_handler = CommandHandler(self._etat, self.__intake, self.__consignation_handler)
         self.__rabbitmq_dao = MilleGrillesConnecteur(self._stop_event, self._etat, self.__commandes_handler)
 
+        self.__consignation_handler.rabbitmq_dao = self.__rabbitmq_dao
+
         await self.__intake.configurer()
 
         # S'assurer d'avoir le repertoire de staging
