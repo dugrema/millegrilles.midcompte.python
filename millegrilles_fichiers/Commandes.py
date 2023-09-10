@@ -67,7 +67,7 @@ class CommandHandler(CommandesAbstract):
         # evenement.GrosFichiers.changementConsignationPrimaire
         res_evenements.ajouter_rk(
             ConstantesMilleGrilles.SECURITE_PRIVE,
-            f'evenement.{Constantes.DOMAINE_GROSFICHIERS}.{Constantes.EVENEMENT_GROSFICHIERS_CHANGEMENT_CONSIGNATION_PRIMAIRE}',)
+            f'evenement.{Constantes.DOMAINE_CORE_TOPOLOGIE}.{Constantes.EVENEMENT_CHANGEMENT_CONSIGNATION_PRIMAIRE}',)
         # requete.fichiers.INSTANCE_ID.getPublicKeySsh
         res_evenements.ajouter_rk(
             ConstantesMilleGrilles.SECURITE_PRIVE,
@@ -134,7 +134,7 @@ class CommandHandler(CommandesAbstract):
             if ConstantesMilleGrilles.SECURITE_PRIVE in exchanges:
                 if action == Constantes.COMMANDE_MODIFIER_CONFIGURATION:
                     await self.__consignation.modifier_topologie(message.parsed)
-                elif action == Constantes.EVENEMENT_GROSFICHIERS_CHANGEMENT_CONSIGNATION_PRIMAIRE:
+                elif action == Constantes.EVENEMENT_CHANGEMENT_CONSIGNATION_PRIMAIRE:
                     await self.__consignation.charger_topologie()
                 elif action == Constantes.COMMANDE_ENTRETIEN_BACKUP:
                     await self.__consignation.rotation_backup(message.parsed)
@@ -172,7 +172,7 @@ class CommandHandler(CommandesAbstract):
         elif type_message == 'evenement':
             if ConstantesMilleGrilles.SECURITE_PRIVE in exchanges:
                 if action == Constantes.EVENEMENT_CHANGEMENT_CONSIGNATION_PRIMAIRE:
-                    raise NotImplementedError('todo')
+                    await self.__consignation.charger_topologie()
                 elif action == Constantes.EVENEMENT_SYNC_PRET:
                     raise NotImplementedError('todo')
                 elif action == Constantes.EVENEMENT_CEDULE:
