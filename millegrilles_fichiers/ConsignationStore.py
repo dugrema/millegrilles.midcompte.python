@@ -409,8 +409,8 @@ class ConsignationStore:
         # Generer une batch de fuuids a verifier
         limite_nombre = 1000
 
-        # expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(days=31)
-        expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(minutes=2)
+        # La reverification permet de controler la frequence de verification d'un fichier (e.g. aux trois mois)
+        expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_REVERIFICATION)
         params = {
             'expiration_verification': expiration,
             'limit': limite_nombre
