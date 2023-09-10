@@ -65,9 +65,11 @@ class ConsignationHandler:
         self.__timestamp_dernier_sync: Optional[datetime.datetime] = None
         self.__timestamp_visite: Optional[datetime.datetime] = None
         self.__timestamp_verification: Optional[datetime.datetime] = None
+        self.__timestamp_orphelins: Optional[datetime.datetime] = None
 
         self.__intervalle_visites = datetime.timedelta(hours=Constantes.CONST_INTERVALLE_VISITE_MILLEGRILLE)
         self.__intervalle_verification = datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_VERIFICATION)
+        self.__intervalle_orphelins = datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_ORPHELINS)
 
     async def run(self):
         self.__logger.info("Demarrage run")
@@ -159,8 +161,18 @@ class ConsignationHandler:
                 self.__logger.exception("__traiter_cedule_local Erreur visiter fuuids")
 
         if self.__timestamp_verification is None or now - self.__intervalle_verification > self.__timestamp_verification:
-            self.__timestamp_verification = datetime.datetime.utcnow()
-            await self.__store_consignation.verifier_fuuids()
+            try:
+                self.__timestamp_verification = datetime.datetime.utcnow()
+                await self.__store_consignation.verifier_fuuids()
+            except Exception:
+                self.__logger.exception("__traiter_cedule_local Erreur verifier fuuids")
+
+        if self.__timestamp_orphelins is None or now - self.__intervalle_orphelins > self.__timestamp_orphelins:
+            try:
+                self.__timestamp_orphelins = datetime.datetime.utcnow()
+                await self.__store_consignation.supprimer_orphelins()
+            except Exception:
+                self.__logger.exception("__traiter_cedule_local Erreur supprimer_orphelins")
 
         self.__logger.debug("__traiter_cedule_local Fin")
 

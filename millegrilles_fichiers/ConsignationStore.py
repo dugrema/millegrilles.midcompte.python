@@ -22,14 +22,14 @@ from millegrilles_fichiers.EtatFichiers import EtatFichiers
 
 class EntretienDatabase:
 
-    def __init__(self, etat: EtatFichiers):
+    def __init__(self, etat: EtatFichiers, check_same_thread=True):
         self._etat = etat
 
         path_database = pathlib.Path(
             self._etat.configuration.dir_consignation, Constantes.DIR_DATA, Constantes.FICHIER_DATABASE)
         self.__path_database = path_database
 
-        self.__con = sqlite3.connect(self.__path_database, check_same_thread=True)
+        self.__con = sqlite3.connect(self.__path_database, check_same_thread=check_same_thread)
         self.__cur = self.__con.cursor()
 
         self.__batch_visites: Optional[dict] = None
@@ -80,6 +80,35 @@ class EntretienDatabase:
             }
             self.__cur.execute(scripts_database.UPDATE_DATE_ETATFICHIER, params)
         self.__con.commit()
+
+    def identifier_orphelins(self, expiration: datetime.datetime) -> list:
+        params = {
+            'date_reclamation': expiration,
+            'limit': 1000,
+        }
+        cur = self.__con.cursor()
+        orphelins = list()
+        try:
+            cur.execute(scripts_database.REQUETE_BATCH_ORPHELINS, params)
+            while True:
+                row = cur.fetchone()
+                if row is None:
+                    break
+                fuuid, taille, bucket_visite = row
+                orphelins.append({'fuuid': fuuid, 'taille': taille, 'bucket': bucket_visite})
+        finally:
+            cur.close()
+
+        return orphelins
+
+    def supprimer(self, fuuid: str):
+        params = {'fuuid': fuuid}
+        cur = self.__con.cursor()
+        try:
+            cur.execute(scripts_database.DELETE_SUPPRIMER_FUUIDS, params)
+        finally:
+            self.__con.commit()
+            cur.close()
 
     def close(self):
         self.__cur.close()
@@ -153,7 +182,7 @@ class ConsignationStore:
         """ Deplace le fichier vers un bucket """
         raise NotImplementedError('must override')
 
-    async def supprimer(self, fuuid: str):
+    async def supprimer(self, bucket: str, fuuid: str):
         """ Marquer orphelin si fichier est actif """
         raise NotImplementedError('must override')
 
@@ -192,6 +221,54 @@ class ConsignationStore:
                 self.verifier_fichier(entretien_db, **fichier)
         finally:
             entretien_db.close()
+
+    async def supprimer_orphelins(self):
+        producer = self._etat.producer
+        await asyncio.wait_for(producer.producer_pret().wait(), timeout=10)
+
+        est_primaire = self._etat.est_primaire
+        if est_primaire:
+            expiration_secs = Constantes.CONST_EXPIRATION_ORPHELIN_PRIMAIRE
+        else:
+            expiration_secs = Constantes.CONST_EXPIRATION_ORPHELIN_SECONDAIRE
+        expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=expiration_secs)
+        self.__logger.info("supprimer_orphelins Expires depuis %s" % expiration)
+
+        entretien_db = EntretienDatabase(self._etat, check_same_thread=False)
+
+        batch_orphelins = await asyncio.to_thread(entretien_db.identifier_orphelins, expiration)
+        fuuids = [f['fuuid'] for f in batch_orphelins]
+        fuuids_a_supprimer = set(fuuids)
+        if est_primaire:
+            # Transmettre commande pour confirmer que la suppression peut avoir lieu
+            commande = {'fuuids': fuuids}
+            reponse = await producer.executer_commande(
+                commande,
+                domaine=Constantes.DOMAINE_GROSFICHIERS, action=Constantes.COMMANDE_SUPPRIMER_ORPHELINS,
+                exchange=ConstantesMillegrilles.SECURITE_PRIVE, timeout=30
+            )
+            if reponse.parsed['ok'] is True:
+                # Retirer tous les fuuids a conserver de la liste a supprimer
+                fuuids_conserver = reponse.parsed.get('fuuids_a_conserver') or list()
+                fuuids_a_supprimer = fuuids_a_supprimer.difference(fuuids_conserver)
+
+        for fichier in batch_orphelins:
+            fuuid = fichier['fuuid']
+            bucket = fichier['bucket']
+            if fuuid in fuuids_a_supprimer:
+                self.__logger.info("supprimer_orphelins Supprimer fichier orphelin expire %s" % fichier)
+                try:
+                    await self.supprimer(bucket, fuuid)
+                except OSError as e:
+                    if e.errno == errno.ENOENT:
+                        self.__logger.warning("Erreur suppression fichier %s/%s - non trouve" % (bucket, fuuid))
+                    else:
+                        raise e
+
+                # Supprimer de la base de donnes locale
+                await asyncio.to_thread(entretien_db.supprimer, fuuid)
+
+        pass
 
     def verifier_fichier(self, entretien_db: EntretienDatabase, fuuid: str, taille: int, bucket: str):
         """ Verifie un fichier individuellement. Marque resultat dans la base de donnees. """
@@ -486,8 +563,9 @@ class ConsignationStoreMillegrille(ConsignationStore):
     async def changer_bucket(self, fuuid: str, bucket: str):
         raise NotImplementedError('todo')
 
-    async def supprimer(self, fuuid: str):
-        raise NotImplementedError('todo')
+    async def supprimer(self, bucket: str, fuuid: str):
+        path_fichier = self.get_path_fuuid(bucket, fuuid)
+        path_fichier.unlink()
 
     async def purger(self, fuuid: str):
         raise NotImplementedError('todo')

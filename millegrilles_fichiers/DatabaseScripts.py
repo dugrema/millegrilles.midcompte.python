@@ -99,6 +99,7 @@ REQUETE_BATCH_VERIFIER = """
     FROM FICHIERS
     WHERE date_verification < :expiration_verification
       AND etat_fichier = 'actif'
+    ORDER BY date_verification
     LIMIT :limit;
 """
 
@@ -119,4 +120,18 @@ UPDATE_ACTIFS_VISITES = """
     SET etat_fichier = 'actif'
     WHERE date_presence > :date_presence
       AND etat_fichier = 'manquant';
+"""
+
+REQUETE_BATCH_ORPHELINS = """
+    SELECT fuuid, taille, bucket_visite
+    FROM FICHIERS
+    WHERE date_reclamation < :date_reclamation
+      AND etat_fichier IN ('orphelin', 'manquant')
+    ORDER BY date_reclamation
+    LIMIT :limit;
+"""
+
+DELETE_SUPPRIMER_FUUIDS = """
+    DELETE FROM FICHIERS
+    WHERE fuuid = :fuuid;
 """
