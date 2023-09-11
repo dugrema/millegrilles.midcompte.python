@@ -19,6 +19,7 @@ DIR_BACKUP = 'backup_transactions'
 
 FICHIER_DATABASE = 'consignation.db'
 FICHIER_RECLAMATIONS_PRIMAIRES = 'reclamations.jsonl.gz'
+FICHIER_RECLAMATIONS_INTERMEDIAIRES = 'reclamations.txt'
 
 FICHIER_ETAT = 'etat.json'
 FICHIER_TRANSACTION = 'transaction.json'

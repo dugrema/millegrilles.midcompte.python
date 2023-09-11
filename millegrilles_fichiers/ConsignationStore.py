@@ -25,6 +25,7 @@ from millegrilles_fichiers.EtatFichiers import EtatFichiers
 class EntretienDatabase:
 
     def __init__(self, etat: EtatFichiers, check_same_thread=True):
+        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self._etat = etat
 
         path_database = pathlib.Path(
@@ -128,7 +129,68 @@ class EntretienDatabase:
         finally:
             cur.close()
 
+        self.reset_intermediaires()
+
+    def get_path_database(self):
+        dir_data = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_DATA)
+        return pathlib.Path(dir_data, Constantes.FICHIER_DATABASE)
+
+    def get_path_reclamations(self):
+        dir_data = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_DATA)
+        return pathlib.Path(dir_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
+
+    def get_path_relamations_intermediaires(self):
+        dir_data = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_DATA)
+        return pathlib.Path(dir_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
+
+    def reset_intermediaires(self):
+        path_intermediaires = self.get_path_relamations_intermediaires()
+        path_intermediaires.unlink(missing_ok=True)
+
+    def consigner(self, fuuid: str, taille: int, bucket: str):
+        date_now = datetime.datetime.now(tz=pytz.UTC)
+        data = {
+            'fuuid': fuuid,
+            'etat_fichier': Constantes.DATABASE_ETAT_ACTIF,
+            'taille': taille,
+            'bucket': bucket,
+            'date_presence': date_now,
+            'date_verification': date_now,
+            'date_reclamation': date_now,
+        }
+
+        nouveau = False
+
+        try:
+            self.__cur.execute(scripts_database.CONST_INSERT_FICHIER, data)
+            nouveau = True
+        except sqlite3.IntegrityError as e:
+            if 'FICHIERS.fuuid' in e.args[0]:
+                self.__logger.debug("ConsignationStore.consigner fuuid %s existe deja - OK" % fuuid)
+                self.__cur.execute(scripts_database.CONST_ACTIVER_SI_MANQUANT, data)
+                self.__cur.execute(scripts_database.CONST_VERIFIER_FICHIER, data)
+            else:
+                raise e
+        finally:
+            self.__con.commit()
+
+        if nouveau:
+            try:
+                data_intermediaire = {
+                    'fuuid': fuuid,
+                    'etat_fichier': Constantes.DATABASE_ETAT_ACTIF,
+                    'taille': taille,
+                    'bucket': bucket,
+                }
+                path_intermediaire = self.get_path_relamations_intermediaires()
+                with open(path_intermediaire, 'at') as fichier:
+                    json.dump(data_intermediaire, fichier)
+                    fichier.write('\n')
+            except Exception:
+                self.__logger.exception("Erreur sauvegarde fuuid dans liste intermediaire")
+
     def close(self):
+        self.__con.commit()
         self.__cur.close()
         self.__con.close()
 
@@ -163,35 +225,45 @@ class ConsignationStore:
     def get_path_fuuid(self, bucket: str, fuuid: str) -> pathlib.Path:
         raise NotImplementedError('must override')
 
+    def __consigner_db(self, path_src: pathlib.Path, fuuid: str):
+        stat = path_src.stat()
+        entretien_db = EntretienDatabase(self._etat)
+        try:
+            entretien_db.consigner(fuuid, stat.st_size, Constantes.BUCKET_PRINCIPAL)
+        finally:
+            entretien_db.close()
+
     async def consigner(self, path_src: pathlib.Path, fuuid: str):
         # Tenter d'inserer le fichier comme nouveau actif dans la base de donnees
-        con = sqlite3.connect(self.__path_database, check_same_thread=True)
-        stat = path_src.stat()
+        await asyncio.to_thread(self.__consigner_db, path_src, fuuid)
 
-        date_now = datetime.datetime.now(tz=pytz.UTC)
-        data = {
-            'fuuid': fuuid,
-            'etat_fichier': Constantes.DATABASE_ETAT_ACTIF,
-            'taille': stat.st_size,
-            'bucket': Constantes.BUCKET_PRINCIPAL,
-            'date_presence': date_now,
-            'date_verification': date_now,
-            'date_reclamation': date_now,
-        }
-        cur = con.cursor()
-        try:
-            cur.execute(scripts_database.CONST_INSERT_FICHIER, data)
-        except sqlite3.IntegrityError as e:
-            if 'FICHIERS.fuuid' in e.args[0]:
-                self.__logger.debug("ConsignationStore.consigner fuuid %s existe deja - OK" % fuuid)
-                cur.execute(scripts_database.CONST_ACTIVER_SI_MANQUANT, data)
-                cur.execute(scripts_database.CONST_VERIFIER_FICHIER, data)
-            else:
-                raise e
-        finally:
-            cur.close()
-            con.commit()
-            con.close()
+        # con = sqlite3.connect(self.__path_database, check_same_thread=True)
+        # stat = path_src.stat()
+        #
+        # date_now = datetime.datetime.now(tz=pytz.UTC)
+        # data = {
+        #     'fuuid': fuuid,
+        #     'etat_fichier': Constantes.DATABASE_ETAT_ACTIF,
+        #     'taille': stat.st_size,
+        #     'bucket': Constantes.BUCKET_PRINCIPAL,
+        #     'date_presence': date_now,
+        #     'date_verification': date_now,
+        #     'date_reclamation': date_now,
+        # }
+        # cur = con.cursor()
+        # try:
+        #     cur.execute(scripts_database.CONST_INSERT_FICHIER, data)
+        # except sqlite3.IntegrityError as e:
+        #     if 'FICHIERS.fuuid' in e.args[0]:
+        #         self.__logger.debug("ConsignationStore.consigner fuuid %s existe deja - OK" % fuuid)
+        #         cur.execute(scripts_database.CONST_ACTIVER_SI_MANQUANT, data)
+        #         cur.execute(scripts_database.CONST_VERIFIER_FICHIER, data)
+        #     else:
+        #         raise e
+        # finally:
+        #     cur.close()
+        #     con.commit()
+        #     con.close()
 
         # await self.emettre_batch_visites([fuuid], verification=True)
         await self.emettre_evenement_consigne(fuuid)
@@ -254,37 +326,40 @@ class ConsignationStore:
 
         entretien_db = EntretienDatabase(self._etat, check_same_thread=False)
 
-        batch_orphelins = await asyncio.to_thread(entretien_db.identifier_orphelins, expiration)
-        fuuids = [f['fuuid'] for f in batch_orphelins]
-        fuuids_a_supprimer = set(fuuids)
-        if est_primaire:
-            # Transmettre commande pour confirmer que la suppression peut avoir lieu
-            commande = {'fuuids': fuuids}
-            reponse = await producer.executer_commande(
-                commande,
-                domaine=Constantes.DOMAINE_GROSFICHIERS, action=Constantes.COMMANDE_SUPPRIMER_ORPHELINS,
-                exchange=ConstantesMillegrilles.SECURITE_PRIVE, timeout=30
-            )
-            if reponse.parsed['ok'] is True:
-                # Retirer tous les fuuids a conserver de la liste a supprimer
-                fuuids_conserver = reponse.parsed.get('fuuids_a_conserver') or list()
-                fuuids_a_supprimer = fuuids_a_supprimer.difference(fuuids_conserver)
+        try:
+            batch_orphelins = await asyncio.to_thread(entretien_db.identifier_orphelins, expiration)
+            fuuids = [f['fuuid'] for f in batch_orphelins]
+            fuuids_a_supprimer = set(fuuids)
+            if est_primaire:
+                # Transmettre commande pour confirmer que la suppression peut avoir lieu
+                commande = {'fuuids': fuuids}
+                reponse = await producer.executer_commande(
+                    commande,
+                    domaine=Constantes.DOMAINE_GROSFICHIERS, action=Constantes.COMMANDE_SUPPRIMER_ORPHELINS,
+                    exchange=ConstantesMillegrilles.SECURITE_PRIVE, timeout=30
+                )
+                if reponse.parsed['ok'] is True:
+                    # Retirer tous les fuuids a conserver de la liste a supprimer
+                    fuuids_conserver = reponse.parsed.get('fuuids_a_conserver') or list()
+                    fuuids_a_supprimer = fuuids_a_supprimer.difference(fuuids_conserver)
 
-        for fichier in batch_orphelins:
-            fuuid = fichier['fuuid']
-            bucket = fichier['bucket']
-            if fuuid in fuuids_a_supprimer:
-                self.__logger.info("supprimer_orphelins Supprimer fichier orphelin expire %s" % fichier)
-                try:
-                    await self.supprimer(bucket, fuuid)
-                except OSError as e:
-                    if e.errno == errno.ENOENT:
-                        self.__logger.warning("Erreur suppression fichier %s/%s - non trouve" % (bucket, fuuid))
-                    else:
-                        raise e
+            for fichier in batch_orphelins:
+                fuuid = fichier['fuuid']
+                bucket = fichier['bucket']
+                if fuuid in fuuids_a_supprimer:
+                    self.__logger.info("supprimer_orphelins Supprimer fichier orphelin expire %s" % fichier)
+                    try:
+                        await self.supprimer(bucket, fuuid)
+                    except OSError as e:
+                        if e.errno == errno.ENOENT:
+                            self.__logger.warning("Erreur suppression fichier %s/%s - non trouve" % (bucket, fuuid))
+                        else:
+                            raise e
 
-                # Supprimer de la base de donnes locale
-                await asyncio.to_thread(entretien_db.supprimer, fuuid)
+                    # Supprimer de la base de donnes locale
+                    await asyncio.to_thread(entretien_db.supprimer, fuuid)
+        finally:
+            entretien_db.close()
 
         pass
 
@@ -549,10 +624,11 @@ class ConsignationStore:
             # Renommer fichier .work pour remplacer le fichier de reclamations precedent
             fichier_reclamations.unlink(missing_ok=True)
             fichier_reclamations_work.rename(fichier_reclamations)
-
         except:
             self.__logger.exception('Erreur generation fichier reclamations')
             fichier_reclamations_work.unlink(missing_ok=True)
+        finally:
+            entretien_db.close()
 
 
 class ConsignationStoreMillegrille(ConsignationStore):
