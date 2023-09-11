@@ -135,3 +135,9 @@ DELETE_SUPPRIMER_FUUIDS = """
     DELETE FROM FICHIERS
     WHERE fuuid = :fuuid;
 """
+
+REQUETE_FICHIERS_TRANSFERT = """
+    SELECT fuuid, etat_fichier, taille, bucket
+    FROM FICHIERS
+    WHERE etat_fichier IN ('actif', 'manquant');
+"""

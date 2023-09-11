@@ -20,16 +20,16 @@ class SyncManager:
         self.__stop_event = consignation.stop_event
         self.__etat_instance: EtatFichiers = consignation.etat_instance
 
-        self.__sync_event: Optional[asyncio.Event] = None
+        self.__sync_event_primaire: Optional[asyncio.Event] = None
         self.__reception_fuuids_reclames: Optional[asyncio.Queue] = None
         self.__attente_domaine_event: Optional[asyncio.Event] = None
         self.__attente_domaine_activite: Optional[datetime.datetime] = None
 
-    def demarrer_sync(self):
-        self.__sync_event.set()
+    def demarrer_sync_primaire(self):
+        self.__sync_event_primaire.set()
 
     async def run(self):
-        self.__sync_event = asyncio.Event()
+        self.__sync_event_primaire = asyncio.Event()
         self.__reception_fuuids_reclames = asyncio.Queue(maxsize=3)
         await asyncio.gather(
             self.thread_sync_primaire(),
@@ -39,15 +39,15 @@ class SyncManager:
     async def thread_sync_primaire(self):
         pending = {self.__stop_event.wait()}
         while self.__stop_event.is_set() is False:
-            pending.add(self.__sync_event.wait())
+            pending.add(self.__sync_event_primaire.wait())
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
 
             try:
-                await self.run_sync()
+                await self.run_sync_primaire()
             except Exception:
                 self.__logger.exception("Erreur synchronisation")
 
-            self.__sync_event.clear()
+            self.__sync_event_primaire.clear()
 
     async def thread_emettre_evenement(self, event_sync: asyncio.Event):
         wait_coro = event_sync.wait()
@@ -84,7 +84,7 @@ class SyncManager:
             if self.__attente_domaine_event is not None and termine:
                 self.__attente_domaine_event.set()
 
-    async def run_sync(self):
+    async def run_sync_primaire(self):
         self.__logger.info("thread_sync_primaire Demarrer sync")
         await self.emettre_etat_sync()
 
@@ -108,8 +108,12 @@ class SyncManager:
         # Date debut utilise pour trouver les fichiers orphelins (si reclamation est complete)
         debut_reclamation = datetime.datetime.utcnow()
         reclamation_complete = await self.reclamer_fuuids()
+
         # Process orphelins
         await self.__consignation.marquer_orphelins(debut_reclamation, reclamation_complete)
+
+        # Generer la liste des reclamations en .jsonl.gz pour les secondaires
+        await self.__consignation.generer_reclamations_sync()
 
     async def reclamer_fuuids(self) -> bool:
         domaines = await self.get_domaines_reclamation()
@@ -183,6 +187,15 @@ class SyncManager:
             domaine=Constantes.DOMAINE_FICHIERS, action=Constantes.EVENEMENT_SYNC_PRIMAIRE,
             exchanges=ConstantesMillegrilles.SECURITE_PRIVE
         )
+
+        if termine:
+            # Emettre evenement pour declencher le sync secondaire
+            self.__logger.debug("emettre_etat_sync Emettre evenement declencher sync secondaire")
+            await producer.emettre_evenement(
+                dict(),
+                domaine=Constantes.DOMAINE_FICHIERS, action=Constantes.EVENEMENT_SYNC_SECONDAIRE,
+                exchanges=ConstantesMillegrilles.SECURITE_PRIVE
+            )
 
     async def conserver_activite_fuuids(self, commande: dict):
         await self.__reception_fuuids_reclames.put(commande)

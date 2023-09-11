@@ -1,6 +1,8 @@
 import asyncio
 import datetime
 import errno
+import gzip
+import json
 import logging
 import pathlib
 import shutil
@@ -108,6 +110,22 @@ class EntretienDatabase:
             cur.execute(scripts_database.DELETE_SUPPRIMER_FUUIDS, params)
         finally:
             self.__con.commit()
+            cur.close()
+
+    def generer_relamations_primaires(self, fp):
+        """ Genere le contenu du fichier de transfert d'etat fichiers.jsonl.gz """
+        cur = self.__con.cursor()
+        try:
+            cur.execute(scripts_database.REQUETE_FICHIERS_TRANSFERT)
+            while True:
+                row = cur.fetchone()
+                if row is None:
+                    break
+                fuuid, etat_fichier, taille, bucket_visite = row
+                contenu_ligne = {'fuuid': fuuid, 'etat_fichier': etat_fichier, 'taille': taille, 'bucket': bucket_visite}
+                json.dump(contenu_ligne, fp)
+                fp.write('\n')
+        finally:
             cur.close()
 
     def close(self):
@@ -513,6 +531,28 @@ class ConsignationStore:
         con.close()
 
         return fuuids
+
+    async def generer_reclamations_sync(self):
+        dir_data = pathlib.Path(self._etat.configuration.dir_consignation)
+        fichier_reclamations = pathlib.Path(dir_data,
+                                            Constantes.DIR_DATA, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
+
+        # Preparer le fichier work
+        fichier_reclamations_work = pathlib.Path('%s.work' % fichier_reclamations)
+        fichier_reclamations_work.unlink(missing_ok=True)
+
+        entretien_db = EntretienDatabase(self._etat, check_same_thread=False)
+        try:
+            with gzip.open(fichier_reclamations_work, 'wt') as fichier:
+                await asyncio.to_thread(entretien_db.generer_relamations_primaires, fichier)
+
+            # Renommer fichier .work pour remplacer le fichier de reclamations precedent
+            fichier_reclamations.unlink(missing_ok=True)
+            fichier_reclamations_work.rename(fichier_reclamations)
+
+        except:
+            self.__logger.exception('Erreur generation fichier reclamations')
+            fichier_reclamations_work.unlink(missing_ok=True)
 
 
 class ConsignationStoreMillegrille(ConsignationStore):

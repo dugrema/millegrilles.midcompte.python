@@ -148,7 +148,7 @@ class ConsignationHandler:
         if self.__timestamp_dernier_sync is None or now - intervalle_sync > self.__timestamp_dernier_sync:
             self.__logger.info("__traiter_cedule_primaire Demarrer sync primaire")
             self.__timestamp_dernier_sync = datetime.datetime.utcnow()
-            self.__sync_manager.demarrer_sync()
+            self.__sync_manager.demarrer_sync_primaire()
 
         self.__logger.debug("__traiter_cedule_primaire Fin")
 
@@ -347,7 +347,7 @@ class ConsignationHandler:
         if self.__store_consignation is None:
             return {'ok': False, 'err': 'Message sync - store consignation non pret'}
 
-        self.__sync_manager.demarrer_sync()
+        self.__sync_manager.demarrer_sync_primaire()
         return {'ok': True}
 
     async def conserver_activite_fuuids(self, commande: dict):
@@ -383,6 +383,12 @@ class ConsignationHandler:
             await self.__store_consignation.marquer_orphelins(debut_reclamation, complet)
         else:
             self.__logger.warning("marquer_orphelins Reception message avant initialisation store")
+
+    async def generer_reclamations_sync(self):
+        if self.__store_consignation is not None:
+            await self.__store_consignation.generer_reclamations_sync()
+        else:
+            self.__logger.warning("generer_reclamations_sync Reception message avant initialisation store")
 
     # async def charger_consignation_primaire(self):
     #     producer = self.__etat_instance.producer

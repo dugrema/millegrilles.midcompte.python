@@ -18,6 +18,7 @@ DIR_STAGING_INTAKE = 'staging/intake'
 DIR_BACKUP = 'backup_transactions'
 
 FICHIER_DATABASE = 'consignation.db'
+FICHIER_RECLAMATIONS_PRIMAIRES = 'reclamations.jsonl.gz'
 
 FICHIER_ETAT = 'etat.json'
 FICHIER_TRANSACTION = 'transaction.json'
@@ -35,6 +36,7 @@ EVENEMENT_VISITER_FUUIDS = 'visiterFuuids'
 EVENEMENT_FICHIER_CONSIGNE = 'consigne'
 EVENEMENT_SYNC_PRIMAIRE = 'syncPrimaire'
 EVENEMENT_SYNC_PRET = 'syncPret'
+EVENEMENT_SYNC_SECONDAIRE = 'declencherSyncSecondaire'
 EVENEMENT_CHANGEMENT_CONSIGNATION_PRIMAIRE = 'changementConsignationPrimaire'
 
 COMMANDE_MODIFIER_CONFIGURATION = 'modifierConfiguration'
