@@ -75,6 +75,7 @@ class WebServer:
             web.delete('/fichiers_transfert/{fuuid}', self.handle_delete_fuuid),
 
             # /sync
+            web.get('/fichiers_transfert/sync/{fichier}', self.handle_get_fichier_sync),
             #   route.get('/fuuidsLocaux.txt.gz', (req, res, next) => getFichier(req, res, next, PATH_FUUIDS_LOCAUX))
             #   route.get('/fuuidsArchives.txt.gz', (req, res, next) => getFichier(req, res, next, PATH_FUUIDS_ARCHIVES))
             #   route.get('/fuuidsManquants.txt.gz', (req, res, next) => getFichier(req, res, next, PATH_FUUIDS_MANQUANTS))
@@ -505,6 +506,57 @@ class WebServer:
             await self.__consignation.conserver_backup(fichier_temp, uuid_backup, domaine, nom_fichier)
 
         return web.HTTPOk()
+
+    async def handle_get_fichier_sync(self, request: Request) -> StreamResponse:
+        fichier_nom = request.match_info['fichier']
+        headers = request.headers
+
+        FICHIERS_ACCEPTES = ['reclamations.jsonl.gz', 'reclamations.jsonl']
+        if fichier_nom not in FICHIERS_ACCEPTES:
+            self.__logger.debug("handle_get_fichier_sync Fichier %s non supporte" % fichier_nom)
+            return web.HTTPNotFound()
+
+        # Afficher info (debug)
+        self.__logger.debug("handle_get_fichier_sync %s" % fichier_nom)
+        for key, value in headers.items():
+            self.__logger.debug('handle_get_fichier_sync key: %s, value: %s' % (key, value))
+
+        if headers.get('VERIFIED') != 'SUCCESS':
+            return web.HTTPForbidden()
+
+        path_data = pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_DATA)
+        path_fichier = pathlib.Path(path_data, fichier_nom)
+        try:
+            stat_fichier = path_fichier.stat()
+        except OSError as e:
+            if e.errno == errno.ENOENT:
+                return web.HTTPNotFound()
+            else:
+                self.__logger.exception("Erreur chargement fichier %s" % fichier_nom)
+                return web.HTTPServerError()
+
+        headers_response = {
+            'Cache-Control': 'no-store',
+        }
+
+        response = web.StreamResponse(status=200, headers=headers_response)
+        response.content_length = stat_fichier.st_size
+
+        if fichier_nom.ends_with('.gz'):
+            response.content_type = 'application/gzip'
+        elif fichier_nom.ends_with('.jsonl'):
+            response.content_type = 'application/jsonl'
+        else:
+            response.content_type = 'application/stream'
+
+        with open(path_fichier, 'rb') as fichier:
+            while True:
+                chunk = fichier.read(64*1024)
+                if not chunk:
+                    break
+                await response.write(chunk)
+
+        await response.write_eof()
 
 
 def parse_range(range, taille_totale):
