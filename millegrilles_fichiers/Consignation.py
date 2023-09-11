@@ -284,7 +284,7 @@ class ConsignationHandler:
             try:
                 val = configuration_topologie[champ]
                 etat[champ] = val
-            except KeyError:
+            except (TypeError, KeyError):
                 pass
 
         # Charger etat des fichiers (taille totale par type)

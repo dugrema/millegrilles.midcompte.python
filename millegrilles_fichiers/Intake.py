@@ -43,6 +43,7 @@ class IntakeFichiers(IntakeHandler):
         self.__events_fuuids = dict()
 
         self.__path_intake = pathlib.Path(self._etat_instance.configuration.dir_consignation, Constantes.DIR_STAGING_INTAKE)
+        self.__path_intake.mkdir(parents=True, exist_ok=True)
 
     def get_path_intake_fuuid(self, fuuid: str):
         return pathlib.Path(self.__path_intake, fuuid)
@@ -96,6 +97,8 @@ class IntakeFichiers(IntakeHandler):
             await self.traiter_job(job)
         except IndexError:
             return None  # Condition d'arret de l'intake
+        except FileNotFoundError as e:
+            raise e  # Erreur fatale
         except Exception as e:
             self.__logger.exception("traiter_prochaine_job Erreur traitement job download")
             return {'ok': False, 'err': str(e)}

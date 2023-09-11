@@ -99,7 +99,7 @@ class EtatFichiers(EtatInstance):
     def est_primaire(self):
         try:
             return self.primaire['instance_id'] == self.clecertificat.enveloppe.subject_common_name
-        except KeyError:
+        except (TypeError, KeyError):
             return None
 
     def get_public_key_ssh(self) -> dict:
