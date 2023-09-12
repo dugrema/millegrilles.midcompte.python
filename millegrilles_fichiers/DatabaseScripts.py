@@ -18,12 +18,61 @@ CONST_CREATE_FICHIERS = """
         taille INTEGER,
         bucket VARCHAR
     );
+    
+    CREATE TABLE IF NOT EXISTS DOWNLOADS(
+        fuuid VARCHAR PRIMARY KEY,
+        taille INTEGER,
+        date_creation TIMESTAMP NOT NULL,
+        date_activite TIMESTAMP,
+        essais INTEGER NOT NULL,
+        erreur INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS UPLOADS(
+        fuuid VARCHAR PRIMARY KEY,
+        taille INTEGER NOT NULL,
+        date_creation TIMESTAMP NOT NULL,
+        date_activite TIMESTAMP,
+        position INTEGER NOT NULL,
+        essais INTEGER NOT NULL,
+        erreur INTEGER
+    );
+    
 """
 
 # SELECTs
 
 
 # INSERTs/UPDATEs
+
+COMMANDE_INSERT_SECONDAIRES_MANQUANTS = """
+    INSERT OR IGNORE INTO FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation)
+    SELECT fuuid, 'manquant', taille, bucket, :date_reclamation, :date_reclamation, :date_reclamation
+    FROM FICHIERS_PRIMAIRE;
+"""
+
+COMMANDE_UPDATE_SECONDAIRES_ORPHELINS_VERS_ACTIF = """
+    UPDATE FICHIERS
+        SET etat_fichier = 'actif'
+        WHERE etat_fichier = 'orphelin'
+          AND fuuid IN (
+            SELECT fuuid FROM FICHIERS_PRIMAIRE
+        );
+"""
+
+COMMANDE_UPDATE_SECONDAIRES_RECLAMES = """
+    UPDATE FICHIERS
+        SET date_reclamation = :date_reclamation
+        WHERE fuuid IN (
+            SELECT fuuid FROM FICHIERS_PRIMAIRE
+        );
+"""
+
+COMMANDE_UPDATE_SECONDAIRES_NON_RECLAMES_VERS_ORPHELINS = """
+    UPDATE FICHIERS
+        SET etat_fichier = 'orphelin'
+        WHERE date_reclamation < :date_reclamation;
+"""
 
 CONST_INSERT_FICHIER = """
     INSERT INTO FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation)

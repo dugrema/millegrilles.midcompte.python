@@ -209,6 +209,36 @@ class EntretienDatabase:
             self.__cur.executemany(scripts_database.COMMANDE_INSERT_FICHIER_PRIMAIRE, batch)
         self.__con.commit()
 
+    def marquer_secondaires_reclames(self):
+        date_debut = datetime.datetime.now(tz=pytz.UTC)
+
+        # Inserer secondaires manquants
+        params = {'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
+        self.__cur.execute(scripts_database.COMMANDE_INSERT_SECONDAIRES_MANQUANTS, params)
+        self.__con.commit()
+
+        # Convertir les secondaires orphelins en actifs
+        self.__cur.execute(scripts_database.COMMANDE_UPDATE_SECONDAIRES_ORPHELINS_VERS_ACTIF, params)
+        self.__con.commit()
+
+        # Marquer les secondaires deja presents comme reclames (peu importe l'etat)
+        params = {'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
+        self.__cur.execute(scripts_database.COMMANDE_UPDATE_SECONDAIRES_RECLAMES, params)
+        self.__con.commit()
+
+        params = {'date_reclamation': date_debut}
+        self.__cur.execute(scripts_database.COMMANDE_UPDATE_SECONDAIRES_NON_RECLAMES_VERS_ORPHELINS, params)
+        self.__con.commit()
+
+    def identifier_secondaires_orphelins(self):
+        pass
+
+    def generer_downloads(self):
+        pass
+
+    def generer_uploads(self):
+        pass
+
     def close(self):
         self.__con.commit()
         self.__cur.close()

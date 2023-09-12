@@ -179,6 +179,9 @@ class SyncManager:
         # Merge information dans database
         await self.merge_fichiers_reclamation()
 
+        # Ajouter manquants, marquer fichiers reclames
+        await self.marquer_reclames()
+
         # Marquer orphelins
 
         # Determiner downloads
@@ -398,3 +401,14 @@ class SyncManager:
 
         # Commit derniere batch
         entretien_db.commit_fichiers_primaire()
+
+    async def marquer_reclames(self):
+        await asyncio.to_thread(self.__creer_operations_sur_secondaire)
+
+    def __creer_operations_sur_secondaire(self):
+        entretien_db = EntretienDatabase(self.__etat_instance)
+
+        entretien_db.marquer_secondaires_reclames()
+        entretien_db.identifier_secondaires_orphelins()
+        entretien_db.generer_downloads()
+        entretien_db.generer_uploads()
