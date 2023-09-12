@@ -1,3 +1,5 @@
+# Structure de la base de donnees
+
 CONST_CREATE_FICHIERS = """
     CREATE TABLE IF NOT EXISTS FICHIERS(
         fuuid VARCHAR PRIMARY KEY,
@@ -9,7 +11,19 @@ CONST_CREATE_FICHIERS = """
         date_verification TIMESTAMP NOT NULL,
         date_reclamation TIMESTAMP NOT NULL     
     );
+
+    CREATE TABLE IF NOT EXISTS FICHIERS_PRIMAIRE(
+        fuuid VARCHAR PRIMARY KEY,
+        etat_fichier VARCHAR NOT NULL,
+        taille INTEGER,
+        bucket VARCHAR
+    );
 """
+
+# SELECTs
+
+
+# INSERTs/UPDATEs
 
 CONST_INSERT_FICHIER = """
     INSERT INTO FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation)
@@ -140,4 +154,16 @@ REQUETE_FICHIERS_TRANSFERT = """
     SELECT fuuid, etat_fichier, taille, bucket
     FROM FICHIERS
     WHERE etat_fichier IN ('actif', 'manquant');
+"""
+
+COMMANDE_INSERT_FICHIER_PRIMAIRE = """
+    INSERT INTO FICHIERS_PRIMAIRE(fuuid, etat_fichier, taille, bucket)
+    VALUES(:fuuid, :etat_fichier, :taille, :bucket);
+"""
+
+
+# Autres
+
+COMMANDE_TRUNCATE_FICHIERS_PRIMAIRE = """
+    DELETE FROM FICHIERS_PRIMAIRE;
 """

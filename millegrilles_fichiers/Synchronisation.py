@@ -1,6 +1,9 @@
 import aiohttp
 import asyncio
 import datetime
+import errno
+import gzip
+import json
 import logging
 import pathlib
 
@@ -363,5 +366,35 @@ class SyncManager:
     def __run_merge_fichiers_reclamation(self):
         entretien_db = EntretienDatabase(self.__etat_instance)
 
-        # Lire le fichier de reclamations et conserver dans table FICHIERS_PRIMAIRE
+        path_data = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_DATA)
+        path_reclamations = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
+        path_reclamations_intermediaire = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
 
+        entretien_db.truncate_fichiers_primaire()
+
+        # Lire le fichier de reclamations et conserver dans table FICHIERS_PRIMAIRE
+        with gzip.open(str(path_reclamations), 'rt') as fichier:
+            while True:
+                row_str = fichier.readline(1024)
+                if not row_str:
+                    break
+                row = json.loads(row_str)
+                entretien_db.ajouter_fichier_primaire(row)
+
+        # Charger fichier intermediaire si present
+        try:
+            with path_reclamations_intermediaire.open('rt') as fichier:
+                while True:
+                    row_str = fichier.readline(1024)
+                    if not row_str:
+                        break
+                    row = json.loads(row_str)
+                    entretien_db.ajouter_fichier_primaire(row)
+        except OSError as e:
+            if e.errno == errno.ENOENT:
+                pass  # OK, fichier absent
+            else:
+                raise e
+
+        # Commit derniere batch
+        entretien_db.commit_fichiers_primaire()

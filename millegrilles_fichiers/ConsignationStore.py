@@ -190,6 +190,25 @@ class EntretienDatabase:
             except Exception:
                 self.__logger.exception("Erreur sauvegarde fuuid dans liste intermediaire")
 
+    def truncate_fichiers_primaire(self):
+        self.__cur.execute(scripts_database.COMMANDE_TRUNCATE_FICHIERS_PRIMAIRE)
+        self.__con.commit()
+
+    def ajouter_fichier_primaire(self, fichier: dict):
+        if self.__batch_visites is None:
+            self.__batch_visites = list()
+        self.__batch_visites.append(fichier)
+
+        if len(self.__batch_visites) >= self.__limite_batch:
+            self.commit_fichiers_primaire()
+
+    def commit_fichiers_primaire(self):
+        batch = self.__batch_visites
+        self.__batch_visites = None
+        if batch is not None:
+            self.__cur.executemany(scripts_database.COMMANDE_INSERT_FICHIER_PRIMAIRE, batch)
+        self.__con.commit()
+
     def close(self):
         self.__con.commit()
         self.__cur.close()
@@ -218,7 +237,7 @@ class ConsignationStore:
 
         self.__path_database.parent.mkdir(parents=True, exist_ok=True)
         con = self.ouvrir_database()
-        con.execute(scripts_database.CONST_CREATE_FICHIERS)
+        con.executescript(scripts_database.CONST_CREATE_FICHIERS)
         con.close()
 
     async def run_entretien(self):
