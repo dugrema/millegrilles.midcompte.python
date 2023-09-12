@@ -158,7 +158,7 @@ async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, etat
             .output(tmp_file_snapshot.name, vframes=1) \
             .overwrite_output()
 
-        await loop.run_in_executor(None, stream.run)
+        await loop.run_in_executor(None, stream.run_entretien)
 
         # Fermer/supprimer fichier original (dechiffre)
         tmp_file_video.close()

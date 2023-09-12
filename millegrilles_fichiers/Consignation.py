@@ -103,13 +103,25 @@ class ConsignationHandler:
 
     async def entretien_store(self):
         stop_event_wait = self.__stop_event.wait()
+        premiere_execution = True
         # Attente configuration store
         while self.__stop_event.is_set() is False:
             await asyncio.wait([stop_event_wait, self.__store_pret_event.wait()], return_when=asyncio.FIRST_COMPLETED)
+
+            if premiere_execution:
+                if self.__etat_instance.est_primaire:
+                    self.__logger.info("Declencher sync initial (primaire)")
+                    await self.declencher_sync_primaire()
+                else:
+                    self.__logger.info("Declencher sync initial (secondaire)")
+                    await self.declencher_sync_secondaire()
+
             try:
-                await self.__store_consignation.run()
+                await self.__store_consignation.run_entretien()
             except Exception:
                 self.__logger.exception("entretien_store Erreur store_consignation.run()")
+
+            premiere_execution = False
             await asyncio.wait([stop_event_wait], timeout=15)
 
     async def traiter_cedule(self, producer: MessageProducerFormatteur, message: MessageWrapper):
@@ -341,14 +353,25 @@ class ConsignationHandler:
         else:
             return {'ok': False, 'err': 'Consignation non prete'}
 
-    async def declencher_sync(self, commande: dict):
-        if self.__etat_instance.est_primaire is not True:
-            raise Exception('Message sync - pas primaire')
+    async def declencher_sync_primaire(self, commande: Optional[dict] = None):
         if self.__store_consignation is None:
-            return {'ok': False, 'err': 'Message sync - store consignation non pret'}
+            return {'ok': False, 'err': 'Message sync - store consignation n\'est pas pret'}
 
-        self.__sync_manager.demarrer_sync_primaire()
-        return {'ok': True}
+        if self.__etat_instance.est_primaire is True:
+            self.__sync_manager.demarrer_sync_primaire()
+            return {'ok': True}
+
+        return {'ok': False, 'err': 'Pas primaire'}
+
+    async def declencher_sync_secondaire(self, commande: Optional[dict] = None):
+        if self.__store_consignation is None:
+            return {'ok': False, 'err': 'Message sync - store consignation n\'est pas pret'}
+
+        if self.__etat_instance.est_primaire is False:
+            self.__sync_manager.demarrer_sync_secondaire()
+            return {'ok': True}
+        else:
+            return {'ok': False, 'err': 'Pas secondaire'}
 
     async def conserver_activite_fuuids(self, commande: dict):
         await self.__sync_manager.conserver_activite_fuuids(commande)

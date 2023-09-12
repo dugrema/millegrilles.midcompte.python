@@ -40,7 +40,7 @@ def thumbnail():
             .input(tmp_fichier.name, ss=snapshot_position) \
             .output('/home/mathieu/tmp/video_thumbnail.jpg', vframes=1) \
             .overwrite_output() \
-            .run()
+            .run_entretien()
 
 
 def convertir_h264_270p():
@@ -61,7 +61,7 @@ def convertir_h264_270p():
     }
     stream = ffmpeg.input(VIDEO_FILE)
     stream = stream.output('/home/mathieu/tmp/output_270p.mp4', **params_output)
-    stream.run()
+    stream.run_entretien()
 
 
 def convertir_vp9():
@@ -81,7 +81,7 @@ def convertir_vp9():
     }
     stream = ffmpeg.input(VIDEO_FILE)
     stream = stream.output('/home/mathieu/tmp/output.webm', **params_output)
-    stream.run()
+    stream.run_entretien()
 
 
 def convertir_hevc():
@@ -106,7 +106,7 @@ def convertir_hevc():
     }
     stream = ffmpeg.input(VIDEO_FILE)
     stream = stream.output('/home/mathieu/tmp/output_hevc.mp4', **params_output)
-    stream.run()
+    stream.run_entretien()
 
 
 def convertir_av1():
@@ -128,7 +128,7 @@ def convertir_av1():
     }
     stream = ffmpeg.input(VIDEO_FILE)
     stream = stream.output('/home/mathieu/tmp/output_av1.webm', **params_output)
-    stream.run()
+    stream.run_entretien()
 
 
 def convertir_pipe_out():
@@ -148,7 +148,7 @@ def convertir_pipe_out():
     }
     stream = ffmpeg.input(VIDEO_FILE)
     stream = stream.output('pipe:', **params_output)
-    out, _ = stream.run(capture_stdout=True)
+    out, _ = stream.run_entretien(capture_stdout=True)
 
     with open('/home/mathieu/tmp/output_buffer.mp4') as output_fichier:
         while out.closed is False:

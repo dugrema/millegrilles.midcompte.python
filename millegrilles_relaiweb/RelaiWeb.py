@@ -85,7 +85,7 @@ class RelaiWeb:
 
             for tache in self.__taches:
                 try:
-                    await tache.run()
+                    await tache.run_entretien()
                 except Exception:
                     self.__logger.exception("Erreur execution tache")
 

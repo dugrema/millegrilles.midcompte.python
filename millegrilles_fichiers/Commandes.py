@@ -63,6 +63,11 @@ class CommandHandler(CommandesAbstract):
         # Queue anonyme de traitements
         res_evenements = RessourcesConsommation(self.callback_reply_q, channel_separe=True, est_asyncio=True)
 
+        # Sync secondaire
+        res_evenements.ajouter_rk(
+            ConstantesMilleGrilles.SECURITE_PRIVE,
+            f'evenement.{Constantes.DOMAINE_FICHIERS}.{Constantes.EVENEMENT_SYNC_SECONDAIRE}', )
+
         # Configuration et topologie
         # evenement.GrosFichiers.changementConsignationPrimaire
         res_evenements.ajouter_rk(
@@ -149,7 +154,7 @@ class CommandHandler(CommandesAbstract):
                 if action == Constantes.COMMANDE_REACTIVER_FUUIDS:
                     return await self.__consignation.reactiver_fuuids(message.parsed)
                 elif action == Constantes.COMMANDE_DECLENCHER_SYNC:
-                    return await self.__consignation.declencher_sync(message.parsed)
+                    return await self.__consignation.declencher_sync_primaire(message.parsed)
                 else:
                     self.__logger.warning(
                         "Commande non supportee pour delegation globale (action %s) - SKIP" % action)
@@ -177,6 +182,8 @@ class CommandHandler(CommandesAbstract):
                     raise NotImplementedError('todo')
                 elif action == Constantes.EVENEMENT_CEDULE:
                     await self.traiter_cedule(producer, message)
+                elif action == Constantes.EVENEMENT_SYNC_SECONDAIRE:
+                    return await self.__consignation.declencher_sync_secondaire(message.parsed)
                 else:
                     self.__logger.warning(
                         "Evenement non supporte (action %s) - SKIP" % action)

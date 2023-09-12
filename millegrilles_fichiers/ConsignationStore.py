@@ -59,7 +59,8 @@ class EntretienDatabase:
     def commit_visites(self):
         batch = self.__batch_visites
         self.__batch_visites = None
-        self.__cur.executemany(scripts_database.CONST_PRESENCE_FICHIERS, batch)
+        if batch is not None:
+            self.__cur.executemany(scripts_database.CONST_PRESENCE_FICHIERS, batch)
         self.__con.commit()
 
     def marquer_actifs_visites(self):
@@ -211,12 +212,16 @@ class ConsignationStore:
     def initialiser(self):
         self._stop_store = asyncio.Event()
 
+        path_backup = pathlib.Path(
+            self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
+        path_backup.mkdir(parents=True, exist_ok=True)
+
         self.__path_database.parent.mkdir(parents=True, exist_ok=True)
         con = self.ouvrir_database()
         con.execute(scripts_database.CONST_CREATE_FICHIERS)
         con.close()
 
-    async def run(self):
+    async def run_entretien(self):
         raise NotImplementedError('must override')
 
     async def stop(self):
@@ -670,11 +675,8 @@ class ConsignationStoreMillegrille(ConsignationStore):
     #             self.__logger.exception('thread_visiter Erreur visite fuuids')
     #         await asyncio.wait([stop_coro], timeout=Constantes.CONST_INTERVALLE_VISITE_MILLEGRILLE)
 
-    async def run(self):
-        # await asyncio.gather(
-        #     self.thread_visiter()
-        # )
-        await self._stop_store.wait()
+    async def run_entretien(self):
+        pass
 
     async def changer_bucket(self, fuuid: str, bucket: str):
         raise NotImplementedError('todo')
