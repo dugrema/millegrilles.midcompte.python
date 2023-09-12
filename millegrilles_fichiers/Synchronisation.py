@@ -61,6 +61,7 @@ class SyncManager:
             self.thread_traiter_fuuids_reclames(),
             self.thread_upload(),
             self.thread_download(),
+            self.thread_entretien_transferts(),
         )
 
     async def thread_sync_primaire(self):
@@ -119,6 +120,16 @@ class SyncManager:
                 self.__logger.exception("thread_download Erreur synchronisation")
 
             self.__download_event.clear()
+
+    async def thread_entretien_transferts(self):
+        stop_coro = self.__stop_event.wait()
+        while self.__stop_event.is_set() is False:
+            try:
+                await self.run_entretien_transferts()
+            except Exception:
+                self.__logger.exception("thread_download Erreur synchronisation")
+            await asyncio.wait([stop_coro], timeout=300)
+
 
     async def thread_emettre_evenement_primaire(self, event_sync: asyncio.Event):
         wait_coro = event_sync.wait()
@@ -611,3 +622,24 @@ class SyncManager:
             domaine=Constantes.DOMAINE_FICHIERS, action=Constantes.EVENEMENT_SYNC_DOWNLOAD,
             exchanges=ConstantesMillegrilles.SECURITE_PRIVE
         )
+
+    async def run_entretien_transferts(self):
+        entretien_db = EntretienDatabase(self.__etat_instance, check_same_thread=False)
+        await asyncio.to_thread(entretien_db.entretien_transferts)
+
+        # Entretien repertoire staging/sync/download - supprimer fichiers inactifs
+
+        path_download = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_SYNC_DOWNLOAD)
+        date_expiration = (datetime.datetime.now() - datetime.timedelta(hours=2)).timestamp()
+
+        try:
+            for file in path_download.iterdir():
+                stat_file = file.stat()
+                if stat_file.st_mtime < date_expiration:
+                    self.__logger.info("Supprimer fichier sync download expire %s" % file)
+                    file.unlink()
+        except OSError as e:
+            if e.errno == errno.ENOENT:
+                pass  # OK
+            else:
+                raise e

@@ -282,7 +282,15 @@ class EntretienDatabase:
 
     def entretien_transferts(self):
         """ Marque downloads ou uploads expires, permet nouvel essai. """
-        pass
+        now = datetime.datetime.now(tz=pytz.UTC)
+
+        self.__cur.execute(scripts_database.DELETE_DOWNLOADS_ESSAIS_EXCESSIFS)
+        self.__con.commit()
+
+        expiration_downloads = now - datetime.timedelta(minutes=30)
+        params = {'date_activite': expiration_downloads}
+        self.__cur.execute(scripts_database.UPDATE_RESET_DOWNLOAD_EXPIRE, params)
+        self.__con.commit()
 
     def supprimer_job_download(self, fuuid: str):
         params = {'fuuid': fuuid}

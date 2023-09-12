@@ -118,6 +118,18 @@ COMMANDE_DELETE_DOWNLOAD = """
     WHERE fuuid = :fuuid;
 """
 
+DELETE_DOWNLOADS_ESSAIS_EXCESSIFS = """
+    DELETE FROM DOWNLOADS
+    WHERE essais > 10;
+"""
+
+UPDATE_RESET_DOWNLOAD_EXPIRE = """
+    UPDATE DOWNLOADS
+    SET date_activite = null,
+        erreur = null
+    WHERE date_activite < :date_activite;
+"""
+
 CONST_INSERT_FICHIER = """
     INSERT INTO FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation)
     VALUES(:fuuid, :etat_fichier, :taille, :bucket, :date_presence, :date_verification, :date_reclamation);
