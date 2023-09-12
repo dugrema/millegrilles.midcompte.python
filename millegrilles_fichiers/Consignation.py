@@ -237,6 +237,8 @@ class ConsignationHandler:
         else:
             # Desactiver le consumer sur Q fichiers/primaire
             await self.rabbitmq_dao.mq_thread.stop_consumer('fichiers/primaire')
+            # Mettre a jour la consignation primaire
+            await self.__etat_instance.charger_consignation_primaire()
 
         type_store = self.__etat_instance.topologie['type_store']
         class_type = map_type(type_store)
@@ -412,25 +414,6 @@ class ConsignationHandler:
             await self.__store_consignation.generer_reclamations_sync()
         else:
             self.__logger.warning("generer_reclamations_sync Reception message avant initialisation store")
-
-    # async def charger_consignation_primaire(self):
-    #     producer = self.__etat_instance.producer
-    #     if producer is None:
-    #         await asyncio.sleep(5)  # Attendre connexion MQ
-    #         producer = self.__etat_instance.producer
-    #         if producer is None:
-    #             raise Exception('producer pas pret')
-    #     await asyncio.wait_for(producer.producer_pret().wait(), 30)
-    #
-    #     reponse = await producer.executer_requete(
-    #         dict(), 'CoreTopologie', 'getConsignationFichiers', exchange="2.prive")
-    #
-    #     try:
-    #         consignation_url = reponse.parsed['consignation_url']
-    #         self.__url_consignation_primaire = consignation_url
-    #         return consignation_url
-    #     except Exception as e:
-    #         self.__logger.exception("Erreur chargement URL consignation")
 
     # async def download_fichier(self, fuuid, cle_chiffree, params_dechiffrage, path_destination):
     #     await self.ouvrir_sessions()  # S'assurer d'avoir une session ouverte

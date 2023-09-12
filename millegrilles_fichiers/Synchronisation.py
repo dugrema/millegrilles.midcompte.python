@@ -1,14 +1,18 @@
+import aiohttp
 import asyncio
 import datetime
 import logging
+import pathlib
 
 from typing import Optional
+from urllib3.util import parse_url
 
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
 
 from millegrilles_fichiers import Constantes
 # from millegrilles_fichiers.Consignation import ConsignationHandler
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
+from millegrilles_fichiers.ConsignationStore import EntretienDatabase
 
 
 class SyncManager:
@@ -159,8 +163,18 @@ class SyncManager:
 
     async def __sequence_sync_secondaire(self):
         # Download fichiers reclamations primaire
+        try:
+            await self.download_fichiers_reclamation()
+        except aiohttp.client.ClientResponseError as e:
+            if e.status == 404:
+                self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
+            else:
+                self.__logger.error(
+                    "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
+            return  # Abandonner la sync
+
         # Merge information dans database
-        await self.traiter_fichiers_reclamation()
+        await self.merge_fichiers_reclamation()
 
         # Marquer orphelins
 
@@ -285,6 +299,69 @@ class SyncManager:
     async def conserver_activite_fuuids(self, commande: dict):
         await self.__reception_fuuids_reclames.put(commande)
 
-    async def traiter_fichiers_reclamation(self):
+    async def download_fichiers_reclamation(self):
         """ Pour la sync secondaire. Download fichiers DB du primaire et merge avec DB locale. """
-        pass
+        # Download fichiers reclamation
+        url_consignation_primaire = self.__etat_instance.url_consignation_primaire
+
+        url_primaire = parse_url(url_consignation_primaire)
+        url_primaire_reclamations = parse_url(
+            '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert/sync', Constantes.FICHIER_RECLAMATIONS_PRIMAIRES))
+        url_primaire_reclamations_intermediaires = parse_url(
+            '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert/sync', Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES))
+
+        path_data = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_DATA)
+        path_reclamations = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
+        path_reclamations_work = pathlib.Path('%s.work' % path_reclamations)
+        path_reclamations_intermediaire = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
+        path_reclamations_intermediaire_work = pathlib.Path('%s.work' % path_reclamations_intermediaire)
+
+        timeout = aiohttp.ClientTimeout(connect=20, total=600)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+
+            # Download reclamation primaires - doit etre present. Erreur 404 indique un echec et on ne poursuit pas.
+            with path_reclamations_work.open(mode='wb') as output_file:
+                self.__logger.info("traiter_fichiers_reclamation Downloader fichier %s" % url_primaire_reclamations.url)
+                async with session.get(url_primaire_reclamations.url, ssl=self.__etat_instance.ssl_context) as resp:
+                    resp.raise_for_status()  # Arreter sur toute erreur
+                    async for chunk in resp.content.iter_chunked(64 * 1024):
+                        output_file.write(chunk)
+
+            # Renommer le fichier .work
+            path_reclamations.unlink(missing_ok=True)
+            path_reclamations_work.rename(path_reclamations)
+
+            # Download reclamations intermediaires. Erreur 404 indique qu'on n'a pas de changement depuis creation
+            # du fichier primaire (OK).
+            fichier_intermediare_disponible = False
+            with path_reclamations_intermediaire_work.open(mode='wb') as output_file:
+                self.__logger.info("traiter_fichiers_reclamation Downloader fichier %s" % url_primaire_reclamations_intermediaires.url)
+                async with session.get(url_primaire_reclamations_intermediaires.url, ssl=self.__etat_instance.ssl_context) as resp:
+                    if resp.status == 404:
+                        self.__logger.debug("traiter_fichiers_reclamation Fichier intermediaire non disponible (404) - OK")
+                    elif resp.status != 200:
+                        self.__logger.debug("traiter_fichiers_reclamation Erreur acces au fichier intermediaire (%d) - on ignore le fichier" % resp.status)
+                    else:
+                        fichier_intermediare_disponible = True
+                        async for chunk in resp.content.iter_chunked(64 * 1024):
+                            output_file.write(chunk)
+
+            # Renommer le fichier .work si present
+            path_reclamations_intermediaire.unlink(missing_ok=True)
+            if fichier_intermediare_disponible:
+                path_reclamations_intermediaire_work.rename(path_reclamations_intermediaire)
+            else:
+                # Retirer le fichier vide
+                path_reclamations_intermediaire_work.unlink()
+
+        self.__logger.debug("traiter_fichiers_reclamation Download termine OK")
+
+    async def merge_fichiers_reclamation(self):
+        # Utiliser thread pour traiter les fichiers et database sans bloquer
+        await asyncio.to_thread(self.__run_merge_fichiers_reclamation)
+
+    def __run_merge_fichiers_reclamation(self):
+        entretien_db = EntretienDatabase(self.__etat_instance)
+
+        # Lire le fichier de reclamations et conserver dans table FICHIERS_PRIMAIRE
+

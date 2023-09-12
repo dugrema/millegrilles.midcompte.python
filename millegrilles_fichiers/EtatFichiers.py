@@ -19,6 +19,8 @@ class EtatFichiers(EtatInstance):
         super().__init__(configuration)
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
 
+        self.__url_consignation_primaire: Optional[str] = None
+
         self.__ssl_context: Optional[SSLContext] = None
 
         self.__backend: str = 'local'
@@ -102,5 +104,28 @@ class EtatFichiers(EtatInstance):
         except (TypeError, KeyError):
             return None
 
+    @property
+    def url_consignation_primaire(self) -> Optional[str]:
+        return self.__url_consignation_primaire
+
     def get_public_key_ssh(self) -> dict:
         return {'rsa': self.__public_key_ssh_rsa, 'ed25519': self.__public_key_ssh_ed25519}
+
+    async def charger_consignation_primaire(self):
+        producer = self.producer
+        if producer is None:
+            await asyncio.sleep(5)  # Attendre connexion MQ
+            producer = self.producer
+            if producer is None:
+                raise Exception('producer pas pret')
+        await asyncio.wait_for(producer.producer_pret().wait(), 30)
+
+        reponse = await producer.executer_requete(
+            {'primaire': True}, 'CoreTopologie', 'getConsignationFichiers', exchange="2.prive")
+
+        try:
+            consignation_url = reponse.parsed['consignation_url']
+            self.__url_consignation_primaire = consignation_url
+            return consignation_url
+        except Exception as e:
+            self.__logger.exception("Erreur chargement URL consignation")
