@@ -33,6 +33,9 @@ class SyncManager:
         self.__attente_domaine_event: Optional[asyncio.Event] = None
         self.__attente_domaine_activite: Optional[datetime.datetime] = None
 
+        self.__upload_event: Optional[asyncio.Event] = None
+        self.__download_event: Optional[asyncio.Event] = None
+
     def demarrer_sync_primaire(self):
         self.__sync_event_primaire.set()
 
@@ -43,10 +46,15 @@ class SyncManager:
         self.__sync_event_primaire = asyncio.Event()
         self.__sync_event_secondaire = asyncio.Event()
         self.__reception_fuuids_reclames = asyncio.Queue(maxsize=3)
+        self.__upload_event: Optional[asyncio.Event] = asyncio.Event()
+        self.__download_event: Optional[asyncio.Event] = asyncio.Event()
+
         await asyncio.gather(
             self.thread_sync_primaire(),
             self.thread_sync_secondaire(),
             self.thread_traiter_fuuids_reclames(),
+            self.thread_upload(),
+            self.thread_download(),
         )
 
     async def thread_sync_primaire(self):
@@ -77,6 +85,34 @@ class SyncManager:
                 self.__logger.exception("Erreur synchronisation")
 
             self.__sync_event_secondaire.clear()
+
+    async def thread_upload(self):
+        pending = {self.__stop_event.wait()}
+        while self.__stop_event.is_set() is False:
+            pending.add(self.__upload_event.wait())
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            if self.__stop_event.is_set():
+                break  # Done
+            try:
+                await self.run_upload()
+            except Exception:
+                self.__logger.exception("thread_upload Erreur synchronisation")
+
+            self.__upload_event.clear()
+
+    async def thread_download(self):
+        pending = {self.__stop_event.wait()}
+        while self.__stop_event.is_set() is False:
+            pending.add(self.__download_event.wait())
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            if self.__stop_event.is_set():
+                break  # Done
+            try:
+                await self.run_download()
+            except Exception:
+                self.__logger.exception("thread_download Erreur synchronisation")
+
+            self.__download_event.clear()
 
     async def thread_emettre_evenement_primaire(self, event_sync: asyncio.Event):
         wait_coro = event_sync.wait()
@@ -180,15 +216,8 @@ class SyncManager:
         await self.merge_fichiers_reclamation()
 
         # Ajouter manquants, marquer fichiers reclames
-        await self.marquer_reclames()
-
-        # Marquer orphelins
-
-        # Determiner downloads
-
-        # Determiner upload
-
-        pass
+        # Marquer orphelins, determiner downloads et upload
+        await self.creer_operations_sur_secondaire()
 
     async def thread_emettre_evenement_secondaire(self, event_sync: asyncio.Event):
         wait_coro = event_sync.wait()
@@ -402,13 +431,23 @@ class SyncManager:
         # Commit derniere batch
         entretien_db.commit_fichiers_primaire()
 
-    async def marquer_reclames(self):
+    async def creer_operations_sur_secondaire(self):
         await asyncio.to_thread(self.__creer_operations_sur_secondaire)
 
     def __creer_operations_sur_secondaire(self):
         entretien_db = EntretienDatabase(self.__etat_instance)
 
         entretien_db.marquer_secondaires_reclames()
-        entretien_db.identifier_secondaires_orphelins()
-        entretien_db.generer_downloads()
         entretien_db.generer_uploads()
+        entretien_db.generer_downloads()
+
+        # Declencher les threads d'upload et de download (aucun effect si threads deja actives)
+        self.__upload_event.set()
+        self.__download_event.set()
+
+    async def run_upload(self):
+        pass
+
+    async def run_download(self):
+        pass
+

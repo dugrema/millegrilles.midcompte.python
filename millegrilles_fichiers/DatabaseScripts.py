@@ -74,6 +74,22 @@ COMMANDE_UPDATE_SECONDAIRES_NON_RECLAMES_VERS_ORPHELINS = """
         WHERE date_reclamation < :date_reclamation;
 """
 
+COMMAND_INSERT_DOWNLOADS = """
+    INSERT OR IGNORE INTO DOWNLOADS(fuuid, taille, date_creation, essais)
+    SELECT fuuid, taille, :date_creation, 0
+    FROM FICHIERS
+    WHERE etat_fichier = 'manquant';
+"""
+
+COMMAND_INSERT_UPLOADS = """
+    INSERT OR IGNORE INTO UPLOADS(fuuid, taille, date_creation, position, essais)
+    SELECT p.fuuid, f.taille, :date_creation, 0, 0
+    FROM FICHIERS_PRIMAIRE p, FICHIERS f
+    WHERE p.fuuid = f.fuuid
+      AND f.etat_fichier = 'actif'
+      AND p.etat_fichier = 'manquant';
+"""
+
 CONST_INSERT_FICHIER = """
     INSERT INTO FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation)
     VALUES(:fuuid, :etat_fichier, :taille, :bucket, :date_presence, :date_verification, :date_reclamation);

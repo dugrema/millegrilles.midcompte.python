@@ -230,14 +230,15 @@ class EntretienDatabase:
         self.__cur.execute(scripts_database.COMMANDE_UPDATE_SECONDAIRES_NON_RECLAMES_VERS_ORPHELINS, params)
         self.__con.commit()
 
-    def identifier_secondaires_orphelins(self):
-        pass
-
     def generer_downloads(self):
-        pass
+        params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
+        self.__cur.execute(scripts_database.COMMAND_INSERT_DOWNLOADS, params)
+        self.__con.commit()
 
     def generer_uploads(self):
-        pass
+        params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
+        self.__cur.execute(scripts_database.COMMAND_INSERT_UPLOADS, params)
+        self.__con.commit()
 
     def close(self):
         self.__con.commit()
