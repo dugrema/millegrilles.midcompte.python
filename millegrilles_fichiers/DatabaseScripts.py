@@ -43,6 +43,12 @@ CONST_CREATE_FICHIERS = """
 # SELECTs
 
 
+SELECT_ETAT_DOWNLOADS = """
+    SELECT count(fuuid), sum(taille)
+    FROM DOWNLOADS
+    WHERE erreur is null; 
+"""
+
 # INSERTs/UPDATEs
 
 COMMANDE_INSERT_SECONDAIRES_MANQUANTS = """
@@ -218,8 +224,15 @@ UPDATE_DATE_ETATFICHIER = """
 UPDATE_ACTIFS_VISITES = """
     UPDATE FICHIERS
     SET etat_fichier = 'actif'
-    WHERE date_presence > :date_presence
+    WHERE date_presence >= :date_presence
       AND etat_fichier = 'manquant';
+"""
+
+UPDATE_MANQANTS_VISITES = """
+    UPDATE FICHIERS
+    SET etat_fichier = 'manquant'
+    WHERE date_presence < :date_presence
+      AND etat_fichier IN ('actif', 'orphelin');
 """
 
 REQUETE_BATCH_ORPHELINS = """

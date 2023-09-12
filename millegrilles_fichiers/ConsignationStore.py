@@ -66,6 +66,7 @@ class EntretienDatabase:
     def marquer_actifs_visites(self):
         """ Sert a marquer tous les fichiers "manquants" comme actifs si visites recemment. """
         self.__cur.execute(scripts_database.UPDATE_ACTIFS_VISITES, {'date_presence': self.__debut_entretien})
+        self.__cur.execute(scripts_database.UPDATE_MANQANTS_VISITES, {'date_presence': self.__debut_entretien})
         self.__con.commit()
 
     def marquer_verification(self, fuuid: str, etat_fichier: str):
@@ -265,6 +266,19 @@ class EntretienDatabase:
         params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
         self.__cur.execute(scripts_database.COMMANDE_TOUCH_DOWNLOAD, params)
         self.__con.commit()
+
+    def get_etat_downloads(self):
+        self.__cur.execute(scripts_database.SELECT_ETAT_DOWNLOADS)
+        cur = self.__con.cursor()
+        try:
+            row = self.__cur.fetchone()
+            if row:
+                nombre, taille = row
+                return {'nombre': nombre, 'taille': taille}
+        finally:
+            cur.close()
+
+        return None
 
     def entretien_transferts(self):
         """ Marque downloads ou uploads expires, permet nouvel essai. """

@@ -474,12 +474,18 @@ class SyncManager:
                 except Exception:
                     self.__logger.exception("Erreur download fichier du primaire : %s" % job_download['fuuid'])
 
+        await self.emettre_etat_download_termine()
+
         self.__samples_download = list()  # Reset samples download
         self.__logger.debug("run_download Aucunes jobs de download restant - downloads courants termines")
 
     async def download_fichier_primaire(self, session: aiohttp.ClientSession, entretien_db: EntretienDatabase, fichier: dict):
         self.__download_en_cours = fichier
+        self.__download_en_cours['position'] = 0
         fuuid = fichier['fuuid']
+
+        producer = self.__etat_instance.producer
+        await asyncio.wait_for(producer.producer_pret().wait(), timeout=1)
 
         # S'assurer que le fichier n'existe pas deja
         try:
@@ -512,7 +518,7 @@ class SyncManager:
                     path_fichier_work.unlink()
                     return
 
-                await self.emettre_etat_download()
+                await self.emettre_etat_download(fuuid, entretien_db, producer)
                 date_download_maj = datetime.datetime.utcnow()
 
                 debut_chunk = datetime.datetime.utcnow()
@@ -522,6 +528,7 @@ class SyncManager:
                         return
 
                     output_file.write(chunk)
+                    self.__download_en_cours['position'] += len(chunk)
 
                     # Calculer vitesse transfert
                     now = datetime.datetime.utcnow()
@@ -532,7 +539,7 @@ class SyncManager:
 
                     if now - intervalle_download_maj > date_download_maj:
                         date_download_maj = now
-                        await self.emettre_etat_download()
+                        await self.emettre_etat_download(fuuid, entretien_db, producer)
 
                     # Debut compter pour prochain chunk
                     debut_chunk = now
@@ -542,7 +549,7 @@ class SyncManager:
         await asyncio.to_thread(entretien_db.supprimer_job_download, fuuid)
         self.__download_en_cours = None
 
-    async def emettre_etat_download(self):
+    async def emettre_etat_download(self, fuuid, entretien_db: EntretienDatabase, producer):
         samples = self.__samples_download.copy()
         # Calculer vitesse de transfert
         duree = datetime.timedelta(seconds=0)
@@ -551,9 +558,56 @@ class SyncManager:
             duree += s['duree']
             taille += s['taille']
 
-        milliseconds = duree / datetime.timedelta(milliseconds=1)
-        if milliseconds > 0.0:
-            taux = round(taille / milliseconds)  # KB/s
-            self.__logger.debug("Transfert a %s KB/sec" % taux)
+        secondes = duree / datetime.timedelta(seconds=1)
+        if secondes > 0.0:
+            taux = round(taille / secondes)  # B/s
+        else:
+            taux = None
 
-        pass
+        await asyncio.to_thread(entretien_db.touch_download, fuuid, None)
+        try:
+            etat = await asyncio.to_thread(entretien_db.get_etat_downloads)
+            nombre = etat['nombre']
+            taille = etat['taille']
+        except TypeError:
+            # Aucuns downloads
+            nombre = None
+            taille = None
+
+        try:
+            position_en_cours = self.__download_en_cours['position']
+            taille_en_cours = self.__download_en_cours['taille']
+            # if taille_en_cours > 0:
+            #     pct = int(100 * position_en_cours / taille_en_cours)
+            # else:
+            #     pct = None
+        except (TypeError, KeyError):
+            # pct = None
+            position_en_cours = None
+            taille_en_cours = None
+
+        self.__logger.debug("emettre_etat_download %s fichiers, %s bytes transfere a %s KB/sec (courant: %s/%s)" % (nombre, taille, taux, position_en_cours, taille_en_cours))
+
+        evenement = {
+            'termine': False,
+            'taille': taille,
+            'nombre': nombre,
+            'taille_en_cours': taille_en_cours,
+            'position_en_cours': position_en_cours,
+            'taux': taux,
+        }
+
+        await producer.emettre_evenement(
+            evenement,
+            domaine=Constantes.DOMAINE_FICHIERS, action=Constantes.EVENEMENT_SYNC_DOWNLOAD,
+            exchanges=ConstantesMillegrilles.SECURITE_PRIVE
+        )
+
+    async def emettre_etat_download_termine(self):
+        producer = self.__etat_instance.producer
+        await asyncio.wait_for(producer.producer_pret().wait(), timeout=1)
+        await producer.emettre_evenement(
+            {'termine': True},
+            domaine=Constantes.DOMAINE_FICHIERS, action=Constantes.EVENEMENT_SYNC_DOWNLOAD,
+            exchanges=ConstantesMillegrilles.SECURITE_PRIVE
+        )
