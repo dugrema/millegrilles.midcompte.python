@@ -240,6 +240,36 @@ class EntretienDatabase:
         self.__cur.execute(scripts_database.COMMAND_INSERT_UPLOADS, params)
         self.__con.commit()
 
+    def get_next_download(self):
+        params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}
+        self.__cur.execute(scripts_database.COMMANDE_GET_NEXT_DOWNLOAD, params)
+        row = self.__cur.fetchone()
+        self.__con.commit()
+        if row is not None:
+            fuuid, taille = row
+            return {'fuuid': fuuid, 'taille': taille}
+        return None
+
+    def get_next_upload(self):
+        params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
+        raise NotImplementedError('todo')
+        # self.__cur.execute(scripts_database.COMMANDE_GET_NEXT_UPLOAD, params)
+        # row = self.__cur.fetchone()
+        # self.__con.commit()
+        # if row is not None:
+        #     fuuid, taille = row
+        #     return {'fuuid': fuuid, 'taille': taille}
+        # return None
+
+    def touch_download(self, fuuid: str, erreur: Optional[int] = None):
+        params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
+        self.__cur.execute(scripts_database.COMMANDE_TOUCH_DOWNLOAD, params)
+        self.__con.commit()
+
+    def entretien_transferts(self):
+        """ Marque downloads ou uploads expires, permet nouvel essai. """
+        pass
+
     def close(self):
         self.__con.commit()
         self.__cur.close()
@@ -591,6 +621,14 @@ class ConsignationStore:
             domaine=Constantes.DOMAINE_FICHIERS, action=Constantes.EVENEMENT_FICHIER_CONSIGNE,
             exchanges=ConstantesMillegrilles.SECURITE_PRIVE
         )
+
+        if self._etat.est_primaire:
+            message = {'fuuid': fuuid}
+            await producer.emettre_evenement(
+                message,
+                domaine=Constantes.DOMAINE_FICHIERS, action=Constantes.EVENEMENT_CONSIGNATION_PRIMAIRE,
+                exchanges=ConstantesMillegrilles.SECURITE_PRIVE
+            )
 
     async def reclamer_fuuids_database(self, fuuids: list, bucket: str):
         await asyncio.to_thread(self.__reclamer_fuuids_database, fuuids, bucket)

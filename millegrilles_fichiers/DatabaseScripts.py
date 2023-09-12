@@ -90,6 +90,22 @@ COMMAND_INSERT_UPLOADS = """
       AND p.etat_fichier = 'manquant';
 """
 
+COMMANDE_GET_NEXT_DOWNLOAD = """
+    UPDATE DOWNLOADS
+    SET date_activite = :date_activite,
+        essais = essais + 1
+    WHERE date_activite IS NULL
+    RETURNING fuuid, taille
+    LIMIT 1;
+"""
+
+COMMANDE_TOUCH_DOWNLOAD = """
+    UPDATE DOWNLOADS
+    SET date_activite = :date_activite,
+        erreur = :erreur
+    WHERE fuuid = :fuuid;
+"""
+
 CONST_INSERT_FICHIER = """
     INSERT INTO FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation)
     VALUES(:fuuid, :etat_fichier, :taille, :bucket, :date_presence, :date_verification, :date_reclamation);

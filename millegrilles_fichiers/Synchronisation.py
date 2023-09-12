@@ -36,6 +36,9 @@ class SyncManager:
         self.__upload_event: Optional[asyncio.Event] = None
         self.__download_event: Optional[asyncio.Event] = None
 
+        self.__download_en_cours: Optional[dict] = None
+        self.__upload_en_cours: Optional[dict] = None
+
     def demarrer_sync_primaire(self):
         self.__sync_event_primaire.set()
 
@@ -449,5 +452,43 @@ class SyncManager:
         pass
 
     async def run_download(self):
-        pass
+        entretien_db = EntretienDatabase(self.__etat_instance, check_same_thread=False)
 
+        timeout = aiohttp.ClientTimeout(connect=20)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            while True:
+                job_download = await asyncio.to_thread(entretien_db.get_next_download)
+                if job_download is None:
+                    break
+                self.__logger.debug("run_download Downloader fichier %s" % job_download)
+                try:
+                    await self.download_fichier_primaire(session, entretien_db, job_download)
+                except Exception:
+                    self.__logger.exception("Erreur download fichier du primaire : %s" % job_download['fuuid'])
+
+        self.__logger.debug("run_download Aucunes jobs de download restant - downloads courants termines")
+
+    async def download_fichier_primaire(self, session: aiohttp.ClientSession, entretien_db: EntretienDatabase, fichier: dict):
+        self.__download_en_cours = fichier
+        fuuid = fichier['fuuid']
+
+        url_primaire = parse_url(self.__etat_instance.url_consignation_primaire)
+        url_primaire_reclamations = parse_url(
+            '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert', fuuid))
+
+        path_download = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_SYNC_DOWNLOAD)
+        path_download.mkdir(parents=True, exist_ok=True)
+        path_fichier_work = pathlib.Path(path_download, '%s.work' % fuuid)
+
+        with path_fichier_work.open('wb') as output_file:
+            async with session.get(url_primaire_reclamations.url, ssl=self.__etat_instance.ssl_context) as resp:
+                if resp.status != 200:
+                    self.__logger.warning("Erreur download fichier %s (status %d)" % (fuuid, resp.status))
+                    await asyncio.to_thread(entretien_db.touch_download, fuuid, resp.status)
+                    return
+
+                async for chunk in resp.content.iter_chunked(64 * 1024):
+                    output_file.write(chunk)
+
+        # Consigner le fichier recu
+        await self.__consignation.consigner(path_fichier_work, fuuid)
