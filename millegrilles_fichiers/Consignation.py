@@ -167,7 +167,11 @@ class ConsignationHandler:
     async def __traiter_cedule_local(self):
         self.__logger.debug("__traiter_cedule_local Debut")
         now = datetime.datetime.utcnow()
+
+        await asyncio.wait_for(self.__store_pret_event.wait(), timeout=10)
+
         if self.__timestamp_visite is None or now - self.__intervalle_visites > self.__timestamp_visite:
+            self.__logger.info("__traiter_cedule_local Visiter fuuids")
             try:
                 self.__timestamp_visite = datetime.datetime.utcnow()
                 await self.__store_consignation.visiter_fuuids()
@@ -175,6 +179,7 @@ class ConsignationHandler:
                 self.__logger.exception("__traiter_cedule_local Erreur visiter fuuids")
 
         if self.__timestamp_verification is None or now - self.__intervalle_verification > self.__timestamp_verification:
+            self.__logger.info("__traiter_cedule_local Verifier fuuids")
             try:
                 self.__timestamp_verification = datetime.datetime.utcnow()
                 await self.__store_consignation.verifier_fuuids()
@@ -182,6 +187,7 @@ class ConsignationHandler:
                 self.__logger.exception("__traiter_cedule_local Erreur verifier fuuids")
 
         if self.__timestamp_orphelins is None or now - self.__intervalle_orphelins > self.__timestamp_orphelins:
+            self.__logger.info("__traiter_cedule_local Supprimer orphelins")
             try:
                 self.__timestamp_orphelins = datetime.datetime.utcnow()
                 await self.__store_consignation.supprimer_orphelins()
