@@ -102,7 +102,7 @@ class WebServer:
         self.__logger.debug("handle_get_fuuid method %s, fuuid %s" % (method, fuuid))
 
         # Streamer le fichier
-        await self.stream_reponse(request)
+        return await self.stream_reponse(request)
 
     async def handle_put_fuuid(self, request: Request) -> StreamResponse:
         fuuid = request.match_info['fuuid']
@@ -389,7 +389,7 @@ class WebServer:
         # stat_fichier = path_fichier.stat()
         # taille_fichier = stat_fichier.st_size
         info_fichier = await self.__consignation.get_info_fichier(fuuid)
-        if info_fichier is None:
+        if info_fichier is None or info_fichier.get('etat_fichier') == Constantes.DATABASE_ETAT_MANQUANT:
             self.__logger.debug("stream_reponse Fichier inconnu : %s" % fuuid)
             return web.HTTPNotFound()
 
@@ -414,7 +414,10 @@ class WebServer:
             # Transferer tout le contenu
             start = None
             end = None
-            taille_transfert = str(taille_fichier)
+            if taille_fichier:
+                taille_transfert = str(taille_fichier)
+            else:
+                taille_transfert = None
 
         if range_str is not None:
             status = 206
@@ -508,7 +511,7 @@ class WebServer:
         return web.HTTPOk()
 
     async def handle_get_fichier_sync(self, request: Request) -> StreamResponse:
-        fichier_nom = request.match_info['fichier']
+        fichier_nom: str = request.match_info['fichier']
         headers = request.headers
 
         FICHIERS_ACCEPTES = ['reclamations.jsonl.gz', 'reclamations.jsonl']
@@ -542,13 +545,15 @@ class WebServer:
         response = web.StreamResponse(status=200, headers=headers_response)
         response.content_length = stat_fichier.st_size
 
-        if fichier_nom.ends_with('.gz'):
+        if fichier_nom.endswith('.gz'):
             response.content_type = 'application/gzip'
-        elif fichier_nom.ends_with('.jsonl'):
+        elif fichier_nom.endswith('.jsonl'):
             response.content_type = 'application/jsonl'
         else:
             response.content_type = 'application/stream'
 
+        # Repondre avec le fichier
+        await response.prepare(request)
         with open(path_fichier, 'rb') as fichier:
             while True:
                 chunk = fichier.read(64*1024)
