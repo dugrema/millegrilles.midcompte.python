@@ -252,15 +252,14 @@ class EntretienDatabase:
         return None
 
     def get_next_upload(self):
-        params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
-        raise NotImplementedError('todo')
-        # self.__cur.execute(scripts_database.COMMANDE_GET_NEXT_UPLOAD, params)
-        # row = self.__cur.fetchone()
-        # self.__con.commit()
-        # if row is not None:
-        #     fuuid, taille = row
-        #     return {'fuuid': fuuid, 'taille': taille}
-        # return None
+        params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}
+        self.__cur.execute(scripts_database.COMMANDE_GET_NEXT_UPLOAD, params)
+        row = self.__cur.fetchone()
+        self.__con.commit()
+        if row is not None:
+            fuuid, taille = row
+            return {'fuuid': fuuid, 'taille': taille}
+        return None
 
     def touch_download(self, fuuid: str, erreur: Optional[int] = None):
         params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
@@ -295,6 +294,11 @@ class EntretienDatabase:
     def supprimer_job_download(self, fuuid: str):
         params = {'fuuid': fuuid}
         self.__cur.execute(scripts_database.COMMANDE_DELETE_DOWNLOAD, params)
+        self.__con.commit()
+
+    def supprimer_job_upload(self, fuuid: str):
+        params = {'fuuid': fuuid}
+        self.__cur.execute(scripts_database.COMMANDE_DELETE_UPLOAD, params)
         self.__con.commit()
 
     def close(self):

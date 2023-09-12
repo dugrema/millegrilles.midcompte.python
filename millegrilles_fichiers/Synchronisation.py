@@ -41,6 +41,7 @@ class SyncManager:
         self.__download_en_cours: Optional[dict] = None
         self.__samples_download = list()  # Utilise pour calcul de vitesse
         self.__upload_en_cours: Optional[dict] = None
+        self.__samples_upload = list()  # Utilise pour calcul de vitesse
 
     def demarrer_sync_primaire(self):
         self.__sync_event_primaire.set()
@@ -463,11 +464,31 @@ class SyncManager:
         self.__download_event.set()
 
     async def run_upload(self):
-        pass
+        entretien_db = EntretienDatabase(self.__etat_instance, check_same_thread=False)
+        self.__samples_upload = list()  # Reset samples download
+
+        timeout = aiohttp.ClientTimeout(connect=20)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            while True:
+                job_upload = await asyncio.to_thread(entretien_db.get_next_upload)
+                if job_upload is None:
+                    break
+                if self.__stop_event.is_set():
+                    self.__logger.warning("run_upload Annuler upload, stop_event est True")
+                    return
+                self.__logger.debug("run_upload Uploader fichier %s" % job_upload)
+                try:
+                    await self.upload_fichier_primaire(session, entretien_db, job_upload)
+                except Exception:
+                    self.__logger.exception("run_upload Erreur upload fichier du primaire : %s" % job_upload['fuuid'])
+
+        await self.emettre_etat_upload_termine()
+
+        self.__samples_upload = list()  # Reset samples download
+        self.__logger.debug("run_upload Aucunes jobs d'upload restantes - uploads courants termines")
 
     async def run_download(self):
         entretien_db = EntretienDatabase(self.__etat_instance, check_same_thread=False)
-
         self.__samples_download = list()  # Reset samples download
 
         timeout = aiohttp.ClientTimeout(connect=20)
@@ -588,12 +609,7 @@ class SyncManager:
         try:
             position_en_cours = self.__download_en_cours['position']
             taille_en_cours = self.__download_en_cours['taille']
-            # if taille_en_cours > 0:
-            #     pct = int(100 * position_en_cours / taille_en_cours)
-            # else:
-            #     pct = None
         except (TypeError, KeyError):
-            # pct = None
             position_en_cours = None
             taille_en_cours = None
 
@@ -643,3 +659,78 @@ class SyncManager:
                 pass  # OK
             else:
                 raise e
+
+    async def upload_fichier_primaire(self, session: aiohttp.ClientSession, entretien_db: EntretienDatabase, fichier: dict):
+        self.__upload_en_cours = fichier
+        self.__upload_en_cours['position'] = 0
+        fuuid = fichier['fuuid']
+
+        producer = self.__etat_instance.producer
+        await asyncio.wait_for(producer.producer_pret().wait(), timeout=1)
+
+        url_primaire = parse_url(self.__etat_instance.url_consignation_primaire)
+        url_primaire_reclamations = parse_url(
+            '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert', fuuid))
+
+        # Transfert termine. Supprimer job d'upload
+        await asyncio.to_thread(entretien_db.supprimer_job_upload, fuuid)
+        self.__upload_en_cours = None
+
+    async def emettre_etat_upload(self, fuuid, entretien_db: EntretienDatabase, producer):
+        samples = self.__samples_upload.copy()
+        # Calculer vitesse de transfert
+        duree = datetime.timedelta(seconds=0)
+        taille = 0
+        for s in samples:
+            duree += s['duree']
+            taille += s['taille']
+
+        secondes = duree / datetime.timedelta(seconds=1)
+        if secondes > 0.0:
+            taux = round(taille / secondes)  # B/s
+        else:
+            taux = None
+
+        await asyncio.to_thread(entretien_db.touch_upload, fuuid, None)
+        try:
+            etat = await asyncio.to_thread(entretien_db.get_etat_uploads)
+            nombre = etat['nombre']
+            taille = etat['taille']
+        except TypeError:
+            # Aucuns downloads
+            nombre = None
+            taille = None
+
+        try:
+            position_en_cours = self.__download_en_cours['position']
+            taille_en_cours = self.__download_en_cours['taille']
+        except (TypeError, KeyError):
+            # pct = None
+            position_en_cours = None
+            taille_en_cours = None
+
+        self.__logger.debug("emettre_etat_upload %s fichiers, %s bytes transfere a %s KB/sec (courant: %s/%s)" % (nombre, taille, taux, position_en_cours, taille_en_cours))
+
+        evenement = {
+            'termine': False,
+            'taille': taille,
+            'nombre': nombre,
+            'taille_en_cours': taille_en_cours,
+            'position_en_cours': position_en_cours,
+            'taux': taux,
+        }
+
+        await producer.emettre_evenement(
+            evenement,
+            domaine=Constantes.DOMAINE_FICHIERS, action=Constantes.EVENEMENT_SYNC_UPLOAD,
+            exchanges=ConstantesMillegrilles.SECURITE_PRIVE
+        )
+
+    async def emettre_etat_upload_termine(self):
+        producer = self.__etat_instance.producer
+        await asyncio.wait_for(producer.producer_pret().wait(), timeout=1)
+        await producer.emettre_evenement(
+            {'termine': True},
+            domaine=Constantes.DOMAINE_FICHIERS, action=Constantes.EVENEMENT_SYNC_UPLOAD,
+            exchanges=ConstantesMillegrilles.SECURITE_PRIVE
+        )

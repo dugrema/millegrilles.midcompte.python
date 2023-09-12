@@ -106,6 +106,15 @@ COMMANDE_GET_NEXT_DOWNLOAD = """
     LIMIT 1;
 """
 
+COMMANDE_GET_NEXT_UPLOAD = """
+    UPDATE UPLOADS
+    SET date_activite = :date_activite,
+        essais = essais + 1
+    WHERE date_activite IS NULL
+    RETURNING fuuid, taille
+    LIMIT 1;
+"""
+
 COMMANDE_TOUCH_DOWNLOAD = """
     UPDATE DOWNLOADS
     SET date_activite = :date_activite,
@@ -128,6 +137,11 @@ UPDATE_RESET_DOWNLOAD_EXPIRE = """
     SET date_activite = null,
         erreur = null
     WHERE date_activite < :date_activite;
+"""
+
+COMMANDE_DELETE_UPLOAD = """
+    DELETE FROM UPLOADS
+    WHERE fuuid = :fuuid;
 """
 
 CONST_INSERT_FICHIER = """
