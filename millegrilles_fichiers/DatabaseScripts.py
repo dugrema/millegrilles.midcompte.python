@@ -54,7 +54,8 @@ SELECT_ETAT_DOWNLOADS = """
 COMMANDE_INSERT_SECONDAIRES_MANQUANTS = """
     INSERT OR IGNORE INTO FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation)
     SELECT fuuid, 'manquant', taille, bucket, :date_reclamation, :date_reclamation, :date_reclamation
-    FROM FICHIERS_PRIMAIRE;
+    FROM FICHIERS_PRIMAIRE
+    WHERE etat_fichier = 'actif';
 """
 
 COMMANDE_UPDATE_SECONDAIRES_ORPHELINS_VERS_ACTIF = """
