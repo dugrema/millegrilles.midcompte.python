@@ -17,6 +17,8 @@ from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.ConsignationStore import EntretienDatabase
 
+CONST_LIMITE_SAMPLES_DOWNLOAD = 50  # Utilise pour calcul taux de transfert
+
 
 class SyncManager:
 
@@ -37,6 +39,7 @@ class SyncManager:
         self.__download_event: Optional[asyncio.Event] = None
 
         self.__download_en_cours: Optional[dict] = None
+        self.__samples_download = list()  # Utilise pour calcul de vitesse
         self.__upload_en_cours: Optional[dict] = None
 
     def demarrer_sync_primaire(self):
@@ -454,23 +457,41 @@ class SyncManager:
     async def run_download(self):
         entretien_db = EntretienDatabase(self.__etat_instance, check_same_thread=False)
 
+        self.__samples_download = list()  # Reset samples download
+
         timeout = aiohttp.ClientTimeout(connect=20)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             while True:
                 job_download = await asyncio.to_thread(entretien_db.get_next_download)
                 if job_download is None:
                     break
+                if self.__stop_event.is_set():
+                    self.__logger.warning("run_download Annuler download, stop_event est True")
+                    return
                 self.__logger.debug("run_download Downloader fichier %s" % job_download)
                 try:
                     await self.download_fichier_primaire(session, entretien_db, job_download)
                 except Exception:
                     self.__logger.exception("Erreur download fichier du primaire : %s" % job_download['fuuid'])
 
+        self.__samples_download = list()  # Reset samples download
         self.__logger.debug("run_download Aucunes jobs de download restant - downloads courants termines")
 
     async def download_fichier_primaire(self, session: aiohttp.ClientSession, entretien_db: EntretienDatabase, fichier: dict):
         self.__download_en_cours = fichier
         fuuid = fichier['fuuid']
+
+        # S'assurer que le fichier n'existe pas deja
+        try:
+            info_fichier = await self.__consignation.get_info_fichier(fuuid)
+            # Le fichier existe deja (aucune exception). Verifier qu'il est manquant.
+            if info_fichier['etat_fichier'] != 'manquant':
+                # Le fichier n'est pas manquant - annuler le download.
+                self.__download_en_cours = None
+                await asyncio.to_thread(entretien_db.supprimer_job_download, fuuid)
+                return
+        except TypeError:
+            pass  # OK, le fichier n'existe pas
 
         url_primaire = parse_url(self.__etat_instance.url_consignation_primaire)
         url_primaire_reclamations = parse_url(
@@ -480,15 +501,59 @@ class SyncManager:
         path_download.mkdir(parents=True, exist_ok=True)
         path_fichier_work = pathlib.Path(path_download, '%s.work' % fuuid)
 
+        date_download_maj = datetime.datetime.utcnow()
+        intervalle_download_maj = datetime.timedelta(seconds=5)
+
         with path_fichier_work.open('wb') as output_file:
             async with session.get(url_primaire_reclamations.url, ssl=self.__etat_instance.ssl_context) as resp:
                 if resp.status != 200:
                     self.__logger.warning("Erreur download fichier %s (status %d)" % (fuuid, resp.status))
                     await asyncio.to_thread(entretien_db.touch_download, fuuid, resp.status)
+                    path_fichier_work.unlink()
                     return
 
+                await self.emettre_etat_download()
+                date_download_maj = datetime.datetime.utcnow()
+
+                debut_chunk = datetime.datetime.utcnow()
                 async for chunk in resp.content.iter_chunked(64 * 1024):
+                    if self.__stop_event.is_set():
+                        self.__logger.warning("download_fichier_primaire Annuler download, stop_event est True")
+                        return
+
                     output_file.write(chunk)
+
+                    # Calculer vitesse transfert
+                    now = datetime.datetime.utcnow()
+                    duree_transfert = now - debut_chunk
+                    self.__samples_download.append({'duree': duree_transfert, 'taille': len(chunk)})
+                    while len(self.__samples_download) > CONST_LIMITE_SAMPLES_DOWNLOAD:
+                        self.__samples_download.pop(0)  # Detruire vieux samples
+
+                    if now - intervalle_download_maj > date_download_maj:
+                        date_download_maj = now
+                        await self.emettre_etat_download()
+
+                    # Debut compter pour prochain chunk
+                    debut_chunk = now
 
         # Consigner le fichier recu
         await self.__consignation.consigner(path_fichier_work, fuuid)
+        await asyncio.to_thread(entretien_db.supprimer_job_download, fuuid)
+        self.__download_en_cours = None
+
+    async def emettre_etat_download(self):
+        samples = self.__samples_download.copy()
+        # Calculer vitesse de transfert
+        duree = datetime.timedelta(seconds=0)
+        taille = 0
+        for s in samples:
+            duree += s['duree']
+            taille += s['taille']
+
+        milliseconds = duree / datetime.timedelta(milliseconds=1)
+        if milliseconds > 0.0:
+            taux = round(taille / milliseconds)  # KB/s
+            self.__logger.debug("Transfert a %s KB/sec" % taux)
+
+        pass

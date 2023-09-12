@@ -270,6 +270,11 @@ class EntretienDatabase:
         """ Marque downloads ou uploads expires, permet nouvel essai. """
         pass
 
+    def supprimer_job_download(self, fuuid: str):
+        params = {'fuuid': fuuid}
+        self.__cur.execute(scripts_database.COMMANDE_DELETE_DOWNLOAD, params)
+        self.__con.commit()
+
     def close(self):
         self.__con.commit()
         self.__cur.close()

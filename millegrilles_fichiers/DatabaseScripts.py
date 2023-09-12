@@ -106,6 +106,11 @@ COMMANDE_TOUCH_DOWNLOAD = """
     WHERE fuuid = :fuuid;
 """
 
+COMMANDE_DELETE_DOWNLOAD = """
+    DELETE FROM DOWNLOADS
+    WHERE fuuid = :fuuid;
+"""
+
 CONST_INSERT_FICHIER = """
     INSERT INTO FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation)
     VALUES(:fuuid, :etat_fichier, :taille, :bucket, :date_presence, :date_verification, :date_reclamation);
