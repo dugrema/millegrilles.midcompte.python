@@ -9,6 +9,8 @@ import json
 import logging
 import pathlib
 
+from cryptography.exceptions import InvalidSignature
+from certvalidator.errors import PathValidationError
 from typing import Optional
 from urllib3.util import parse_url
 from aiohttp.client_exceptions import ClientResponseError
@@ -920,7 +922,6 @@ class SyncManager:
         """ Downloader les fichiers de backup qui sont manquants localement """
 
         url_consignation_primaire = self.__etat_instance.url_consignation_primaire
-        url_backup = '%s/fichiers_transfert/backup' % url_consignation_primaire
 
         while True:
             backups = await asyncio.to_thread(entretien_db.get_batch_backups_primaire)
@@ -937,14 +938,23 @@ class SyncManager:
                     try:
                         await self.download_backup(session, backup)
                     except ClientResponseError as e:
-                        self.__logger.info("Backup a downloader %s %s n'est pas disponible (%d)" % (backup['uuid_backup'], backup['nom_fichier'], e.status))
+                        if 500 <= e.status < 600:
+                            self.__logger.warning("download_backups_primaire Erreur serveur - on arrete le transfert")
+                            raise e
+                        self.__logger.info("download_backups_primaire Backup a downloader %s %s n'est pas disponible (%d)" % (backup['uuid_backup'], backup['nom_fichier'], e.status))
+                    except (InvalidSignature, PathValidationError):
+                        self.__logger.exception("download_backups_primaire Erreur validation backup %s - SKIP", backup['nom_fichier'])
 
     async def download_backup(self, session: aiohttp.ClientSession, backup: dict):
+        uuid_backup = backup['uuid_backup']
+        domaine = backup['domaine']
+        nom_fichier = backup['nom_fichier']
+
         url_consignation_primaire = self.__etat_instance.url_consignation_primaire
         url_backup = '%s/fichiers_transfert/backup' % url_consignation_primaire
-        url_fichier = f"{url_backup}/{backup['uuid_backup']}/{backup['domaine']}/{backup['nom_fichier']}"
+        url_fichier = f"{url_backup}/{uuid_backup}/{domaine}/{nom_fichier}"
 
-        with tempfile.TemporaryFile('wb') as output:
+        with tempfile.TemporaryFile() as output:
             resp = await session.get(url_fichier, ssl=self.__etat_instance.ssl_context)
             resp.raise_for_status()
 
@@ -957,4 +967,7 @@ class SyncManager:
             with gzip.open(output, 'rt') as fichier:
                 contenu_backup = json.load(fichier)
 
-            pass
+            await self.__etat_instance.validateur_message.verifier(contenu_backup)
+
+            output.seek(0)
+            await self.__consignation.conserver_backup(output, uuid_backup, domaine, nom_fichier)
