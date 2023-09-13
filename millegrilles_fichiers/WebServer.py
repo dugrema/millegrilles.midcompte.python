@@ -29,6 +29,13 @@ from millegrilles_fichiers.Intake import IntakeFichiers
 from millegrilles_fichiers.Consignation import ConsignationHandler
 
 
+CONST_FICHIERS_ACCEPTES_SYNC = frozenset([
+    Constantes.FICHIER_RECLAMATIONS_PRIMAIRES,
+    Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES,
+    Constantes.FICHIER_BACKUP
+])
+
+
 class JobVerifierParts:
 
     def __init__(self, path_upload: pathlib.Path, hachage: str):
@@ -543,8 +550,7 @@ class WebServer:
             fichier_nom: str = request.match_info['fichier']
             headers = request.headers
 
-            FICHIERS_ACCEPTES = ['reclamations.jsonl.gz', 'reclamations.jsonl']
-            if fichier_nom not in FICHIERS_ACCEPTES:
+            if fichier_nom not in CONST_FICHIERS_ACCEPTES_SYNC:
                 self.__logger.debug("handle_get_fichier_sync Fichier %s non supporte" % fichier_nom)
                 return web.HTTPNotFound()
 
