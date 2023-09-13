@@ -349,12 +349,16 @@ class SyncManager:
             '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert/sync', Constantes.FICHIER_RECLAMATIONS_PRIMAIRES))
         url_primaire_reclamations_intermediaires = parse_url(
             '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert/sync', Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES))
+        url_primaire_backup = parse_url(
+            '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert/sync', Constantes.FICHIER_BACKUP))
 
         path_data = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_DATA)
         path_reclamations = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
         path_reclamations_work = pathlib.Path('%s.work' % path_reclamations)
         path_reclamations_intermediaire = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
         path_reclamations_intermediaire_work = pathlib.Path('%s.work' % path_reclamations_intermediaire)
+        path_backup = pathlib.Path(path_data, Constantes.FICHIER_BACKUP)
+        path_backup_work = pathlib.Path('%s.work' % path_backup)
 
         timeout = aiohttp.ClientTimeout(connect=20, total=600)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -393,6 +397,29 @@ class SyncManager:
             else:
                 # Retirer le fichier vide
                 path_reclamations_intermediaire_work.unlink()
+
+            fichier_backup_disponible = False
+            with path_backup_work.open(mode='wb') as output_file:
+                self.__logger.info(
+                    "traiter_fichiers_reclamation Downloader fichier %s" % url_primaire_backup.url)
+                async with session.get(url_primaire_backup.url, ssl=self.__etat_instance.ssl_context) as resp:
+                    if resp.status == 404:
+                        self.__logger.debug("traiter_fichiers_reclamation Fichier backup non disponible (404) - OK")
+                    elif resp.status != 200:
+                        self.__logger.debug(
+                            "traiter_fichiers_reclamation Erreur acces au fichier backup (%d) - on ignore le fichier" % resp.status)
+                    else:
+                        fichier_backup_disponible = True
+                        async for chunk in resp.content.iter_chunked(64 * 1024):
+                            output_file.write(chunk)
+
+            # Renommer le fichier .work si present
+            path_backup.unlink(missing_ok=True)
+            if fichier_backup_disponible:
+                path_backup_work.rename(path_backup)
+            else:
+                # Retirer le fichier vide
+                path_backup_work.unlink()
 
         self.__logger.debug("traiter_fichiers_reclamation Download termine OK")
 
