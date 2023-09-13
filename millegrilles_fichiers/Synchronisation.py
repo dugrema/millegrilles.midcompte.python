@@ -17,7 +17,7 @@ from millegrilles_fichiers import Constantes
 # from millegrilles_fichiers.Consignation import ConsignationHandler
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.ConsignationStore import EntretienDatabase
-from millegrilles_fichiers.UploadFichiersPrimaire import uploader_fichier
+from millegrilles_fichiers.UploadFichiersPrimaire import uploader_fichier, EtatUpload
 
 CONST_LIMITE_SAMPLES_DOWNLOAD = 50  # Utilise pour calcul taux de transfert
 
@@ -42,7 +42,7 @@ class SyncManager:
 
         self.__download_en_cours: Optional[dict] = None
         self.__samples_download = list()  # Utilise pour calcul de vitesse
-        self.__upload_en_cours: Optional[dict] = None
+        self.__upload_en_cours: Optional[EtatUpload] = None
         self.__samples_upload = list()  # Utilise pour calcul de vitesse
 
     def demarrer_sync_primaire(self):
@@ -663,8 +663,6 @@ class SyncManager:
                 raise e
 
     async def upload_fichier_primaire(self, session: aiohttp.ClientSession, entretien_db: EntretienDatabase, fichier: dict):
-        self.__upload_en_cours = fichier
-        self.__upload_en_cours['position'] = 0
         fuuid = fichier['fuuid']
 
         producer = self.__etat_instance.producer
@@ -672,20 +670,30 @@ class SyncManager:
 
         try:
             event_done = asyncio.Event()
+            info_fichier = await self.__consignation.get_info_fichier(fuuid)
+            taille_fichier = info_fichier['taille']
             async with self.__consignation.get_fp_fuuid(fuuid) as fichier:
+                etat_upload = EtatUpload(fuuid, fichier, self.__stop_event, taille_fichier)
+
+                # Conserver liste precedent de samples pour calculer la vitesse
+                etat_upload.samples = self.__samples_upload or list()
+
+                self.__upload_en_cours = etat_upload
                 pending = {
-                    uploader_fichier(fichier, session, self.__etat_instance, fuuid),
+                    uploader_fichier(session, self.__etat_instance, etat_upload),
                     self.__run_emettre_etat_upload(fuuid, entretien_db, producer, event_done),
                 }
                 done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+
+                # Conserver liste samples pour calculer la vitesse
+                self.__samples_upload = etat_upload.samples
+
+                for p in pending:
+                    p.cancel()
                 for d in done:
                     e = d.exception()
-                    for p in pending:
-                        p.cancel()
                     if e:
                         raise e
-                for t in pending:
-                    t.cancel()
                 while len(pending) > 0:
                     done, pending = await asyncio.wait(pending, timeout=5)
 
@@ -710,19 +718,30 @@ class SyncManager:
                 pass  # OK
 
     async def emettre_etat_upload(self, fuuid, entretien_db: EntretienDatabase, producer):
-        samples = self.__samples_upload.copy()
-        # Calculer vitesse de transfert
-        duree = datetime.timedelta(seconds=0)
-        taille = 0
-        for s in samples:
-            duree += s['duree']
-            taille += s['taille']
 
-        secondes = duree / datetime.timedelta(seconds=1)
-        if secondes > 0.0:
-            taux = round(taille / secondes)  # B/s
-        else:
-            taux = None
+        upload_en_cours = self.__upload_en_cours
+        if upload_en_cours is not None:
+            try:
+                position_en_cours = upload_en_cours.position
+                taille_en_cours = upload_en_cours.taille
+            except (TypeError, KeyError):
+                # pct = None
+                position_en_cours = None
+                taille_en_cours = None
+
+            samples = upload_en_cours.samples.copy()
+            # Calculer vitesse de transfert
+            duree = datetime.timedelta(seconds=0)
+            taille = 0
+            for s in samples:
+                duree += s['duree']
+                taille += s['taille']
+
+            secondes = duree / datetime.timedelta(seconds=1)
+            if secondes > 0.0:
+                taux = round(taille / secondes)  # B/s
+            else:
+                taux = None
 
         await asyncio.to_thread(entretien_db.touch_upload, fuuid, None)
         try:
@@ -733,14 +752,6 @@ class SyncManager:
             # Aucuns downloads
             nombre = None
             taille = None
-
-        try:
-            position_en_cours = self.__download_en_cours['position']
-            taille_en_cours = self.__download_en_cours['taille']
-        except (TypeError, KeyError):
-            # pct = None
-            position_en_cours = None
-            taille_en_cours = None
 
         self.__logger.debug("emettre_etat_upload %s fichiers, %s bytes transfere a %s KB/sec (courant: %s/%s)" % (nombre, taille, taux, position_en_cours, taille_en_cours))
 
