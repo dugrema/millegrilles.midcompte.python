@@ -24,10 +24,11 @@ from millegrilles_fichiers.EtatFichiers import EtatFichiers
 
 class EntretienDatabase:
 
-    def __init__(self, etat: EtatFichiers, check_same_thread=True):
+    def __init__(self, etat: EtatFichiers, check_same_thread=True, timeout=5.0):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self._etat = etat
         self.__check_same_thread = check_same_thread
+        self.__timeout = timeout
 
         path_database = pathlib.Path(
             self._etat.configuration.dir_consignation, Constantes.DIR_DATA, Constantes.FICHIER_DATABASE)
@@ -43,7 +44,10 @@ class EntretienDatabase:
         self.__debut_entretien = datetime.datetime.now(tz=pytz.UTC)
 
     def __enter__(self):
-        self.__con = sqlite3.connect(self.__path_database, check_same_thread=self.__check_same_thread)
+        self.__con = sqlite3.connect(
+            self.__path_database,
+            timeout=self.__timeout, check_same_thread=self.__check_same_thread
+        )
         self.__cur = self.__con.cursor()
         return self
 
