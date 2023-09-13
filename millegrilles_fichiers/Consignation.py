@@ -431,6 +431,12 @@ class ConsignationHandler:
         else:
             self.__logger.warning("generer_reclamations_sync Reception message avant initialisation store")
 
+    async def generer_backup_sync(self):
+        if self.__store_consignation is not None:
+            await self.__store_consignation.generer_backup_sync()
+        else:
+            self.__logger.warning("generer_backup_sync Reception message avant initialisation store")
+
     async def ajouter_fuuid_primaire(self, commande: dict):
         """ Ajoute un fichier qui a ete consigne par le primaire """
         if self.__etat_instance.est_primaire:

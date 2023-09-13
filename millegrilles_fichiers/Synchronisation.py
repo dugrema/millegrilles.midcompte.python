@@ -199,6 +199,9 @@ class SyncManager:
         # Generer la liste des reclamations en .jsonl.gz pour les secondaires
         await self.__consignation.generer_reclamations_sync()
 
+        # Generer la liste des fichiers de backup
+        await self.__consignation.generer_backup_sync()
+
     async def run_sync_secondaire(self):
         self.__logger.info("run_sync_secondaire Demarrer sync")
         await self.emettre_etat_sync_secondaire()

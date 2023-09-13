@@ -853,6 +853,10 @@ class ConsignationStore:
                 self.__logger.exception('Erreur generation fichier reclamations')
                 fichier_reclamations_work.unlink(missing_ok=True)
 
+    async def generer_backup_sync(self):
+        """ Genere le fichier backup.jsonl.gz """
+        raise NotImplementedError('must implement')
+
 
 class ConsignationStoreMillegrille(ConsignationStore):
 
@@ -865,6 +869,9 @@ class ConsignationStoreMillegrille(ConsignationStore):
         sub_folder = fuuid[-2:]
         path_fuuid = pathlib.Path(dir_consignation, Constantes.DIR_BUCKETS, bucket, sub_folder, fuuid)
         return path_fuuid
+
+    def get_path_backups(self):
+        return pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
 
     async def consigner(self, path_src: pathlib.Path, fuuid: str):
         await super().consigner(path_src, fuuid)
@@ -1060,6 +1067,38 @@ class ConsignationStoreMillegrille(ConsignationStore):
         except FileNotFoundError:
             self.__logger.error("verifier_fichier Fichier %s est absent, marquer manquant" % fuuid)
             entretien_db.marquer_verification(fuuid, Constantes.DATABASE_ETAT_MANQUANT)
+
+    async def generer_backup_sync(self):
+        await asyncio.to_thread(self.__generer_backup_sync)
+
+    def __generer_backup_sync(self):
+        path_data = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_DATA)
+        path_output = pathlib.Path(path_data, Constantes.FICHIER_BACKUP)
+        path_output_work = pathlib.Path('%s.work' % path_output)
+
+        path_backup = self.get_path_backups()
+
+        with gzip.open(path_output_work, 'wt') as output:
+            for backup_uuid_path in path_backup.iterdir():
+                backup_uuid = backup_uuid_path.name
+                for domaine_path in backup_uuid_path.iterdir():
+                    domaine = domaine_path.name
+                    for fichier_backup in domaine_path.iterdir():
+                        # path_backup_str = '%s/%s/%s' % (backup_uuid, domaine, fichier_backup.name)
+                        stat_fichier = fichier_backup.stat()
+                        taille_fichier = stat_fichier.st_size
+                        info_fichier = {
+                            'uuid_backup': backup_uuid,
+                            'domaine': domaine,
+                            'nom_fichier': fichier_backup.name,
+                            'taille': taille_fichier
+                        }
+                        json.dump(info_fichier, output)
+                        output.write('\n')
+
+        # Renommer fichier .work
+        path_output.unlink(missing_ok=True)
+        path_output_work.rename(path_output)
 
 
 def map_type(type_store: str) -> Type[ConsignationStore]:
