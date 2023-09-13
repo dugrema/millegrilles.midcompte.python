@@ -169,7 +169,10 @@ class EntretienDatabase:
         except sqlite3.IntegrityError as e:
             if 'FICHIERS.fuuid' in e.args[0]:
                 self.__logger.debug("ConsignationStore.consigner fuuid %s existe deja - OK" % fuuid)
-                self.__cur.execute(scripts_database.CONST_ACTIVER_SI_MANQUANT, data)
+                resultat_update_manquant = self.__cur.execute(scripts_database.CONST_ACTIVER_SI_MANQUANT, data)
+                if resultat_update_manquant.rowcount > 0:
+                    # Le fichier etait manquant, on le considere nouveau
+                    nouveau = True
                 self.__cur.execute(scripts_database.CONST_VERIFIER_FICHIER, data)
             else:
                 raise e
