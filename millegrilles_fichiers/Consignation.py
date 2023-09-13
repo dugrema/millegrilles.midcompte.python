@@ -26,6 +26,7 @@ from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.ConsignationStore import ConsignationStore, map_type
 from millegrilles_fichiers.Synchronisation import SyncManager
 
+
 class InformationFuuid:
 
     def __init__(self, fuuid: str):
@@ -429,6 +430,13 @@ class ConsignationHandler:
             await self.__store_consignation.generer_reclamations_sync()
         else:
             self.__logger.warning("generer_reclamations_sync Reception message avant initialisation store")
+
+    async def ajouter_fuuid_primaire(self, commande: dict):
+        """ Ajoute un fichier qui a ete consigne par le primaire """
+        if self.__etat_instance.est_primaire:
+            return  # Rien a faire, on est primaire
+
+        await self.__sync_manager.ajouter_fichier_primaire(commande)
 
     # async def download_fichier(self, fuuid, cle_chiffree, params_dechiffrage, path_destination):
     #     await self.ouvrir_sessions()  # S'assurer d'avoir une session ouverte

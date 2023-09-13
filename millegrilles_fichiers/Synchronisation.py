@@ -133,7 +133,6 @@ class SyncManager:
                 self.__logger.exception("thread_download Erreur synchronisation")
             await asyncio.wait([stop_coro], timeout=300)
 
-
     async def thread_emettre_evenement_primaire(self, event_sync: asyncio.Event):
         wait_coro = event_sync.wait()
         while event_sync.is_set() is False:
@@ -332,24 +331,7 @@ class SyncManager:
             )
 
     async def emettre_etat_sync_secondaire(self, termine=False):
-        message = {'termine': termine}
-        producer = self.__etat_instance.producer
-        await asyncio.wait_for(producer.producer_pret().wait(), timeout=5)
-
-        # await producer.emettre_evenement(
-        #     message,
-        #     domaine=Constantes.DOMAINE_FICHIERS, action=Constantes.EVENEMENT_SYNC_PRIMAIRE,
-        #     exchanges=ConstantesMillegrilles.SECURITE_PRIVE
-        # )
-        #
-        # if termine:
-        #     # Emettre evenement pour declencher le sync secondaire
-        #     self.__logger.debug("emettre_etat_sync Emettre evenement declencher sync secondaire")
-        #     await producer.emettre_evenement(
-        #         dict(),
-        #         domaine=Constantes.DOMAINE_FICHIERS, action=Constantes.EVENEMENT_SYNC_SECONDAIRE,
-        #         exchanges=ConstantesMillegrilles.SECURITE_PRIVE
-        #     )
+        pass  # Rien a faire, pas d'etat utilise pour secondaire
 
     async def conserver_activite_fuuids(self, commande: dict):
         await self.__reception_fuuids_reclames.put(commande)
@@ -778,3 +760,38 @@ class SyncManager:
             domaine=Constantes.DOMAINE_FICHIERS, action=Constantes.EVENEMENT_SYNC_UPLOAD,
             exchanges=ConstantesMillegrilles.SECURITE_PRIVE
         )
+
+    async def ajouter_fichier_primaire(self, commande: dict):
+        fuuid = commande['fuuid']
+        self.__logger.debug("ajouter_fichier_primaire Conserver nouveau fichier consigne su primaire %s" % fuuid)
+
+        entretien_db = EntretienDatabase(self.__etat_instance, check_same_thread=False)
+
+        # Ajouter le fuuid a la liste de fichiers manquants
+        ajoute = await asyncio.to_thread(entretien_db.ajouter_fichier_manquant, fuuid)
+
+        if ajoute:
+            # Tenter d'obtenir la taille du fichier pour ajouter a la liste FICHIERS_PRIMAIRE et DOWNLOADS
+            url_primaire = parse_url(self.__etat_instance.url_consignation_primaire)
+            url_primaire_reclamations = parse_url(
+                '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert', fuuid))
+
+            taille_str = None
+            timeout = aiohttp.ClientTimeout(connect=5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.head(url_primaire_reclamations.url, ssl=self.__etat_instance.ssl_context) as resp:
+                    if resp.status == 200:
+                        taille_str = resp.headers.get('Content-Length')
+                    else:
+                        self.__logger.info("ajouter_fichier_primaire Nouveau fichier %s non accessible sur primaire (status:%d)" % (fuuid, resp.status))
+
+            if taille_str is not None:
+                self.__logger.debug("ajouter_fichier_primaire Fichier %s accessible pour download, taille %s" % (fuuid, taille_str))
+
+            taille_int = int(taille_str)
+            await asyncio.to_thread(entretien_db.ajouter_download_primaire, fuuid, taille_int)
+
+            # Declencher thread download au besoin
+            self.__download_event.set()
+
+        pass

@@ -67,6 +67,9 @@ class CommandHandler(CommandesAbstract):
         res_evenements.ajouter_rk(
             ConstantesMilleGrilles.SECURITE_PRIVE,
             f'evenement.{Constantes.DOMAINE_FICHIERS}.{Constantes.EVENEMENT_SYNC_SECONDAIRE}', )
+        res_evenements.ajouter_rk(
+            ConstantesMilleGrilles.SECURITE_PRIVE,
+            f'evenement.{Constantes.DOMAINE_FICHIERS}.{Constantes.EVENEMENT_CONSIGNATION_PRIMAIRE}', )
 
         # Configuration et topologie
         # evenement.GrosFichiers.changementConsignationPrimaire
@@ -184,6 +187,8 @@ class CommandHandler(CommandesAbstract):
                     await self.traiter_cedule(producer, message)
                 elif action == Constantes.EVENEMENT_SYNC_SECONDAIRE:
                     return await self.__consignation.declencher_sync_secondaire(message.parsed)
+                elif action == Constantes.EVENEMENT_CONSIGNATION_PRIMAIRE:
+                    await self.__consignation.ajouter_fuuid_primaire(message.parsed)
                 else:
                     self.__logger.warning(
                         "Evenement non supporte (action %s) - SKIP" % action)

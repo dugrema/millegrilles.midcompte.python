@@ -324,6 +324,42 @@ class EntretienDatabase:
         self.__cur.execute(scripts_database.COMMANDE_TOUCH_UPLOAD, params)
         self.__con.commit()
 
+    def ajouter_fichier_manquant(self, fuuid) -> bool:
+        """ Ajoute un fichier qui devrait etre manquant (e.g. sur evenement consignationPrimaire)"""
+        ajoute = False
+        date_now = datetime.datetime.now(tz=pytz.UTC)
+        params = {
+            'fuuid': fuuid,
+            'etat_fichier': Constantes.DATABASE_ETAT_MANQUANT,
+            'taille': None,
+            'bucket': Constantes.BUCKET_PRINCIPAL,
+            'date_presence': date_now,
+            'date_verification': date_now,
+            'date_reclamation': date_now,
+        }
+        try:
+            self.__cur.execute(scripts_database.CONST_INSERT_FICHIER, params)
+            ajoute = True
+        except sqlite3.IntegrityError as e:
+            pass  # OK, le fichier existe deja
+        finally:
+            self.__con.commit()
+
+        return ajoute
+
+    def ajouter_download_primaire(self, fuuid: str, taille: int):
+        params = {
+            'fuuid': fuuid,
+            'taille': taille,
+            'date_creation': datetime.datetime.now(tz=pytz.UTC),
+        }
+        try:
+            self.__cur.execute(scripts_database.COMMAND_INSERT_DOWNLOAD, params)
+        except sqlite3.IntegrityError as e:
+            pass  # OK, le fichier existe deja dans la liste de downloads
+        finally:
+            self.__con.commit()
+
     def close(self):
         self.__con.commit()
         self.__cur.close()

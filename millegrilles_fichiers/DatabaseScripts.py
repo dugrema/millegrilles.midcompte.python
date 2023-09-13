@@ -94,6 +94,11 @@ COMMAND_INSERT_DOWNLOADS = """
     WHERE etat_fichier = 'manquant';
 """
 
+COMMAND_INSERT_DOWNLOAD = """
+    INSERT INTO DOWNLOADS(fuuid, taille, date_creation, essais)
+    VALUES (:fuuid, :taille, :date_creation, 0);
+"""
+
 COMMAND_INSERT_UPLOADS = """
     INSERT OR IGNORE INTO UPLOADS(fuuid, taille, date_creation, position, essais)
     SELECT p.fuuid, f.taille, :date_creation, 0, 0
