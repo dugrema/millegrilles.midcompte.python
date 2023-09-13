@@ -339,6 +339,9 @@ class ConsignationHandler:
             raise Exception("Store non initialise")
         return self.__store_consignation.get_info_fichier(fuuid)
 
+    async def get_info_fichier_backup(self, uuid_backup: str, domaine: str, nom_fichier: str):
+        return await self.__store_consignation.get_info_fichier_backup(uuid_backup, domaine, nom_fichier)
+
     async def stream_fuuid(self, fuuid: str, response: web.StreamResponse, start: Optional[int] = None, end: Optional[int] = None):
         if self.__store_consignation is None:
             raise Exception("Store non initialise")

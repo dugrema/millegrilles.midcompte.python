@@ -43,6 +43,7 @@ CONST_CREATE_FICHIERS = """
         domaine VARCHAR NOT NULL,
         nom_fichier VARCHAR NOT NULL,
         taille INTEGER NOT NULL,
+        flag_download INTEGER,
         PRIMARY KEY (uuid_backup, domaine, nom_fichier)
     );
         
@@ -335,6 +336,13 @@ INSERT_BACKUP_PRIMAIRE = """
     VALUES(:uuid_backup, :domaine, :nom_fichier, :taille);
 """
 
+UPDATE_FETCH_BACKUP_PRIMAIRE = """
+    UPDATE BACKUPS_PRIMAIRE
+    SET flag_download = 1
+    WHERE flag_download is NULL
+    RETURNING uuid_backup, domaine, nom_fichier, taille
+    LIMIT 10;
+"""
 
 # Autres
 

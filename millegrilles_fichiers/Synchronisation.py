@@ -1,3 +1,5 @@
+import tempfile
+
 import aiohttp
 import asyncio
 import datetime
@@ -39,6 +41,7 @@ class SyncManager:
 
         self.__upload_event: Optional[asyncio.Event] = None
         self.__download_event: Optional[asyncio.Event] = None
+        self.__backup_event: Optional[asyncio.Event] = None
 
         self.__download_en_cours: Optional[dict] = None
         self.__samples_download = list()  # Utilise pour calcul de vitesse
@@ -55,8 +58,9 @@ class SyncManager:
         self.__sync_event_primaire = asyncio.Event()
         self.__sync_event_secondaire = asyncio.Event()
         self.__reception_fuuids_reclames = asyncio.Queue(maxsize=3)
-        self.__upload_event: Optional[asyncio.Event] = asyncio.Event()
-        self.__download_event: Optional[asyncio.Event] = asyncio.Event()
+        self.__upload_event = asyncio.Event()
+        self.__download_event = asyncio.Event()
+        self.__backup_event = asyncio.Event()
 
         await asyncio.gather(
             self.thread_sync_primaire(),
@@ -65,6 +69,7 @@ class SyncManager:
             self.thread_upload(),
             self.thread_download(),
             self.thread_entretien_transferts(),
+            self.thread_sync_backup(),
         )
 
     async def thread_sync_primaire(self):
@@ -110,6 +115,14 @@ class SyncManager:
 
             self.__upload_event.clear()
 
+        # Terminer execution de toutes les tasks
+        for p in pending:
+            try:
+                p.cancel()
+            except AttributeError:
+                pass
+        await asyncio.wait(pending, timeout=1)
+
     async def thread_download(self):
         pending = {self.__stop_event.wait()}
         while self.__stop_event.is_set() is False:
@@ -123,6 +136,14 @@ class SyncManager:
                 self.__logger.exception("thread_download Erreur synchronisation")
 
             self.__download_event.clear()
+
+        # Terminer execution de toutes les tasks
+        for p in pending:
+            try:
+                p.cancel()
+            except AttributeError:
+                pass
+        await asyncio.wait(pending, timeout=1)
 
     async def thread_entretien_transferts(self):
         stop_coro = self.__stop_event.wait()
@@ -144,9 +165,10 @@ class SyncManager:
             await asyncio.wait([wait_coro], timeout=5)
 
     async def thread_traiter_fuuids_reclames(self):
-        stop_coro = self.__stop_event.wait()
+        pending = {self.__stop_event.wait()}
         while self.__stop_event.is_set() is False:
-            done, pending = await asyncio.wait([stop_coro, self.__reception_fuuids_reclames.get()], return_when=asyncio.FIRST_COMPLETED)
+            pending.add(self.__reception_fuuids_reclames.get())
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             if self.__stop_event.is_set() is True:
                 break
             coro = done.pop()
@@ -167,6 +189,36 @@ class SyncManager:
 
             if self.__attente_domaine_event is not None and termine:
                 self.__attente_domaine_event.set()
+
+        # Terminer execution de toutes les tasks
+        for p in pending:
+            try:
+                p.cancel()
+            except AttributeError:
+                pass
+        await asyncio.wait(pending, timeout=1)
+
+    async def thread_sync_backup(self):
+        pending = {self.__stop_event.wait()}
+        while self.__stop_event.is_set() is False:
+            pending.add(self.__upload_event.wait())
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            if self.__stop_event.is_set():
+                break  # Done
+            try:
+                await self.run_sync_backup()
+            except Exception:
+                self.__logger.exception("thread_upload Erreur synchronisation")
+
+            self.__upload_event.clear()
+
+        # Terminer execution de toutes les tasks
+        for p in pending:
+            try:
+                p.cancel()
+            except AttributeError:
+                pass  # OK
+        await asyncio.wait(pending, timeout=1)
 
     async def run_sync_primaire(self):
         self.__logger.info("thread_sync_primaire Demarrer sync")
@@ -852,3 +904,57 @@ class SyncManager:
             if ajoute:
                 self.__logger.debug("ajouter_upload_secondaire Declencher upload pour fuuid %s" % fuuid)
                 self.__upload_event.set()
+
+    async def run_sync_backup(self):
+        with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
+            timeout = aiohttp.ClientTimeout(connect=20, total=900)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                await self.upload_backups_primaire(entretien_db, session)
+                await self.download_backups_primaire(entretien_db, session)
+
+    async def upload_backups_primaire(self, entretien_db: EntretienDatabase, session: aiohttp.ClientSession):
+        """ Uploader les fichiers de backup qui sont manquants sur le primaire """
+        pass
+
+    async def download_backups_primaire(self, entretien_db: EntretienDatabase, session: aiohttp.ClientSession):
+        """ Downloader les fichiers de backup qui sont manquants localement """
+
+        url_consignation_primaire = self.__etat_instance.url_consignation_primaire
+        url_backup = '%s/fichiers_transfert/backup' % url_consignation_primaire
+
+        while True:
+            backups = await asyncio.to_thread(entretien_db.get_batch_backups_primaire)
+            if len(backups) == 0:
+                break  # Done
+
+            # Verifier si le backup existe localement
+            for backup in backups:
+                try:
+                    info = await self.__consignation.get_info_fichier_backup(
+                        backup['uuid_backup'], backup['domaine'], backup['nom_fichier'])
+                except FileNotFoundError:
+                    # Downloader le backup
+                    try:
+                        await self.download_backup(session, backup)
+                    except ClientResponseError as e:
+                        self.__logger.info("Backup a downloader %s %s n'est pas disponible (%d)" % (backup['uuid_backup'], backup['nom_fichier'], e.status))
+
+    async def download_backup(self, session: aiohttp.ClientSession, backup: dict):
+        url_consignation_primaire = self.__etat_instance.url_consignation_primaire
+        url_backup = '%s/fichiers_transfert/backup' % url_consignation_primaire
+        url_fichier = f"{url_backup}/{backup['uuid_backup']}/{backup['domaine']}/{backup['nom_fichier']}"
+
+        with tempfile.TemporaryFile('wb') as output:
+            resp = await session.get(url_fichier, ssl=self.__etat_instance.ssl_context)
+            resp.raise_for_status()
+
+            # Conserver le contenu
+            async for chunk in resp.content.iter_chunked(64 * 1024):
+                output.write(chunk)
+
+            # Verifier le fichier (signature)
+            output.seek(0)
+            with gzip.open(output, 'rt') as fichier:
+                contenu_backup = json.load(fichier)
+
+            pass

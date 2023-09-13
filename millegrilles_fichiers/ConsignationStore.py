@@ -321,6 +321,17 @@ class EntretienDatabase:
 
         return None
 
+    def get_batch_backups_primaire(self) -> list[dict]:
+        self.__cur.execute(scripts_database.UPDATE_FETCH_BACKUP_PRIMAIRE)
+        rows = self.__cur.fetchall()
+        self.__con.commit()
+        tasks = list()
+        if rows is not None and len(rows) > 0:
+            for row in rows:
+                uuid_backup, domaine, nom_fichier, taille = row
+                tasks.append({'uuid_backup': uuid_backup, 'domaine': domaine, 'nom_fichier': nom_fichier, 'taille': taille})
+        return tasks
+
     def get_etat_uploads(self):
         self.__cur.execute(scripts_database.SELECT_ETAT_UPLOADS)
         cur = self.__con.cursor()
@@ -540,6 +551,10 @@ class ConsignationStore:
 
     async def visiter_fuuids(self):
         """ Visiter tous les fichiers presents, s'assurer qu'ils sont dans la base de donnees. """
+        raise NotImplementedError('must override')
+
+    async def get_info_fichier_backup(self, uuid_backup: str, domaine: str, nom_fichier: str) -> dict:
+        """ Retourne l'information d'un fichier de backup ou FileNotFoundError si non trouve. """
         raise NotImplementedError('must override')
 
     async def verifier_fuuids(self, limite=Constantes.CONST_LIMITE_TAILLE_VERIFICATION):
@@ -1121,6 +1136,15 @@ class ConsignationStoreMillegrille(ConsignationStore):
         path_output.unlink(missing_ok=True)
         path_output_work.rename(path_output)
 
+    async def get_info_fichier_backup(self, uuid_backup: str, domaine: str, nom_fichier: str) -> dict:
+        path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
+        path_fichier = pathlib.Path(path_backup, uuid_backup, domaine, nom_fichier)
+
+        info = path_fichier.stat()
+
+        return {
+            'taille': info.st_size
+        }
 
 def map_type(type_store: str) -> Type[ConsignationStore]:
     if type_store == Constantes.TYPE_STORE_MILLEGRILLE:
