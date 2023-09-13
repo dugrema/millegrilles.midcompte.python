@@ -55,6 +55,10 @@ class WebServer:
 
         self.__queue_verifier_parts: Optional[asyncio.Queue] = None
 
+        self.__connexions_write_sem = asyncio.Semaphore(3)
+        self.__connexions_read_sem = asyncio.Semaphore(10)
+        self.__connexions_backup_sem = asyncio.Semaphore(1)
+
     def setup(self, configuration: Optional[dict] = None):
         self._charger_configuration(configuration)
         self._preparer_routes()
@@ -76,16 +80,11 @@ class WebServer:
 
             # /sync
             web.get('/fichiers_transfert/sync/{fichier}', self.handle_get_fichier_sync),
-            #   route.get('/fuuidsLocaux.txt.gz', (req, res, next) => getFichier(req, res, next, PATH_FUUIDS_LOCAUX))
-            #   route.get('/fuuidsArchives.txt.gz', (req, res, next) => getFichier(req, res, next, PATH_FUUIDS_ARCHIVES))
-            #   route.get('/fuuidsManquants.txt.gz', (req, res, next) => getFichier(req, res, next, PATH_FUUIDS_MANQUANTS))
-            #   route.get('/listingBackup.txt.gz', (req, res, next) => getFichier(req, res, next, PATH_LISTING_BACKUP))
-            #   route.get('/fuuidsNouveaux.txt', (req, res, next) => getFichier(req, res, next, PATH_FUUIDS_NOUVEAUX, {gzip: false}))
-            #   route.post('/fuuidsInfo', express.json(), getFuuidsInfo)
 
             # /backup
             web.post('/fichiers_transfert/backup/verifierFichiers', self.handle_post_backup_verifierfichiers),
             web.put('/fichiers_transfert/backup/upload/{uuid_backup}/{domaine}/{nomfichier}', self.handle_put_backup)
+            #   route.get('/listingBackup.txt.gz', (req, res, next) => getFichier(req, res, next, PATH_LISTING_BACKUP))
             #   route.get('/download/:uuid_backup/:domaine/:nomfichier', downloaderFichier)
         ])
 
@@ -97,190 +96,194 @@ class WebServer:
         self.__ssl_context.load_verify_locations(cafile=self.__configuration.ca_pem_path)
 
     async def handle_get_fuuid(self, request: Request):
-        fuuid = request.match_info['fuuid']
-        method = request.method
-        self.__logger.debug("handle_get_fuuid method %s, fuuid %s" % (method, fuuid))
+        async with self.__connexions_read_sem:
+            fuuid = request.match_info['fuuid']
+            method = request.method
+            self.__logger.debug("handle_get_fuuid method %s, fuuid %s" % (method, fuuid))
 
-        # Streamer le fichier
-        return await self.stream_reponse(request)
+            # Streamer le fichier
+            return await self.stream_reponse(request)
 
     async def handle_put_fuuid(self, request: Request) -> StreamResponse:
-        fuuid = request.match_info['fuuid']
-        position = request.match_info['position']
-        headers = request.headers
+        async with self.__connexions_write_sem:
+            fuuid = request.match_info['fuuid']
+            position = request.match_info['position']
+            headers = request.headers
 
-        # Afficher info (debug)
-        self.__logger.debug("handle_put_fuuid fuuid: %s position: %s" % (fuuid, position))
-        for key, value in headers.items():
-            self.__logger.debug('handle_put_fuuid key: %s, value: %s' % (key, value))
+            # Afficher info (debug)
+            self.__logger.debug("handle_put_fuuid fuuid: %s position: %s" % (fuuid, position))
+            for key, value in headers.items():
+                self.__logger.debug('handle_put_fuuid key: %s, value: %s' % (key, value))
 
-        if headers.get('VERIFIED') != 'SUCCESS':
-            return web.HTTPForbidden()
+            if headers.get('VERIFIED') != 'SUCCESS':
+                return web.HTTPForbidden()
 
-        cert_subject = extract_subject(headers.get('DN'))
-        common_name = cert_subject['CN']
+            cert_subject = extract_subject(headers.get('DN'))
+            common_name = cert_subject['CN']
 
-        # S'assurer que le fichier n'existe pas deja
-        try:
-            info = await self.__consignation.get_info_fichier(fuuid)
-            if info['etat_fichier'] != Constantes.DATABASE_ETAT_MANQUANT:
-                self.__logger.info("handle_put_fuuid Fichier %s existe deja, skip" % fuuid)
-                path_upload = self.get_path_upload_fuuid(common_name, fuuid)
-                try:
-                    shutil.rmtree(path_upload)
-                except FileNotFoundError:
-                    pass  # OK
-                except Exception as e:
-                    self.__logger.info("handle_delete_fuuid Erreur suppression upload %s : %s" % (fuuid, e))
-                    return web.HTTPServerError()
-                return web.HTTPConflict()
-        except (TypeError, AttributeError, KeyError):
-            pass  # OK, le fichier n'existe pas
-
-        # content_hash = headers.get('x-content-hash') or headers.get('x-fuuid')
-        content_hash = headers.get('x-content-hash')
-        content_length = int(headers['Content-Length'])
-
-        # Creer repertoire pour sauvegader la partie de fichier
-        path_upload = self.get_path_upload_fuuid(common_name, fuuid)
-        path_upload.mkdir(parents=True, exist_ok=True)
-
-        path_fichier = pathlib.Path(path_upload, '%s.part' % position)
-        self.__logger.debug("handle_put_fuuid Conserver part %s" % path_fichier)
-
-        if content_hash:
-            verificateur = VerificateurHachage(content_hash)
-        else:
-            verificateur = None
-        with open(path_fichier, 'wb') as fichier:
-            async for chunk in request.content.iter_chunked(64 * 1024):
-                if verificateur:
-                    verificateur.update(chunk)
-                fichier.write(chunk)
-
-        # Verifier hachage de la partie
-        if verificateur:
+            # S'assurer que le fichier n'existe pas deja
             try:
-                verificateur.verify()
-            except ErreurHachage as e:
-                self.__logger.info("handle_put_fuuid Erreur verification hachage : %s" % str(e))
+                info = await self.__consignation.get_info_fichier(fuuid)
+                if info['etat_fichier'] != Constantes.DATABASE_ETAT_MANQUANT:
+                    self.__logger.info("handle_put_fuuid Fichier %s existe deja, skip" % fuuid)
+                    path_upload = self.get_path_upload_fuuid(common_name, fuuid)
+                    try:
+                        shutil.rmtree(path_upload)
+                    except FileNotFoundError:
+                        pass  # OK
+                    except Exception as e:
+                        self.__logger.info("handle_delete_fuuid Erreur suppression upload %s : %s" % (fuuid, e))
+                        return web.HTTPServerError()
+                    return web.HTTPConflict()
+            except (TypeError, AttributeError, KeyError):
+                pass  # OK, le fichier n'existe pas
+
+            # content_hash = headers.get('x-content-hash') or headers.get('x-fuuid')
+            content_hash = headers.get('x-content-hash')
+            content_length = int(headers['Content-Length'])
+
+            # Creer repertoire pour sauvegader la partie de fichier
+            path_upload = self.get_path_upload_fuuid(common_name, fuuid)
+            path_upload.mkdir(parents=True, exist_ok=True)
+
+            path_fichier = pathlib.Path(path_upload, '%s.part' % position)
+            self.__logger.debug("handle_put_fuuid Conserver part %s" % path_fichier)
+
+            if content_hash:
+                verificateur = VerificateurHachage(content_hash)
+            else:
+                verificateur = None
+            with open(path_fichier, 'wb') as fichier:
+                async for chunk in request.content.iter_chunked(64 * 1024):
+                    if verificateur:
+                        verificateur.update(chunk)
+                    fichier.write(chunk)
+
+            # Verifier hachage de la partie
+            if verificateur:
+                try:
+                    verificateur.verify()
+                except ErreurHachage as e:
+                    self.__logger.info("handle_put_fuuid Erreur verification hachage : %s" % str(e))
+                    path_fichier.unlink(missing_ok=True)
+                    return web.HTTPBadRequest()
+
+            # Verifier que la taille sur disque correspond a la taille attendue
+            # Meme si le hachage est OK, s'assurer d'avoir conserve tous les bytes
+            stat = path_fichier.stat()
+            if stat.st_size != content_length:
+                self.__logger.info("handle_put_fuuid Erreur verification taille, sauvegarde %d, attendu %d" % (stat.st_size, content_length))
                 path_fichier.unlink(missing_ok=True)
                 return web.HTTPBadRequest()
 
-        # Verifier que la taille sur disque correspond a la taille attendue
-        # Meme si le hachage est OK, s'assurer d'avoir conserve tous les bytes
-        stat = path_fichier.stat()
-        if stat.st_size != content_length:
-            self.__logger.info("handle_put_fuuid Erreur verification taille, sauvegarde %d, attendu %d" % (stat.st_size, content_length))
-            path_fichier.unlink(missing_ok=True)
-            return web.HTTPBadRequest()
+            self.__logger.debug("handle_put_fuuid fuuid: %s position: %s recu OK" % (fuuid, position))
 
-        self.__logger.debug("handle_put_fuuid fuuid: %s position: %s recu OK" % (fuuid, position))
-
-        return web.HTTPOk()
+            return web.HTTPOk()
 
     async def handle_post_fuuid(self, request: Request) -> StreamResponse:
-        fuuid = request.match_info['fuuid']
-        self.__logger.debug("handle_post_fuuid %s" % fuuid)
+        async with self.__connexions_write_sem:
+            fuuid = request.match_info['fuuid']
+            self.__logger.debug("handle_post_fuuid %s" % fuuid)
 
-        headers = request.headers
-        if request.body_exists:
-            body = await request.json()
-            self.__logger.debug("handle_post_fuuid body\n%s" % json.dumps(body, indent=2))
-        else:
-            # Aucun body - transferer le contenu du fichier sans transactions (e.g. image small)
-            body = None
+            headers = request.headers
+            if request.body_exists:
+                body = await request.json()
+                self.__logger.debug("handle_post_fuuid body\n%s" % json.dumps(body, indent=2))
+            else:
+                # Aucun body - transferer le contenu du fichier sans transactions (e.g. image small)
+                body = None
 
-        # Afficher info (debug)
-        self.__logger.debug("handle_post_fuuid fuuid: %s" % fuuid)
-        for key, value in headers.items():
-            self.__logger.debug('handle_post_fuuid key: %s, value: %s' % (key, value))
+            # Afficher info (debug)
+            self.__logger.debug("handle_post_fuuid fuuid: %s" % fuuid)
+            for key, value in headers.items():
+                self.__logger.debug('handle_post_fuuid key: %s, value: %s' % (key, value))
 
-        if headers.get('VERIFIED') != 'SUCCESS':
-            return web.HTTPForbidden()
+            if headers.get('VERIFIED') != 'SUCCESS':
+                return web.HTTPForbidden()
 
-        cert_subject = extract_subject(headers.get('DN'))
-        common_name = cert_subject['CN']
+            cert_subject = extract_subject(headers.get('DN'))
+            common_name = cert_subject['CN']
 
-        path_upload = self.get_path_upload_fuuid(common_name, fuuid)
+            path_upload = self.get_path_upload_fuuid(common_name, fuuid)
 
-        path_etat = pathlib.Path(path_upload, Constantes.FICHIER_ETAT)
-        if body is not None:
-            # Valider body, conserver json sur disque
-            etat = body['etat']
-            hachage = etat['hachage']
-            with open(path_etat, 'wt') as fichier:
-                json.dump(etat, fichier)
+            path_etat = pathlib.Path(path_upload, Constantes.FICHIER_ETAT)
+            if body is not None:
+                # Valider body, conserver json sur disque
+                etat = body['etat']
+                hachage = etat['hachage']
+                with open(path_etat, 'wt') as fichier:
+                    json.dump(etat, fichier)
 
+                try:
+                    transaction = body['transaction']
+                    await self.__etat.validateur_message.verifier(transaction)  # Lance exception si echec verification
+                    path_transaction = pathlib.Path(path_upload, Constantes.FICHIER_TRANSACTION)
+                    with open(path_transaction, 'wt') as fichier:
+                        json.dump(transaction, fichier)
+                except KeyError:
+                    pass
+
+                try:
+                    cles = body['cles']
+                    await self.__etat.validateur_message.verifier(cles)  # Lance exception si echec verification
+                    path_cles = pathlib.Path(path_upload, Constantes.FICHIER_CLES)
+                    with open(path_cles, 'wt') as fichier:
+                        json.dump(cles, fichier)
+                except KeyError:
+                    pass
+            else:
+                # Sauvegarder etat.json sans body
+                etat = {'hachage': fuuid, 'retryCount': 0, 'created': int(datetime.datetime.utcnow().timestamp()*1000)}
+                hachage = fuuid
+                with open(path_etat, 'wt') as fichier:
+                    json.dump(etat, fichier)
+
+            # Valider hachage du fichier complet (parties assemblees)
             try:
-                transaction = body['transaction']
-                await self.__etat.validateur_message.verifier(transaction)  # Lance exception si echec verification
-                path_transaction = pathlib.Path(path_upload, Constantes.FICHIER_TRANSACTION)
-                with open(path_transaction, 'wt') as fichier:
-                    json.dump(transaction, fichier)
-            except KeyError:
-                pass
+                job_valider = JobVerifierParts(path_upload, hachage)
+                await self.__queue_verifier_parts.put(job_valider)
+                await asyncio.wait_for(job_valider.done.wait(), timeout=270)
+                if job_valider.exception is not None:
+                    raise job_valider.exception
+            except Exception as e:
+                self.__logger.warning('handle_post_fuuid Erreur verification hachage fichier %s assemble : %s' % (fuuid, e))
+                shutil.rmtree(path_upload)
+                return web.HTTPFailedDependency()
 
+            # Transferer vers intake
             try:
-                cles = body['cles']
-                await self.__etat.validateur_message.verifier(cles)  # Lance exception si echec verification
-                path_cles = pathlib.Path(path_upload, Constantes.FICHIER_CLES)
-                with open(path_cles, 'wt') as fichier:
-                    json.dump(cles, fichier)
-            except KeyError:
-                pass
-        else:
-            # Sauvegarder etat.json sans body
-            etat = {'hachage': fuuid, 'retryCount': 0, 'created': int(datetime.datetime.utcnow().timestamp()*1000)}
-            hachage = fuuid
-            with open(path_etat, 'wt') as fichier:
-                json.dump(etat, fichier)
+                await self.__intake.ajouter_upload(path_upload)
+            except Exception as e:
+                self.__logger.warning('handle_post_fuuid Erreur ajout fichier %s assemble au intake : %s' % (fuuid, e))
+                shutil.rmtree(path_upload)
+                return web.HTTPServerError()
 
-        # Valider hachage du fichier complet (parties assemblees)
-        try:
-            job_valider = JobVerifierParts(path_upload, hachage)
-            await self.__queue_verifier_parts.put(job_valider)
-            await asyncio.wait_for(job_valider.done.wait(), timeout=270)
-            if job_valider.exception is not None:
-                raise job_valider.exception
-        except Exception as e:
-            self.__logger.warning('handle_post_fuuid Erreur verification hachage fichier %s assemble : %s' % (fuuid, e))
-            shutil.rmtree(path_upload)
-            return web.HTTPFailedDependency()
-
-        # Transferer vers intake
-        try:
-            await self.__intake.ajouter_upload(path_upload)
-        except Exception as e:
-            self.__logger.warning('handle_post_fuuid Erreur ajout fichier %s assemble au intake : %s' % (fuuid, e))
-            shutil.rmtree(path_upload)
-            return web.HTTPServerError()
-
-        return web.HTTPAccepted()
+            return web.HTTPAccepted()
 
     async def handle_delete_fuuid(self, request: Request) -> StreamResponse:
-        fuuid = request.match_info['fuuid']
-        headers = request.headers
+        async with self.__connexions_write_sem:
+            fuuid = request.match_info['fuuid']
+            headers = request.headers
 
-        # Afficher info (debug)
-        self.__logger.debug("handle_delete_fuuid %s" % fuuid)
+            # Afficher info (debug)
+            self.__logger.debug("handle_delete_fuuid %s" % fuuid)
 
-        if headers.get('VERIFIED') != 'SUCCESS':
-            return web.HTTPForbidden()
+            if headers.get('VERIFIED') != 'SUCCESS':
+                return web.HTTPForbidden()
 
-        cert_subject = extract_subject(headers.get('DN'))
-        common_name = cert_subject['CN']
+            cert_subject = extract_subject(headers.get('DN'))
+            common_name = cert_subject['CN']
 
-        path_upload = self.get_path_upload_fuuid(common_name, fuuid)
-        try:
-            shutil.rmtree(path_upload)
-        except FileNotFoundError:
-            return web.HTTPNotFound()
-        except Exception as e:
-            self.__logger.info("handle_delete_fuuid Erreur suppression upload %s : %s" % (fuuid, e))
-            return web.HTTPServerError()
+            path_upload = self.get_path_upload_fuuid(common_name, fuuid)
+            try:
+                shutil.rmtree(path_upload)
+            except FileNotFoundError:
+                return web.HTTPNotFound()
+            except Exception as e:
+                self.__logger.info("handle_delete_fuuid Erreur suppression upload %s : %s" % (fuuid, e))
+                return web.HTTPServerError()
 
-        return web.HTTPOk()
+            return web.HTTPOk()
 
     # async def handle_path_fuuid(self, request: Request):
     #     fuuid = request.match_info['fuuid']
@@ -462,129 +465,132 @@ class WebServer:
         await response.write_eof()
 
     async def handle_post_backup_verifierfichiers(self, request: Request) -> StreamResponse:
-        headers = request.headers
-        body = await request.json()
-        uuid_backup = body['uuid_backup']
-        domaine = body['domaine']
-        fichiers = body['fichiers']
+        async with self.__connexions_backup_sem:
+            headers = request.headers
+            body = await request.json()
+            uuid_backup = body['uuid_backup']
+            domaine = body['domaine']
+            fichiers = body['fichiers']
 
-        # Afficher info (debug)
-        self.__logger.debug("handle_post_backup_verifierfichiers %s/%s" % (uuid_backup, domaine))
+            # Afficher info (debug)
+            self.__logger.debug("handle_post_backup_verifierfichiers %s/%s" % (uuid_backup, domaine))
 
-        if headers.get('VERIFIED') != 'SUCCESS':
-            return web.HTTPForbidden()
+            if headers.get('VERIFIED') != 'SUCCESS':
+                return web.HTTPForbidden()
 
-        # Creer un dict avec fichier:bool pour la reponse
-        dict_fichiers = dict()
-        for fichier in fichiers:
-            dict_fichiers[fichier] = False
+            # Creer un dict avec fichier:bool pour la reponse
+            dict_fichiers = dict()
+            for fichier in fichiers:
+                dict_fichiers[fichier] = False
 
-        # Parcourir les fichier dans le repertoire de backup
-        path_backup = pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
-        path_fichiers = pathlib.Path(path_backup, uuid_backup, domaine)
-
-        try:
-            for item in path_fichiers.iterdir():
-                if item.is_file() and item.name.endswith('.json.gz'):
-                    dict_fichiers[item.name] = True
-        except OSError as e:
-            if e.errno == errno.ENOENT:
-                pass  # Ok, aucuns fichiers
-            else:
-                raise e
-
-        return web.json_response(dict_fichiers)
-
-    async def handle_put_backup(self, request: Request) -> StreamResponse:
-        # {uuid_backup}/{domaine}/{nomfichier}
-        uuid_backup = request.match_info['uuid_backup']
-        domaine = request.match_info['domaine']
-        nom_fichier = request.match_info['nomfichier']
-        headers = request.headers
-
-        # Afficher info (debug)
-        self.__logger.debug("handle_put_backup %s/%s/%s" % (uuid_backup, domaine, nom_fichier))
-        for key, value in headers.items():
-            self.__logger.debug('handle_put_backup key: %s, value: %s' % (key, value))
-
-        if headers.get('VERIFIED') != 'SUCCESS':
-            return web.HTTPForbidden()
-
-        # Conserver le fichier dans un tempfile
-        with tempfile.TemporaryFile() as fichier_temp:
-            async for chunk in request.content.iter_chunked(64*1024):
-                fichier_temp.write(chunk)
-
-            fichier_temp.seek(0)
-
-            with gzip.open(fichier_temp, 'r') as fichier:
-                backup = json.load(fichier)
+            # Parcourir les fichier dans le repertoire de backup
+            path_backup = pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
+            path_fichiers = pathlib.Path(path_backup, uuid_backup, domaine)
 
             try:
-                enveloppe = await self.__etat.validateur_message.verifier(backup)
-                if ConstantesMillegrilles.SECURITE_SECURE not in enveloppe.get_exchanges:
-                    raise Exception('Fichier ne backup signe par mauvais certificat (doit etre 4.secure)')
-            except Exception:
-                self.__logger.info("Erreur validation fichier de backup %s - SKIP" % nom_fichier)
-                return web.HTTPBadRequest()
+                for item in path_fichiers.iterdir():
+                    if item.is_file() and item.name.endswith('.json.gz'):
+                        dict_fichiers[item.name] = True
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    pass  # Ok, aucuns fichiers
+                else:
+                    raise e
 
-            # Consigner le fichier de backup
-            await self.__consignation.conserver_backup(fichier_temp, uuid_backup, domaine, nom_fichier)
+            return web.json_response(dict_fichiers)
 
-        return web.HTTPOk()
+    async def handle_put_backup(self, request: Request) -> StreamResponse:
+        async with self.__connexions_backup_sem:
+            # {uuid_backup}/{domaine}/{nomfichier}
+            uuid_backup = request.match_info['uuid_backup']
+            domaine = request.match_info['domaine']
+            nom_fichier = request.match_info['nomfichier']
+            headers = request.headers
+
+            # Afficher info (debug)
+            self.__logger.debug("handle_put_backup %s/%s/%s" % (uuid_backup, domaine, nom_fichier))
+            for key, value in headers.items():
+                self.__logger.debug('handle_put_backup key: %s, value: %s' % (key, value))
+
+            if headers.get('VERIFIED') != 'SUCCESS':
+                return web.HTTPForbidden()
+
+            # Conserver le fichier dans un tempfile
+            with tempfile.TemporaryFile() as fichier_temp:
+                async for chunk in request.content.iter_chunked(64*1024):
+                    fichier_temp.write(chunk)
+
+                fichier_temp.seek(0)
+
+                with gzip.open(fichier_temp, 'r') as fichier:
+                    backup = json.load(fichier)
+
+                try:
+                    enveloppe = await self.__etat.validateur_message.verifier(backup)
+                    if ConstantesMillegrilles.SECURITE_SECURE not in enveloppe.get_exchanges:
+                        raise Exception('Fichier ne backup signe par mauvais certificat (doit etre 4.secure)')
+                except Exception:
+                    self.__logger.info("Erreur validation fichier de backup %s - SKIP" % nom_fichier)
+                    return web.HTTPBadRequest()
+
+                # Consigner le fichier de backup
+                await self.__consignation.conserver_backup(fichier_temp, uuid_backup, domaine, nom_fichier)
+
+            return web.HTTPOk()
 
     async def handle_get_fichier_sync(self, request: Request) -> StreamResponse:
-        fichier_nom: str = request.match_info['fichier']
-        headers = request.headers
+        async with self.__connexions_read_sem:
+            fichier_nom: str = request.match_info['fichier']
+            headers = request.headers
 
-        FICHIERS_ACCEPTES = ['reclamations.jsonl.gz', 'reclamations.jsonl']
-        if fichier_nom not in FICHIERS_ACCEPTES:
-            self.__logger.debug("handle_get_fichier_sync Fichier %s non supporte" % fichier_nom)
-            return web.HTTPNotFound()
-
-        # Afficher info (debug)
-        self.__logger.debug("handle_get_fichier_sync %s" % fichier_nom)
-        for key, value in headers.items():
-            self.__logger.debug('handle_get_fichier_sync key: %s, value: %s' % (key, value))
-
-        if headers.get('VERIFIED') != 'SUCCESS':
-            return web.HTTPForbidden()
-
-        path_data = pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_DATA)
-        path_fichier = pathlib.Path(path_data, fichier_nom)
-        try:
-            stat_fichier = path_fichier.stat()
-        except OSError as e:
-            if e.errno == errno.ENOENT:
+            FICHIERS_ACCEPTES = ['reclamations.jsonl.gz', 'reclamations.jsonl']
+            if fichier_nom not in FICHIERS_ACCEPTES:
+                self.__logger.debug("handle_get_fichier_sync Fichier %s non supporte" % fichier_nom)
                 return web.HTTPNotFound()
+
+            # Afficher info (debug)
+            self.__logger.debug("handle_get_fichier_sync %s" % fichier_nom)
+            for key, value in headers.items():
+                self.__logger.debug('handle_get_fichier_sync key: %s, value: %s' % (key, value))
+
+            if headers.get('VERIFIED') != 'SUCCESS':
+                return web.HTTPForbidden()
+
+            path_data = pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_DATA)
+            path_fichier = pathlib.Path(path_data, fichier_nom)
+            try:
+                stat_fichier = path_fichier.stat()
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    return web.HTTPNotFound()
+                else:
+                    self.__logger.exception("Erreur chargement fichier %s" % fichier_nom)
+                    return web.HTTPServerError()
+
+            headers_response = {
+                'Cache-Control': 'no-store',
+            }
+
+            response = web.StreamResponse(status=200, headers=headers_response)
+            response.content_length = stat_fichier.st_size
+
+            if fichier_nom.endswith('.gz'):
+                response.content_type = 'application/gzip'
+            elif fichier_nom.endswith('.jsonl'):
+                response.content_type = 'application/jsonl'
             else:
-                self.__logger.exception("Erreur chargement fichier %s" % fichier_nom)
-                return web.HTTPServerError()
+                response.content_type = 'application/stream'
 
-        headers_response = {
-            'Cache-Control': 'no-store',
-        }
+            # Repondre avec le fichier
+            await response.prepare(request)
+            with open(path_fichier, 'rb') as fichier:
+                while True:
+                    chunk = fichier.read(64*1024)
+                    if not chunk:
+                        break
+                    await response.write(chunk)
 
-        response = web.StreamResponse(status=200, headers=headers_response)
-        response.content_length = stat_fichier.st_size
-
-        if fichier_nom.endswith('.gz'):
-            response.content_type = 'application/gzip'
-        elif fichier_nom.endswith('.jsonl'):
-            response.content_type = 'application/jsonl'
-        else:
-            response.content_type = 'application/stream'
-
-        # Repondre avec le fichier
-        await response.prepare(request)
-        with open(path_fichier, 'rb') as fichier:
-            while True:
-                chunk = fichier.read(64*1024)
-                if not chunk:
-                    break
-                await response.write(chunk)
-
-        await response.write_eof()
+            await response.write_eof()
 
 
 def parse_range(range, taille_totale):

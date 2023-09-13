@@ -879,7 +879,7 @@ class ConsignationStoreMillegrille(ConsignationStore):
         if path_fichier.exists() is False:
             path_fichier = self.get_path_fuuid(Constantes.BUCKET_ARCHIVES, fuuid)
             if path_fichier.exists() is False:
-                raise Exception('fichier inconnu %s' % fuuid)
+                raise FileNotFoundError('fichier inconnu %s' % fuuid)
 
         with path_fichier.open(mode='rb') as input_file:
             if start is not None and start > 0:
@@ -887,13 +887,19 @@ class ConsignationStoreMillegrille(ConsignationStore):
                 position = start
             else:
                 position = 0
-            for chunk in input_file:
+
+            while True:
+                chunk = input_file.read(64*1024)
+                if not chunk:
+                    break
+
                 if end is not None and position + len(chunk) > end:
                     taille_chunk = end - position + 1
                     await response.write(chunk[:taille_chunk])
                     break  # Termine
                 else:
                     await response.write(chunk)
+
                 position += len(chunk)
 
     async def get_fp_fuuid(self, fuuid, start: Optional[int] = None):
