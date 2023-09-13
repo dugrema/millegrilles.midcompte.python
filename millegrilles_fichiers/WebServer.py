@@ -120,7 +120,8 @@ class WebServer:
         cert_subject = extract_subject(headers.get('DN'))
         common_name = cert_subject['CN']
 
-        content_hash = headers.get('x-content-hash') or headers.get('x-fuuid')
+        # content_hash = headers.get('x-content-hash') or headers.get('x-fuuid')
+        content_hash = headers.get('x-content-hash')
         content_length = int(headers['Content-Length'])
 
         # Creer repertoire pour sauvegader la partie de fichier
@@ -130,19 +131,24 @@ class WebServer:
         path_fichier = pathlib.Path(path_upload, '%s.part' % position)
         self.__logger.debug("handle_put_fuuid Conserver part %s" % path_fichier)
 
-        verificateur = VerificateurHachage(content_hash)
+        if content_hash:
+            verificateur = VerificateurHachage(content_hash)
+        else:
+            verificateur = None
         with open(path_fichier, 'wb') as fichier:
             async for chunk in request.content.iter_chunked(64 * 1024):
-                verificateur.update(chunk)
+                if verificateur:
+                    verificateur.update(chunk)
                 fichier.write(chunk)
 
         # Verifier hachage de la partie
-        try:
-            verificateur.verify()
-        except ErreurHachage as e:
-            self.__logger.info("handle_put_fuuid Erreur verification hachage : %s" % str(e))
-            path_fichier.unlink(missing_ok=True)
-            return web.HTTPBadRequest()
+        if verificateur:
+            try:
+                verificateur.verify()
+            except ErreurHachage as e:
+                self.__logger.info("handle_put_fuuid Erreur verification hachage : %s" % str(e))
+                path_fichier.unlink(missing_ok=True)
+                return web.HTTPBadRequest()
 
         # Verifier que la taille sur disque correspond a la taille attendue
         # Meme si le hachage est OK, s'assurer d'avoir conserve tous les bytes
