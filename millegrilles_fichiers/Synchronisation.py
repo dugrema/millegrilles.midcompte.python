@@ -911,17 +911,11 @@ class SyncManager:
         with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
             timeout = aiohttp.ClientTimeout(connect=20, total=900)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                await self.upload_backups_primaire(entretien_db, session)
+                await self.__consignation.upload_backups_primaire(session, entretien_db)
                 await self.download_backups_primaire(entretien_db, session)
-
-    async def upload_backups_primaire(self, entretien_db: EntretienDatabase, session: aiohttp.ClientSession):
-        """ Uploader les fichiers de backup qui sont manquants sur le primaire """
-        pass
 
     async def download_backups_primaire(self, entretien_db: EntretienDatabase, session: aiohttp.ClientSession):
         """ Downloader les fichiers de backup qui sont manquants localement """
-
-        url_consignation_primaire = self.__etat_instance.url_consignation_primaire
 
         while True:
             backups = await asyncio.to_thread(entretien_db.get_batch_backups_primaire)

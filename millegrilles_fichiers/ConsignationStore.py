@@ -9,7 +9,7 @@ import shutil
 import sqlite3
 import tempfile
 
-from aiohttp import web
+from aiohttp import web, ClientSession
 from typing import Optional, Type
 
 import pytz
@@ -20,6 +20,7 @@ from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHa
 import millegrilles_fichiers.DatabaseScripts as scripts_database
 from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
+from millegrilles_fichiers.UploadFichiersPrimaire import EtatUpload, feed_filepart
 
 
 class EntretienDatabase:
@@ -440,6 +441,22 @@ class EntretienDatabase:
 
         # Le fichier est inconnu localement ou inactif
         return False
+
+    def get_info_backup_primaire(self, uuid_backup: str, domaine: str, nom_fichier: str) -> Optional[dict]:
+        params = {'uuid_backup': uuid_backup, 'domaine': domaine, 'nom_fichier': nom_fichier}
+        self.__cur.execute(scripts_database.SELECT_BACKUP_PRIMAIRE, params)
+        row = self.__cur.fetchone()
+        self.__con.commit()
+        if row is not None:
+            uuid_backup, domaine, nom_fichier, taille = row
+            return {
+                'uuid_backup': uuid_backup,
+                'domaine': domaine,
+                'nom_fichier': nom_fichier,
+                'taille': taille
+            }
+
+        return None
 
     def close(self):
         self.__con.commit()
@@ -893,6 +910,29 @@ class ConsignationStore:
         """ Genere le fichier backup.jsonl.gz """
         raise NotImplementedError('must implement')
 
+    async def upload_backups_primaire(self, session: ClientSession, entretien_db):
+        raise NotImplementedError('must implement')
+
+    async def upload_backup_primaire(self, session: ClientSession, uuid_backup: str, domaine: str, nom_fichier: str, fichier):
+        url_consignation_primaire = self._etat.url_consignation_primaire
+        url_backup = '%s/fichiers_transfert/backup/upload' % url_consignation_primaire
+        url_fichier = f"{url_backup}/{uuid_backup}/{domaine}/{nom_fichier}"
+
+        etat_upload = EtatUpload('', fichier, self._stop_store, 0)
+
+        stream = asyncio.StreamReader()
+        session_coro = session.put(url_fichier, ssl=self._etat.ssl_context, data=stream)
+        stream_coro = feed_filepart(etat_upload, stream, limit=10_000_000)
+
+        # Uploader chunk
+        session_response = None
+        try:
+            session_response, stream_response = await asyncio.gather(session_coro, stream_coro)
+        finally:
+            if session_response is not None:
+                session_response.release()
+            session_response.raise_for_status()
+
 
 class ConsignationStoreMillegrille(ConsignationStore):
 
@@ -1145,6 +1185,24 @@ class ConsignationStoreMillegrille(ConsignationStore):
         return {
             'taille': info.st_size
         }
+
+    async def upload_backups_primaire(self, session: ClientSession, entretien_db: EntretienDatabase):
+        path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
+        for path_uuid_backup in path_backup.iterdir():
+            uuid_backup = path_uuid_backup.name
+            for path_domaine in path_uuid_backup.iterdir():
+                domaine = path_domaine.name
+                for path_fichier in path_domaine.iterdir():
+                    nom_fichier = path_fichier.name
+
+                    info = await asyncio.to_thread(
+                        entretien_db.get_info_backup_primaire, uuid_backup, domaine, nom_fichier)
+
+                    if info is None:
+                        self.__logger.info("Fichier backup %s/%s/%s absent du primaire, on upload" % (uuid_backup, domaine, nom_fichier))
+                        with path_fichier.open('rb') as fichier:
+                            await self.upload_backup_primaire(session, uuid_backup, domaine, nom_fichier, fichier)
+
 
 def map_type(type_store: str) -> Type[ConsignationStore]:
     if type_store == Constantes.TYPE_STORE_MILLEGRILLE:

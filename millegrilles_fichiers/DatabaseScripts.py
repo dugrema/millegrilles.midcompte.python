@@ -76,6 +76,14 @@ SELECT_PRIMAIRE_PAR_FUUID = """
     WHERE fuuid = :fuuid;
 """
 
+SELECT_BACKUP_PRIMAIRE = """
+    SELECT uuid_backup, domaine, nom_fichier, taille
+    FROM backups_primaire
+    WHERE uuid_backup = :uuid_backup
+      AND domaine = :domaine
+      AND nom_fichier = :nom_fichier;
+"""
+
 # INSERTs/UPDATEs
 
 COMMANDE_INSERT_SECONDAIRES_MANQUANTS = """

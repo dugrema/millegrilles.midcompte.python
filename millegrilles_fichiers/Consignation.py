@@ -392,6 +392,9 @@ class ConsignationHandler:
     async def reactiver_fuuids(self, commande: dict):
         return await self.__store_consignation.reactiver_fuuids(commande)
 
+    async def upload_backups_primaire(self, session: aiohttp.ClientSession, entretien_db):
+        await self.__store_consignation.upload_backups_primaire(session, entretien_db)
+
     @asynccontextmanager
     async def get_fp_fuuid(self, fuuid: str, start: Optional[int] = None):
         try:
