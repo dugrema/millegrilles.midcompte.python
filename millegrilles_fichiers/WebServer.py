@@ -120,6 +120,23 @@ class WebServer:
         cert_subject = extract_subject(headers.get('DN'))
         common_name = cert_subject['CN']
 
+        # S'assurer que le fichier n'existe pas deja
+        try:
+            info = await self.__consignation.get_info_fichier(fuuid)
+            if info['etat_fichier'] != Constantes.DATABASE_ETAT_MANQUANT:
+                self.__logger.info("handle_put_fuuid Fichier %s existe deja, skip" % fuuid)
+                path_upload = self.get_path_upload_fuuid(common_name, fuuid)
+                try:
+                    shutil.rmtree(path_upload)
+                except FileNotFoundError:
+                    pass  # OK
+                except Exception as e:
+                    self.__logger.info("handle_delete_fuuid Erreur suppression upload %s : %s" % (fuuid, e))
+                    return web.HTTPServerError()
+                return web.HTTPConflict()
+        except (TypeError, AttributeError, KeyError):
+            pass  # OK, le fichier n'existe pas
+
         # content_hash = headers.get('x-content-hash') or headers.get('x-fuuid')
         content_hash = headers.get('x-content-hash')
         content_length = int(headers['Content-Length'])
