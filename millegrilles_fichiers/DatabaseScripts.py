@@ -296,7 +296,7 @@ REQUETE_FICHIERS_TRANSFERT = """
 """
 
 COMMANDE_INSERT_FICHIER_PRIMAIRE = """
-    INSERT INTO FICHIERS_PRIMAIRE(fuuid, etat_fichier, taille, bucket)
+    INSERT OR REPLACE INTO FICHIERS_PRIMAIRE(fuuid, etat_fichier, taille, bucket)
     VALUES(:fuuid, :etat_fichier, :taille, :bucket);
 """
 

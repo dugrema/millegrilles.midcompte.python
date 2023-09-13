@@ -206,9 +206,11 @@ class EntretienDatabase:
     def commit_fichiers_primaire(self):
         batch = self.__batch_visites
         self.__batch_visites = None
-        if batch is not None:
-            self.__cur.executemany(scripts_database.COMMANDE_INSERT_FICHIER_PRIMAIRE, batch)
-        self.__con.commit()
+        try:
+            if batch is not None:
+                self.__cur.executemany(scripts_database.COMMANDE_INSERT_FICHIER_PRIMAIRE, batch)
+        finally:
+            self.__con.commit()
 
     def marquer_secondaires_reclames(self):
         date_debut = datetime.datetime.now(tz=pytz.UTC)
