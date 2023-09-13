@@ -62,9 +62,9 @@ class WebServer:
 
         self.__queue_verifier_parts: Optional[asyncio.Queue] = None
 
-        self.__connexions_write_sem = asyncio.Semaphore(3)
-        self.__connexions_read_sem = asyncio.Semaphore(10)
-        self.__connexions_backup_sem = asyncio.Semaphore(1)
+        self.__connexions_write_sem = asyncio.BoundedSemaphore(3)
+        self.__connexions_read_sem = asyncio.BoundedSemaphore(10)
+        self.__connexions_backup_sem = asyncio.BoundedSemaphore(2)
 
     def setup(self, configuration: Optional[dict] = None):
         self._charger_configuration(configuration)
@@ -90,9 +90,8 @@ class WebServer:
 
             # /backup
             web.post('/fichiers_transfert/backup/verifierFichiers', self.handle_post_backup_verifierfichiers),
-            web.put('/fichiers_transfert/backup/upload/{uuid_backup}/{domaine}/{nomfichier}', self.handle_put_backup)
-            #   route.get('/listingBackup.txt.gz', (req, res, next) => getFichier(req, res, next, PATH_LISTING_BACKUP))
-            #   route.get('/download/:uuid_backup/:domaine/:nomfichier', downloaderFichier)
+            web.put('/fichiers_transfert/backup/upload/{uuid_backup}/{domaine}/{nomfichier}', self.handle_put_backup),
+            web.get('/fichiers_transfert/backup/{uuid_backup}/{domaine}/{nomfichier}', self.handle_get_backup)
         ])
 
     def _charger_ssl(self):
@@ -544,6 +543,28 @@ class WebServer:
                 await self.__consignation.conserver_backup(fichier_temp, uuid_backup, domaine, nom_fichier)
 
             return web.HTTPOk()
+
+    async def handle_get_backup(self, request: Request) -> StreamResponse:
+        async with self.__connexions_backup_sem:
+            uuid_backup: str = request.match_info['uuid_backup']
+            domaine: str = request.match_info['domaine']
+            fichier_nom: str = request.match_info['nomfichier']
+
+            # Verifier si le fichier existe
+            try:
+                info = await self.__consignation.get_info_fichier_backup(uuid_backup, domaine, fichier_nom)
+            except FileNotFoundError:
+                return web.HTTPNotFound()
+
+            headers_response = {
+                'Cache-Control': 'public, max-age=604800, immutable',
+            }
+            response = web.StreamResponse(status=200, headers=headers_response)
+            response.content_length = info['taille']
+            response.content_type = 'application/gzip'
+            await response.prepare(request)
+            await self.__consignation.stream_backup(response, uuid_backup, domaine, fichier_nom)
+            await response.write_eof()
 
     async def handle_get_fichier_sync(self, request: Request) -> StreamResponse:
         async with self.__connexions_read_sem:

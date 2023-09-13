@@ -558,6 +558,10 @@ class ConsignationStore:
         """ Stream les bytes du fichier en utilisant la response """
         raise NotImplementedError('must override')
 
+    async def stream_backup(self, response: web.StreamResponse, uuid_backup: str, domaine: str, fichier_nom: str):
+        """ Stream les bytes du fichier en utilisant la response """
+        raise NotImplementedError('must override')
+
     async def get_fp_fuuid(self, fuuid, start: Optional[int] = None):
         """ Retourne un file pointer ou equivalent pour acceder a un fuuid. """
         raise NotImplementedError('must override')
@@ -1020,6 +1024,19 @@ class ConsignationStoreMillegrille(ConsignationStore):
                     await response.write(chunk)
 
                 position += len(chunk)
+
+    async def stream_backup(self, response: web.StreamResponse, uuid_backup: str, domaine: str, fichier_nom: str):
+        # Pour local FS, ignore la base de donnes. On verifie si le fichier existe dans actif ou archives
+        path_backups = self.get_path_backups()
+        path_fichier = pathlib.Path(path_backups, uuid_backup, domaine, fichier_nom)
+
+        with path_fichier.open(mode='rb') as input_file:
+            while True:
+                chunk = input_file.read(64*1024)
+                if not chunk:
+                    break
+
+                await response.write(chunk)
 
     async def get_fp_fuuid(self, fuuid, start: Optional[int] = None):
         # Pour local FS, ignore la base de donnes. On verifie si le fichier existe dans actif ou archives

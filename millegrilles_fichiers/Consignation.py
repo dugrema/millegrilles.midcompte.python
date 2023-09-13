@@ -350,6 +350,11 @@ class ConsignationHandler:
     async def conserver_backup(self, fichier_temp: tempfile.TemporaryFile, uuid_backup: str, domaine: str, nom_fichier: str):
         await self.__store_consignation.conserver_backup(fichier_temp, uuid_backup, domaine, nom_fichier)
 
+    async def stream_backup(self, response: web.StreamResponse, uuid_backup: str, domaine: str, fichier_nom: str):
+        if self.__store_consignation is None:
+            raise Exception("Store non initialise")
+        return await self.__store_consignation.stream_backup(response, uuid_backup, domaine, fichier_nom)
+
     async def rotation_backup(self, commande: dict):
         self.__logger.debug("Rotation backup %s" % commande)
 
