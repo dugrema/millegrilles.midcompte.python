@@ -27,19 +27,31 @@ class EntretienDatabase:
     def __init__(self, etat: EtatFichiers, check_same_thread=True):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self._etat = etat
+        self.__check_same_thread = check_same_thread
 
         path_database = pathlib.Path(
             self._etat.configuration.dir_consignation, Constantes.DIR_DATA, Constantes.FICHIER_DATABASE)
         self.__path_database = path_database
 
-        self.__con = sqlite3.connect(self.__path_database, check_same_thread=check_same_thread)
-        self.__cur = self.__con.cursor()
+        self.__con: Optional[sqlite3.Connection] = None  # sqlite3.connect(self.__path_database, check_same_thread=check_same_thread)
+        self.__cur: Optional[sqlite3.Cursor] = None  # self.__con.cursor()
 
         self.__batch_visites: Optional[dict] = None
 
         self.__limite_batch = 100
 
         self.__debut_entretien = datetime.datetime.now(tz=pytz.UTC)
+
+    def __enter__(self):
+        self.__con = sqlite3.connect(self.__path_database, check_same_thread=self.__check_same_thread)
+        self.__cur = self.__con.cursor()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.__con.commit()
+        self.__cur.close()
+        self.__con.close()
+        return False
 
     def ajouter_visite(self, bucket: str, fuuid: str, taille: int):
         if self.__batch_visites is None:
@@ -360,6 +372,39 @@ class EntretienDatabase:
         finally:
             self.__con.commit()
 
+    def ajouter_upload_secondaire_conditionnel(self, fuuid: str) -> bool:
+        """ Ajoute conditionnellement un upload vers le primaire """
+        self.__cur.execute(scripts_database.SELECT_PRIMAIRE_PAR_FUUID, {'fuuid': fuuid})
+        row = self.__cur.fetchone()
+        if row is not None:
+            _fuuid, etat_fichier, taille, bucket = row
+            if etat_fichier != 'manquant':
+                # Le fichier n'est pas manquant (il est deja sur le primaire). SKIP
+                return False
+
+        # Le fichier est inconnu ou manquant sur le primaire. On peut creer l'upload
+        self.__cur.execute(scripts_database.SELECT_FICHIER_PAR_FUUID, {'fuuid': fuuid})
+        row = self.__cur.fetchone()
+        if row is not None:
+            _fuuid, etat_fichier, taille, bucket = row
+            if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
+                # Creer la job d'upload
+                params = {
+                    'fuuid': fuuid,
+                    'taille': taille,
+                    'date_creation': datetime.datetime.now(tz=pytz.UTC),
+                }
+                try:
+                    self.__cur.execute(scripts_database.COMMAND_INSERT_UPLOAD, params)
+                except sqlite3.IntegrityError as e:
+                    pass  # OK, le fichier existe deja dans la liste d'uploads
+                finally:
+                    self.__con.commit()
+                return True
+
+        # Le fichier est inconnu localement ou inactif
+        return False
+
     def close(self):
         self.__con.commit()
         self.__cur.close()
@@ -402,11 +447,8 @@ class ConsignationStore:
 
     def __consigner_db(self, path_src: pathlib.Path, fuuid: str):
         stat = path_src.stat()
-        entretien_db = EntretienDatabase(self._etat)
-        try:
+        with EntretienDatabase(self._etat) as entretien_db:
             entretien_db.consigner(fuuid, stat.st_size, Constantes.BUCKET_PRINCIPAL)
-        finally:
-            entretien_db.close()
 
     async def consigner(self, path_src: pathlib.Path, fuuid: str):
         # Tenter d'inserer le fichier comme nouveau actif dans la base de donnees
@@ -482,14 +524,10 @@ class ConsignationStore:
         """ Visiter tous les fichiers presents, s'assurer qu'ils sont dans la base de donnees. """
         liste_fichiers = self.__charger_verifier_fuuids(limite)
 
-        entretien_db = EntretienDatabase(self._etat)
-
-        # Verifier chaque fichier individuellement
-        try:
+        with EntretienDatabase(self._etat) as entretien_db:
+            # Verifier chaque fichier individuellement
             for fichier in liste_fichiers:
                 self.verifier_fichier(entretien_db, **fichier)
-        finally:
-            entretien_db.close()
 
     async def supprimer_orphelins(self):
         producer = self._etat.producer
@@ -503,9 +541,7 @@ class ConsignationStore:
         expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=expiration_secs)
         self.__logger.info("supprimer_orphelins Expires depuis %s" % expiration)
 
-        entretien_db = EntretienDatabase(self._etat, check_same_thread=False)
-
-        try:
+        with EntretienDatabase(self._etat, check_same_thread=False) as entretien_db:
             batch_orphelins = await asyncio.to_thread(entretien_db.identifier_orphelins, expiration)
             fuuids = [f['fuuid'] for f in batch_orphelins]
             fuuids_a_supprimer = set(fuuids)
@@ -537,8 +573,6 @@ class ConsignationStore:
 
                     # Supprimer de la base de donnes locale
                     await asyncio.to_thread(entretien_db.supprimer, fuuid)
-        finally:
-            entretien_db.close()
 
         pass
 
@@ -803,19 +837,17 @@ class ConsignationStore:
         fichier_reclamations_work = pathlib.Path('%s.work' % fichier_reclamations)
         fichier_reclamations_work.unlink(missing_ok=True)
 
-        entretien_db = EntretienDatabase(self._etat, check_same_thread=False)
-        try:
-            with gzip.open(fichier_reclamations_work, 'wt') as fichier:
-                await asyncio.to_thread(entretien_db.generer_relamations_primaires, fichier)
+        with EntretienDatabase(self._etat, check_same_thread=False) as entretien_db:
+            try:
+                with gzip.open(fichier_reclamations_work, 'wt') as fichier:
+                    await asyncio.to_thread(entretien_db.generer_relamations_primaires, fichier)
 
-            # Renommer fichier .work pour remplacer le fichier de reclamations precedent
-            fichier_reclamations.unlink(missing_ok=True)
-            fichier_reclamations_work.rename(fichier_reclamations)
-        except:
-            self.__logger.exception('Erreur generation fichier reclamations')
-            fichier_reclamations_work.unlink(missing_ok=True)
-        finally:
-            entretien_db.close()
+                # Renommer fichier .work pour remplacer le fichier de reclamations precedent
+                fichier_reclamations.unlink(missing_ok=True)
+                fichier_reclamations_work.rename(fichier_reclamations)
+            except:
+                self.__logger.exception('Erreur generation fichier reclamations')
+                fichier_reclamations_work.unlink(missing_ok=True)
 
 
 class ConsignationStoreMillegrille(ConsignationStore):
@@ -925,9 +957,7 @@ class ConsignationStoreMillegrille(ConsignationStore):
 
     def __visiter_fuuids(self):
         dir_buckets = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BUCKETS)
-        entretien_db = EntretienDatabase(self._etat)
-
-        try:
+        with EntretienDatabase(self._etat) as entretien_db:
             # Parcourir tous les buckets recursivement (depth-first)
             for bucket in dir_buckets.iterdir():
                 self.visiter_bucket(bucket.name, bucket, entretien_db)
@@ -936,8 +966,6 @@ class ConsignationStoreMillegrille(ConsignationStore):
 
             # Marquer tous les fichiers 'manquants' qui viennent d'etre visites comme actifs (utilise date debut)
             entretien_db.marquer_actifs_visites()
-        finally:
-            entretien_db.close()
 
     def visiter_bucket(self, bucket: str, path_repertoire: pathlib.Path, entretien_db: EntretienDatabase):
         for item in path_repertoire.iterdir():

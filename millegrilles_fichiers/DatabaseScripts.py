@@ -55,6 +55,18 @@ SELECT_ETAT_UPLOADS = """
     WHERE erreur is null; 
 """
 
+SELECT_FICHIER_PAR_FUUID = """
+    SELECT fuuid, etat_fichier, taille, bucket
+    FROM FICHIERS
+    WHERE fuuid = :fuuid;
+"""
+
+SELECT_PRIMAIRE_PAR_FUUID = """
+    SELECT fuuid, etat_fichier, taille, bucket
+    FROM FICHIERS_PRIMAIRE
+    WHERE fuuid = :fuuid;
+"""
+
 # INSERTs/UPDATEs
 
 COMMANDE_INSERT_SECONDAIRES_MANQUANTS = """
@@ -106,6 +118,11 @@ COMMAND_INSERT_UPLOADS = """
     WHERE p.fuuid = f.fuuid
       AND f.etat_fichier = 'actif'
       AND p.etat_fichier = 'manquant';
+"""
+
+COMMAND_INSERT_UPLOAD = """
+    INSERT INTO UPLOADS(fuuid, taille, date_creation, position, essais)
+    VALUES(:fuuid, :taille, :date_creation, 0, 0);
 """
 
 COMMANDE_GET_NEXT_DOWNLOAD = """

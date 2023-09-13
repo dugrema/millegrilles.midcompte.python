@@ -121,6 +121,10 @@ class IntakeFichiers(IntakeHandler):
         # Charger transactions, cles. Emettre.
         await self.emettre_transactions(job)
 
+        if self._etat_instance.est_primaire is False:
+            self.__logger.debug("traiter_job Fichier consigne sur secondaire - s'assurer que le fichier existe sur primaire")
+            await self.__consignation_handler.ajouter_upload_secondaire(job.fuuid)
+
         # Supprimer le repertoire de la job
         shutil.rmtree(job.path_job)
 

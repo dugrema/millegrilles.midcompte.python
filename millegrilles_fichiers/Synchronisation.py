@@ -398,73 +398,71 @@ class SyncManager:
         await asyncio.to_thread(self.__run_merge_fichiers_reclamation)
 
     def __run_merge_fichiers_reclamation(self):
-        entretien_db = EntretienDatabase(self.__etat_instance)
+        with EntretienDatabase(self.__etat_instance) as entretien_db:
+            path_data = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_DATA)
+            path_reclamations = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
+            path_reclamations_intermediaire = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
 
-        path_data = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_DATA)
-        path_reclamations = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
-        path_reclamations_intermediaire = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
+            entretien_db.truncate_fichiers_primaire()
 
-        entretien_db.truncate_fichiers_primaire()
-
-        # Lire le fichier de reclamations et conserver dans table FICHIERS_PRIMAIRE
-        with gzip.open(str(path_reclamations), 'rt') as fichier:
-            while True:
-                row_str = fichier.readline(1024)
-                if not row_str:
-                    break
-                row = json.loads(row_str)
-                entretien_db.ajouter_fichier_primaire(row)
-
-        # Charger fichier intermediaire si present
-        try:
-            with path_reclamations_intermediaire.open('rt') as fichier:
+            # Lire le fichier de reclamations et conserver dans table FICHIERS_PRIMAIRE
+            with gzip.open(str(path_reclamations), 'rt') as fichier:
                 while True:
                     row_str = fichier.readline(1024)
                     if not row_str:
                         break
                     row = json.loads(row_str)
                     entretien_db.ajouter_fichier_primaire(row)
-        except OSError as e:
-            if e.errno == errno.ENOENT:
-                pass  # OK, fichier absent
-            else:
-                raise e
 
-        # Commit derniere batch
-        entretien_db.commit_fichiers_primaire()
+            # Charger fichier intermediaire si present
+            try:
+                with path_reclamations_intermediaire.open('rt') as fichier:
+                    while True:
+                        row_str = fichier.readline(1024)
+                        if not row_str:
+                            break
+                        row = json.loads(row_str)
+                        entretien_db.ajouter_fichier_primaire(row)
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    pass  # OK, fichier absent
+                else:
+                    raise e
+
+            # Commit derniere batch
+            entretien_db.commit_fichiers_primaire()
 
     async def creer_operations_sur_secondaire(self):
         await asyncio.to_thread(self.__creer_operations_sur_secondaire)
 
     def __creer_operations_sur_secondaire(self):
-        entretien_db = EntretienDatabase(self.__etat_instance)
+        with EntretienDatabase(self.__etat_instance) as entretien_db:
+            entretien_db.marquer_secondaires_reclames()
+            entretien_db.generer_uploads()
+            entretien_db.generer_downloads()
 
-        entretien_db.marquer_secondaires_reclames()
-        entretien_db.generer_uploads()
-        entretien_db.generer_downloads()
-
-        # Declencher les threads d'upload et de download (aucun effect si threads deja actives)
-        self.__upload_event.set()
-        self.__download_event.set()
+            # Declencher les threads d'upload et de download (aucun effect si threads deja actives)
+            self.__upload_event.set()
+            self.__download_event.set()
 
     async def run_upload(self):
-        entretien_db = EntretienDatabase(self.__etat_instance, check_same_thread=False)
-        self.__samples_upload = list()  # Reset samples download
+        with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
+            self.__samples_upload = list()  # Reset samples download
 
-        timeout = aiohttp.ClientTimeout(connect=20)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            while True:
-                job_upload = await asyncio.to_thread(entretien_db.get_next_upload)
-                if job_upload is None:
-                    break
-                if self.__stop_event.is_set():
-                    self.__logger.warning("run_upload Annuler upload, stop_event est True")
-                    return
-                self.__logger.debug("run_upload Uploader fichier %s" % job_upload)
-                try:
-                    await self.upload_fichier_primaire(session, entretien_db, job_upload)
-                except Exception:
-                    self.__logger.exception("run_upload Erreur upload fichier du primaire : %s" % job_upload['fuuid'])
+            timeout = aiohttp.ClientTimeout(connect=20)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                while True:
+                    job_upload = await asyncio.to_thread(entretien_db.get_next_upload)
+                    if job_upload is None:
+                        break
+                    if self.__stop_event.is_set():
+                        self.__logger.warning("run_upload Annuler upload, stop_event est True")
+                        return
+                    self.__logger.debug("run_upload Uploader fichier %s" % job_upload)
+                    try:
+                        await self.upload_fichier_primaire(session, entretien_db, job_upload)
+                    except Exception:
+                        self.__logger.exception("run_upload Erreur upload fichier du primaire : %s" % job_upload['fuuid'])
 
         await self.emettre_etat_upload_termine()
 
@@ -472,23 +470,23 @@ class SyncManager:
         self.__logger.debug("run_upload Aucunes jobs d'upload restantes - uploads courants termines")
 
     async def run_download(self):
-        entretien_db = EntretienDatabase(self.__etat_instance, check_same_thread=False)
-        self.__samples_download = list()  # Reset samples download
+        with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
+            self.__samples_download = list()  # Reset samples download
 
-        timeout = aiohttp.ClientTimeout(connect=20)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            while True:
-                job_download = await asyncio.to_thread(entretien_db.get_next_download)
-                if job_download is None:
-                    break
-                if self.__stop_event.is_set():
-                    self.__logger.warning("run_download Annuler download, stop_event est True")
-                    return
-                self.__logger.debug("run_download Downloader fichier %s" % job_download)
-                try:
-                    await self.download_fichier_primaire(session, entretien_db, job_download)
-                except Exception:
-                    self.__logger.exception("Erreur download fichier du primaire : %s" % job_download['fuuid'])
+            timeout = aiohttp.ClientTimeout(connect=20)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                while True:
+                    job_download = await asyncio.to_thread(entretien_db.get_next_download)
+                    if job_download is None:
+                        break
+                    if self.__stop_event.is_set():
+                        self.__logger.warning("run_download Annuler download, stop_event est True")
+                        return
+                    self.__logger.debug("run_download Downloader fichier %s" % job_download)
+                    try:
+                        await self.download_fichier_primaire(session, entretien_db, job_download)
+                    except Exception:
+                        self.__logger.exception("Erreur download fichier du primaire : %s" % job_download['fuuid'])
 
         await self.emettre_etat_download_termine()
 
@@ -624,8 +622,8 @@ class SyncManager:
         )
 
     async def run_entretien_transferts(self):
-        entretien_db = EntretienDatabase(self.__etat_instance, check_same_thread=False)
-        await asyncio.to_thread(entretien_db.entretien_transferts)
+        with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
+            await asyncio.to_thread(entretien_db.entretien_transferts)
 
         # Entretien repertoire staging/sync/download - supprimer fichiers inactifs
 
@@ -765,33 +763,42 @@ class SyncManager:
         fuuid = commande['fuuid']
         self.__logger.debug("ajouter_fichier_primaire Conserver nouveau fichier consigne su primaire %s" % fuuid)
 
-        entretien_db = EntretienDatabase(self.__etat_instance, check_same_thread=False)
+        with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
 
-        # Ajouter le fuuid a la liste de fichiers manquants
-        ajoute = await asyncio.to_thread(entretien_db.ajouter_fichier_manquant, fuuid)
+            # Ajouter le fuuid a la liste de fichiers manquants
+            ajoute = await asyncio.to_thread(entretien_db.ajouter_fichier_manquant, fuuid)
 
-        if ajoute:
-            # Tenter d'obtenir la taille du fichier pour ajouter a la liste FICHIERS_PRIMAIRE et DOWNLOADS
-            url_primaire = parse_url(self.__etat_instance.url_consignation_primaire)
-            url_primaire_reclamations = parse_url(
-                '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert', fuuid))
+            if ajoute:
+                # Tenter d'obtenir la taille du fichier pour ajouter a la liste FICHIERS_PRIMAIRE et DOWNLOADS
+                url_primaire = parse_url(self.__etat_instance.url_consignation_primaire)
+                url_primaire_reclamations = parse_url(
+                    '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert', fuuid))
 
-            taille_str = None
-            timeout = aiohttp.ClientTimeout(connect=5)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.head(url_primaire_reclamations.url, ssl=self.__etat_instance.ssl_context) as resp:
-                    if resp.status == 200:
-                        taille_str = resp.headers.get('Content-Length')
-                    else:
-                        self.__logger.info("ajouter_fichier_primaire Nouveau fichier %s non accessible sur primaire (status:%d)" % (fuuid, resp.status))
+                taille_str = None
+                timeout = aiohttp.ClientTimeout(connect=5)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.head(url_primaire_reclamations.url, ssl=self.__etat_instance.ssl_context) as resp:
+                        if resp.status == 200:
+                            taille_str = resp.headers.get('Content-Length')
+                        else:
+                            self.__logger.info("ajouter_fichier_primaire Nouveau fichier %s non accessible sur primaire (status:%d)" % (fuuid, resp.status))
 
-            if taille_str is not None:
-                self.__logger.debug("ajouter_fichier_primaire Fichier %s accessible pour download, taille %s" % (fuuid, taille_str))
+                if taille_str is not None:
+                    self.__logger.debug("ajouter_fichier_primaire Fichier %s accessible pour download, taille %s" % (fuuid, taille_str))
 
-            taille_int = int(taille_str)
-            await asyncio.to_thread(entretien_db.ajouter_download_primaire, fuuid, taille_int)
+                taille_int = int(taille_str)
+                await asyncio.to_thread(entretien_db.ajouter_download_primaire, fuuid, taille_int)
 
-            # Declencher thread download au besoin
-            self.__download_event.set()
+                # Declencher thread download au besoin
+                self.__download_event.set()
 
         pass
+
+    async def ajouter_upload_secondaire(self, fuuid: str):
+        """ Ajouter conditionnellement un upload vers le primaire """
+        with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
+            # Verifier si le fichier est present dans FICHIERS_PRIMAIRE
+            ajoute = await asyncio.to_thread(entretien_db.ajouter_upload_secondaire_conditionnel, fuuid)
+            if ajoute:
+                self.__logger.debug("ajouter_upload_secondaire Declencher upload pour fuuid %s" % fuuid)
+                self.__upload_event.set()
