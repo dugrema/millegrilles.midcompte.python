@@ -9,6 +9,7 @@ import pathlib
 
 from typing import Optional
 from urllib3.util import parse_url
+from aiohttp.client_exceptions import ClientResponseError
 
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
 
@@ -670,16 +671,43 @@ class SyncManager:
         await asyncio.wait_for(producer.producer_pret().wait(), timeout=1)
 
         try:
+            event_done = asyncio.Event()
             async with self.__consignation.get_fp_fuuid(fuuid) as fichier:
-                await uploader_fichier(fichier, session, self.__etat_instance, fuuid)
+                pending = {
+                    uploader_fichier(fichier, session, self.__etat_instance, fuuid),
+                    self.__run_emettre_etat_upload(fuuid, entretien_db, producer, event_done),
+                }
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                for d in done:
+                    e = d.exception()
+                    for p in pending:
+                        p.cancel()
+                    if e:
+                        raise e
+                for t in pending:
+                    t.cancel()
+                while len(pending) > 0:
+                    done, pending = await asyncio.wait(pending, timeout=5)
 
             # Transfert termine. Supprimer job d'upload
             await asyncio.to_thread(entretien_db.supprimer_job_upload, fuuid)
+        except ClientResponseError as e:
+            if e.status == 409:
+                self.__logger.info("upload_fichier_primaire Le fichier %s existe deja sur le serveur - OK, terminer job immediatement" % fuuid)
+                await asyncio.to_thread(entretien_db.supprimer_job_upload, fuuid)
         except Exception:
             self.__logger.exception('upload_fichier_primaire Erreur upload fichier vers primaire')
             await asyncio.to_thread(entretien_db.touch_upload, fuuid, -1)
 
         self.__upload_en_cours = None
+
+    async def __run_emettre_etat_upload(self, fuuid: str, entretien_db, producer, event_stop: asyncio.Event):
+        while event_stop.is_set() is False:
+            try:
+                await self.emettre_etat_upload(fuuid, entretien_db, producer)
+                await asyncio.wait_for(event_stop.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                pass  # OK
 
     async def emettre_etat_upload(self, fuuid, entretien_db: EntretienDatabase, producer):
         samples = self.__samples_upload.copy()

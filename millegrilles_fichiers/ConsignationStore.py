@@ -279,6 +279,19 @@ class EntretienDatabase:
 
         return None
 
+    def get_etat_uploads(self):
+        self.__cur.execute(scripts_database.SELECT_ETAT_UPLOADS)
+        cur = self.__con.cursor()
+        try:
+            row = self.__cur.fetchone()
+            if row:
+                nombre, taille = row
+                return {'nombre': nombre, 'taille': taille}
+        finally:
+            cur.close()
+
+        return None
+
     def entretien_transferts(self):
         """ Marque downloads ou uploads expires, permet nouvel essai. """
         now = datetime.datetime.now(tz=pytz.UTC)

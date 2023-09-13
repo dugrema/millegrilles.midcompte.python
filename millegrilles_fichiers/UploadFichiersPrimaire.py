@@ -89,6 +89,7 @@ async def uploader_fichier(
         finally:
             if session_response is not None:
                 session_response.release()
+            session_response.raise_for_status()
 
         # Incrementer position pour prochain chunk
         position += stream_response[0]

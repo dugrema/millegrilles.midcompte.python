@@ -49,6 +49,12 @@ SELECT_ETAT_DOWNLOADS = """
     WHERE erreur is null; 
 """
 
+SELECT_ETAT_UPLOADS = """
+    SELECT count(fuuid), sum(taille)
+    FROM UPLOADS
+    WHERE erreur is null; 
+"""
+
 # INSERTs/UPDATEs
 
 COMMANDE_INSERT_SECONDAIRES_MANQUANTS = """
