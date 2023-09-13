@@ -139,6 +139,13 @@ UPDATE_RESET_DOWNLOAD_EXPIRE = """
     WHERE date_activite < :date_activite;
 """
 
+COMMANDE_TOUCH_UPLOAD = """
+    UPDATE UPLOADS
+    SET date_activite = :date_activite,
+        erreur = :erreur
+    WHERE fuuid = :fuuid;
+"""
+
 COMMANDE_DELETE_UPLOAD = """
     DELETE FROM UPLOADS
     WHERE fuuid = :fuuid;

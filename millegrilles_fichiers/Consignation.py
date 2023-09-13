@@ -11,6 +11,7 @@ import os
 import tempfile
 
 from aiohttp import web
+from contextlib import asynccontextmanager
 from typing import Optional
 
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
@@ -340,7 +341,7 @@ class ConsignationHandler:
     async def stream_fuuid(self, fuuid: str, response: web.StreamResponse, start: Optional[int] = None, end: Optional[int] = None):
         if self.__store_consignation is None:
             raise Exception("Store non initialise")
-        return await self.__store_consignation.stream_fuuid(fuuid, response, start, end)
+        return await self.__store_consignation.stream_response_fuuid(fuuid, response, start, end)
 
     async def conserver_backup(self, fichier_temp: tempfile.TemporaryFile, uuid_backup: str, domaine: str, nom_fichier: str):
         await self.__store_consignation.conserver_backup(fichier_temp, uuid_backup, domaine, nom_fichier)
@@ -386,6 +387,14 @@ class ConsignationHandler:
 
     async def reactiver_fuuids(self, commande: dict):
         return await self.__store_consignation.reactiver_fuuids(commande)
+
+    @asynccontextmanager
+    async def get_fp_fuuid(self, fuuid: str, start: Optional[int] = None):
+        try:
+            fichier = await self.__store_consignation.get_fp_fuuid(fuuid, start)
+            yield fichier
+        finally:
+            fichier.close()
 
     @property
     def stop_event(self) -> asyncio.Event:

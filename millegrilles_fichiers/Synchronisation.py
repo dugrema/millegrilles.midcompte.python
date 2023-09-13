@@ -16,6 +16,7 @@ from millegrilles_fichiers import Constantes
 # from millegrilles_fichiers.Consignation import ConsignationHandler
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.ConsignationStore import EntretienDatabase
+from millegrilles_fichiers.UploadFichiersPrimaire import uploader_fichier
 
 CONST_LIMITE_SAMPLES_DOWNLOAD = 50  # Utilise pour calcul taux de transfert
 
@@ -668,12 +669,16 @@ class SyncManager:
         producer = self.__etat_instance.producer
         await asyncio.wait_for(producer.producer_pret().wait(), timeout=1)
 
-        url_primaire = parse_url(self.__etat_instance.url_consignation_primaire)
-        url_primaire_reclamations = parse_url(
-            '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert', fuuid))
+        try:
+            async with self.__consignation.get_fp_fuuid(fuuid) as fichier:
+                await uploader_fichier(fichier, session, self.__etat_instance, fuuid)
 
-        # Transfert termine. Supprimer job d'upload
-        await asyncio.to_thread(entretien_db.supprimer_job_upload, fuuid)
+            # Transfert termine. Supprimer job d'upload
+            await asyncio.to_thread(entretien_db.supprimer_job_upload, fuuid)
+        except Exception:
+            self.__logger.exception('upload_fichier_primaire Erreur upload fichier vers primaire')
+            await asyncio.to_thread(entretien_db.touch_upload, fuuid, -1)
+
         self.__upload_en_cours = None
 
     async def emettre_etat_upload(self, fuuid, entretien_db: EntretienDatabase, producer):

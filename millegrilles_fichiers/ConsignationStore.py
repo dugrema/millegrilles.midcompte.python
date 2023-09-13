@@ -301,6 +301,11 @@ class EntretienDatabase:
         self.__cur.execute(scripts_database.COMMANDE_DELETE_UPLOAD, params)
         self.__con.commit()
 
+    def touch_upload(self, fuuid: str, erreur: Optional[int] = None):
+        params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
+        self.__cur.execute(scripts_database.COMMANDE_TOUCH_UPLOAD, params)
+        self.__con.commit()
+
     def close(self):
         self.__con.commit()
         self.__cur.close()
@@ -400,8 +405,12 @@ class ConsignationStore:
         """ Retirer le fichier du bucket """
         raise NotImplementedError('must override')
 
-    async def stream_fuuid(self, fuuid: str, response: web.StreamResponse, start: Optional[int] = None, end: Optional[int] = None):
+    async def stream_response_fuuid(self, fuuid: str, response: web.StreamResponse, start: Optional[int] = None, end: Optional[int] = None):
         """ Stream les bytes du fichier en utilisant la response """
+        raise NotImplementedError('must override')
+
+    async def get_fp_fuuid(self, fuuid, start: Optional[int] = None):
+        """ Retourne un file pointer ou equivalent pour acceder a un fuuid. """
         raise NotImplementedError('must override')
 
     async def entretien(self):
@@ -807,7 +816,7 @@ class ConsignationStoreMillegrille(ConsignationStore):
     async def purger(self, fuuid: str):
         raise NotImplementedError('todo')
 
-    async def stream_fuuid(
+    async def stream_response_fuuid(
             self, fuuid: str, response: web.StreamResponse,
             start: Optional[int] = None, end: Optional[int] = None
     ):
@@ -832,6 +841,24 @@ class ConsignationStoreMillegrille(ConsignationStore):
                 else:
                     await response.write(chunk)
                 position += len(chunk)
+
+    async def get_fp_fuuid(self, fuuid, start: Optional[int] = None):
+        # Pour local FS, ignore la base de donnes. On verifie si le fichier existe dans actif ou archives
+        path_fichier = self.get_path_fuuid(Constantes.BUCKET_PRINCIPAL, fuuid)
+        if path_fichier.exists() is False:
+            path_fichier = self.get_path_fuuid(Constantes.BUCKET_ARCHIVES, fuuid)
+            if path_fichier.exists() is False:
+                raise Exception('fichier inconnu %s' % fuuid)
+
+        input_file = path_fichier.open(mode='rb')
+        try:
+            if start is not None:
+                input_file.seek(start)
+        except Exception as e:
+            input_file.close()
+            raise e
+
+        return input_file
 
     async def visiter_fuuids(self):
         await asyncio.to_thread(self.__visiter_fuuids)

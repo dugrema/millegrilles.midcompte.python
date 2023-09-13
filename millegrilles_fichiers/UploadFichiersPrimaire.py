@@ -1,12 +1,19 @@
-import asyncio
-
 import aiohttp
+import asyncio
 import tempfile
+
+from typing import Optional
 
 from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4WithSecret
 
 BATCH_UPLOAD_DEFAULT = 100_000_000
-CHIFFRER_CHUNK_SIZE = 64 * 1024
+CHUNK_SIZE = 64 * 1024
+
+
+class EtatUpload:
+
+    def __init__(self, entretien_db):
+        pass
 
 
 class TransportStream(asyncio.ReadTransport):
@@ -29,7 +36,7 @@ class TransportStream(asyncio.ReadTransport):
         self.reading = True
 
 
-async def feed_filepart(tmp_file, stream, limit=BATCH_UPLOAD_DEFAULT):
+async def feed_filepart(input_stream, stream, limit=BATCH_UPLOAD_DEFAULT):
     taille_uploade = 0
     done = False
     transport = TransportStream()
@@ -41,7 +48,7 @@ async def feed_filepart(tmp_file, stream, limit=BATCH_UPLOAD_DEFAULT):
                 raise Exception('stream closed')
             await asyncio.sleep(0.1)
 
-        chunk = tmp_file.read(CHIFFRER_CHUNK_SIZE)
+        chunk = input_stream.read(CHUNK_SIZE)
         stream.feed_data(chunk)
         taille_uploade += len(chunk)
 
@@ -55,22 +62,25 @@ async def feed_filepart(tmp_file, stream, limit=BATCH_UPLOAD_DEFAULT):
     return taille_uploade, done
 
 
-async def uploader_fichier(session: aiohttp.ClientSession, etat_fichiers, fuuid,
-                           tmp_file: tempfile.TemporaryFile,
-                           batch_size=BATCH_UPLOAD_DEFAULT):
+async def uploader_fichier(
+        fp_file,
+        session: aiohttp.ClientSession,
+        etat_fichiers,
+        fuuid,
+        start_pos: Optional[int] = 0,
+        batch_size=BATCH_UPLOAD_DEFAULT):
     ssl_context = etat_fichiers.ssl_context
-    url_fichier = f'{etat_fichiers.url_consignation}/fichiers_transfert/{fuuid}'
+    url_fichier = f'{etat_fichiers.url_consignation_primaire}/fichiers_transfert/{fuuid}'
 
-    tmp_file.seek(0)
     headers = {'x-fuuid': fuuid}
 
     done = False
-    position = 0
+    position = start_pos or 0
     while not done:
         # Creer stream-reader pour lire chunks d'un fichier
         stream = asyncio.StreamReader()
         session_coro = session.put(f'{url_fichier}/{position}', ssl=ssl_context, headers=headers, data=stream)
-        stream_coro = feed_filepart(tmp_file, stream, limit=batch_size)
+        stream_coro = feed_filepart(fp_file, stream, limit=batch_size)
 
         # Uploader chunk
         session_response = None
@@ -86,29 +96,3 @@ async def uploader_fichier(session: aiohttp.ClientSession, etat_fichiers, fuuid,
 
     async with session.post(url_fichier, ssl=ssl_context, headers=headers) as resp:
         resp.raise_for_status()
-
-
-async def chiffrer_fichier(cle_bytes: bytes, src: tempfile.TemporaryFile, dest: tempfile.TemporaryFile) -> dict:
-    loop = asyncio.get_running_loop()
-
-    src.seek(0)
-    cipher = CipherMgs4WithSecret(cle_bytes)
-    await loop.run_in_executor(None, __chiffrer, cipher, src, dest)
-
-    return {
-        'hachage': cipher.hachage,
-        'header': cipher.header,
-        'taille_chiffree': cipher.taille_chiffree,
-        'taille_dechiffree': cipher.taille_dechiffree,
-    }
-
-
-def __chiffrer(cipher, src, dest):
-    while True:
-        chunk = src.read(64 * 1024)
-        if len(chunk) == 0:
-            break
-        dest.write(cipher.update(chunk))
-
-    # Finalizer l'ecriture
-    dest.write(cipher.finalize())
