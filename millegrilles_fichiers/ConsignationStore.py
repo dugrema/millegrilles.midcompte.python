@@ -231,6 +231,27 @@ class EntretienDatabase:
         finally:
             self.__con.commit()
 
+    def truncate_backup_primaire(self):
+        self.__cur.execute(scripts_database.COMMANDE_TRUNCATE_BACKUPS_PRIMAIRE)
+        self.__con.commit()
+
+    def ajouter_backup_primaire(self, fichier: dict):
+        if self.__batch_visites is None:
+            self.__batch_visites = list()
+        self.__batch_visites.append(fichier)
+
+        if len(self.__batch_visites) >= self.__limite_batch:
+            self.commit_backup_primaire()
+
+    def commit_backup_primaire(self):
+        batch = self.__batch_visites
+        self.__batch_visites = None
+        try:
+            if batch is not None:
+                self.__cur.executemany(scripts_database.INSERT_BACKUP_PRIMAIRE, batch)
+        finally:
+            self.__con.commit()
+
     def marquer_secondaires_reclames(self):
         date_debut = datetime.datetime.now(tz=pytz.UTC)
 

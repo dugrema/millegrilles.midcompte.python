@@ -37,7 +37,15 @@ CONST_CREATE_FICHIERS = """
         essais INTEGER NOT NULL,
         erreur INTEGER
     );
-    
+
+    CREATE TABLE IF NOT EXISTS BACKUPS_PRIMAIRE(
+        uuid_backup VARCHAR NOT NULL,
+        domaine VARCHAR NOT NULL,
+        nom_fichier VARCHAR NOT NULL,
+        taille INTEGER NOT NULL,
+        PRIMARY KEY (uuid_backup, domaine, nom_fichier)
+    );
+        
 """
 
 # SELECTs
@@ -322,9 +330,18 @@ COMMANDE_INSERT_FICHIER_PRIMAIRE = """
     VALUES(:fuuid, :etat_fichier, :taille, :bucket);
 """
 
+INSERT_BACKUP_PRIMAIRE = """
+    INSERT OR REPLACE INTO BACKUPS_PRIMAIRE(uuid_backup, domaine, nom_fichier, taille)
+    VALUES(:uuid_backup, :domaine, :nom_fichier, :taille);
+"""
+
 
 # Autres
 
 COMMANDE_TRUNCATE_FICHIERS_PRIMAIRE = """
     DELETE FROM FICHIERS_PRIMAIRE;
+"""
+
+COMMANDE_TRUNCATE_BACKUPS_PRIMAIRE = """
+    DELETE FROM BACKUPS_PRIMAIRE;
 """

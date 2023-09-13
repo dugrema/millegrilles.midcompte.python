@@ -432,6 +432,7 @@ class SyncManager:
             path_data = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_DATA)
             path_reclamations = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
             path_reclamations_intermediaire = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
+            path_backup = pathlib.Path(path_data, Constantes.FICHIER_BACKUP)
 
             entretien_db.truncate_fichiers_primaire()
 
@@ -461,6 +462,25 @@ class SyncManager:
 
             # Commit derniere batch
             entretien_db.commit_fichiers_primaire()
+
+            # Charger fichier backup si present
+            entretien_db.truncate_backup_primaire()
+            try:
+                with gzip.open(str(path_backup), 'rt') as fichier:
+                    while True:
+                        row_str = fichier.readline(1024)
+                        if not row_str:
+                            break
+                        row = json.loads(row_str)
+                        entretien_db.ajouter_backup_primaire(row)
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    pass  # OK, fichier absent
+                else:
+                    raise e
+
+            # Commit derniere batch
+            entretien_db.commit_backup_primaire()
 
     async def creer_operations_sur_secondaire(self):
         await asyncio.to_thread(self.__creer_operations_sur_secondaire)
