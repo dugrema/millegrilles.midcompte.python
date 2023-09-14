@@ -20,7 +20,7 @@ from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHa
 import millegrilles_fichiers.DatabaseScripts as scripts_database
 from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
-from millegrilles_fichiers.UploadFichiersPrimaire import EtatUpload, feed_filepart
+from millegrilles_fichiers.UploadFichiersPrimaire import EtatUpload, feed_filepart2
 
 
 class EntretienDatabase:
@@ -929,14 +929,15 @@ class ConsignationStore:
 
         etat_upload = EtatUpload('', fichier, self._stop_store, 0)
 
-        stream = asyncio.StreamReader()
-        session_coro = session.put(url_fichier, ssl=self._etat.ssl_context, data=stream)
-        stream_coro = feed_filepart(etat_upload, stream, limit=10_000_000)
+        feeder = feed_filepart2(etat_upload, limit=10_000_000)
+        session_coro = session.put(url_fichier, ssl=self._etat.ssl_context, data=feeder)
 
         # Uploader chunk
         session_response = None
         try:
-            session_response, stream_response = await asyncio.gather(session_coro, stream_coro)
+            session_response = await session_coro
+            if etat_upload.done is False:
+                raise Exception('Erreur upload fichier backup - feeder not done')
         finally:
             if session_response is not None:
                 session_response.release()
