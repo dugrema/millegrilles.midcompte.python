@@ -22,6 +22,7 @@ class EtatUpload:
         self.taille = taille
         self.position = 0
         self.samples = list()
+        self.cb_activite = None
 
 
 class TransportStream(asyncio.ReadTransport):
@@ -56,32 +57,39 @@ async def feed_filepart(etat_upload: EtatUpload, stream, limit=BATCH_UPLOAD_DEFA
 
     debut_chunk = datetime.datetime.now()
     while taille_uploade < limit:
-        if etat_upload.stop_event.is_set() is True:
+        if etat_upload.stop_event.is_set():
             return  # Stopped
+
+        # Calcule temps transfert chunk
+        now = datetime.datetime.utcnow()
 
         while not transport.is_reading():
             if transport.closed:
                 raise Exception('stream closed')
-            await asyncio.wait([stop_coro], timeout=0.1)
+            await asyncio.wait([stop_coro], timeout=0.01)  # Yield, attente ouverture
+            if etat_upload.stop_event.is_set():
+                return  # Stop
 
         chunk = input_stream.read(CHUNK_SIZE)
-        stream.feed_data(chunk)
-        taille_uploade += len(chunk)
-        etat_upload.position += len(chunk)
 
         if not chunk:
             done = True
             break
 
-        # Calcule temps transfert chunk
-        now = datetime.datetime.utcnow()
+        stream.feed_data(chunk)
+        taille_uploade += len(chunk)
+        etat_upload.position += len(chunk)
+
         duree_transfert = now - debut_chunk
         etat_upload.samples.append({'duree': duree_transfert, 'taille': len(chunk)})
         while len(etat_upload.samples) > CONST_LIMITE_SAMPLES_UPLOAD:
             etat_upload.samples.pop(0)  # Detruire vieux samples
 
+        if etat_upload.cb_activite:
+            await etat_upload.cb_activite()
+
         debut_chunk = now
-        await asyncio.wait([stop_coro], timeout=0.001)  # Yield
+        await asyncio.wait([stop_coro], timeout=0.0001)  # Yield
 
     stop_coro.cancel()
     await asyncio.wait([stop_coro], timeout=1)  # Cancel

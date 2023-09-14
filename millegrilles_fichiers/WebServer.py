@@ -160,7 +160,7 @@ class WebServer:
             else:
                 verificateur = None
             with open(path_fichier, 'wb') as fichier:
-                async for chunk in request.content.iter_chunked(64 * 1024):
+                async for chunk in request.content.iter_chunked(256 * 1024):
                     if verificateur:
                         verificateur.update(chunk)
                     fichier.write(chunk)

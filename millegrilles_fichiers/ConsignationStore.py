@@ -356,6 +356,11 @@ class EntretienDatabase:
         expiration_downloads = now - datetime.timedelta(minutes=30)
         params = {'date_activite': expiration_downloads}
         self.__cur.execute(scripts_database.UPDATE_RESET_DOWNLOAD_EXPIRE, params)
+
+        expiration_uploads = now - datetime.timedelta(minutes=30)
+        params = {'date_activite': expiration_uploads}
+        self.__cur.execute(scripts_database.UPDATE_RESET_UPLOADS_EXPIRE, params)
+
         self.__con.commit()
 
     def supprimer_job_download(self, fuuid: str):
@@ -935,7 +940,7 @@ class ConsignationStore:
         finally:
             if session_response is not None:
                 session_response.release()
-            session_response.raise_for_status()
+                session_response.raise_for_status()
 
 
 class ConsignationStoreMillegrille(ConsignationStore):

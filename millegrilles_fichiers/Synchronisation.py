@@ -759,6 +759,20 @@ class SyncManager:
             async with self.__consignation.get_fp_fuuid(fuuid) as fichier:
                 etat_upload = EtatUpload(fuuid, fichier, self.__stop_event, taille_fichier)
 
+                # Creer un callback pour l'activite d'upload
+                dernier_update = datetime.datetime.utcnow()
+                intervalle_update = datetime.timedelta(seconds=5)
+
+                async def cb_upload():
+                    nonlocal dernier_update
+                    nonlocal entretien_db
+                    now = datetime.datetime.utcnow()
+                    if now - intervalle_update > dernier_update:
+                        dernier_update = now
+                        await asyncio.to_thread(entretien_db.touch_upload, fuuid, None)
+
+                etat_upload.cb_activite = cb_upload
+
                 # Conserver liste precedent de samples pour calculer la vitesse
                 etat_upload.samples = self.__samples_upload or list()
 

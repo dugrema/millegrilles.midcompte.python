@@ -184,6 +184,13 @@ UPDATE_RESET_DOWNLOAD_EXPIRE = """
     WHERE date_activite < :date_activite;
 """
 
+UPDATE_RESET_UPLOADS_EXPIRE = """
+    UPDATE UPLOADS
+    SET date_activite = null,
+        erreur = null
+    WHERE date_activite < :date_activite;
+"""
+
 COMMANDE_TOUCH_UPLOAD = """
     UPDATE UPLOADS
     SET date_activite = :date_activite,
