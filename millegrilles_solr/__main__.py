@@ -56,7 +56,7 @@ class ESMain:
 
         await asyncio.gather(
             self.__rabbitmq_dao.run(),
-            self.__intake.run_entretien(),
+            self.__intake.run(),
             self._etat_relaisolr.run(self._stop_event, self.__rabbitmq_dao),
         )
 
