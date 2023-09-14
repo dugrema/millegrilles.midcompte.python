@@ -14,15 +14,14 @@ from aiohttp import web
 from aiohttp.web_request import Request, StreamResponse
 from asyncio import Event
 from asyncio.exceptions import TimeoutError
-from ssl import SSLContext
-from typing import Optional, Union
+from ssl import SSLContext, VerifyMode
+from typing import Optional
 
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
 from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
 
 from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.Configuration import ConfigurationWeb
-from millegrilles_fichiers.Consignation import InformationFuuid
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.Commandes import CommandHandler
 from millegrilles_fichiers.Intake import IntakeFichiers
@@ -100,12 +99,19 @@ class WebServer:
         self.__ssl_context.load_cert_chain(self.__configuration.web_cert_pem_path,
                                            self.__configuration.web_key_pem_path)
         self.__ssl_context.load_verify_locations(cafile=self.__configuration.ca_pem_path)
+        self.__ssl_context.verify_mode = VerifyMode.CERT_REQUIRED
 
     async def handle_get_fuuid(self, request: Request):
         async with self.__connexions_read_sem:
             fuuid = request.match_info['fuuid']
             method = request.method
             self.__logger.debug("handle_get_fuuid method %s, fuuid %s" % (method, fuuid))
+
+            # Validation information SSL
+            try:
+                common_name = get_common_name(request)
+            except Forbidden:
+                return web.HTTPForbidden()
 
             # Streamer le fichier
             return await self.stream_reponse(request)
@@ -121,11 +127,10 @@ class WebServer:
             for key, value in headers.items():
                 self.__logger.debug('handle_put_fuuid key: %s, value: %s' % (key, value))
 
-            if headers.get('VERIFIED') != 'SUCCESS':
+            try:
+                common_name = get_common_name(request)
+            except Forbidden:
                 return web.HTTPForbidden()
-
-            cert_subject = extract_subject(headers.get('DN'))
-            common_name = cert_subject['CN']
 
             # S'assurer que le fichier n'existe pas deja
             try:
@@ -146,7 +151,10 @@ class WebServer:
 
             # content_hash = headers.get('x-content-hash') or headers.get('x-fuuid')
             content_hash = headers.get('x-content-hash')
-            content_length = int(headers['Content-Length'])
+            try:
+                content_length = int(headers['Content-Length'])
+            except KeyError:
+                content_length = None
 
             # Creer repertoire pour sauvegader la partie de fichier
             path_upload = self.get_path_upload_fuuid(common_name, fuuid)
@@ -177,7 +185,7 @@ class WebServer:
             # Verifier que la taille sur disque correspond a la taille attendue
             # Meme si le hachage est OK, s'assurer d'avoir conserve tous les bytes
             stat = path_fichier.stat()
-            if stat.st_size != content_length:
+            if content_length is not None and stat.st_size != content_length:
                 self.__logger.info("handle_put_fuuid Erreur verification taille, sauvegarde %d, attendu %d" % (stat.st_size, content_length))
                 path_fichier.unlink(missing_ok=True)
                 return web.HTTPBadRequest()
@@ -204,11 +212,10 @@ class WebServer:
             for key, value in headers.items():
                 self.__logger.debug('handle_post_fuuid key: %s, value: %s' % (key, value))
 
-            if headers.get('VERIFIED') != 'SUCCESS':
+            try:
+                common_name = get_common_name(request)
+            except Forbidden:
                 return web.HTTPForbidden()
-
-            cert_subject = extract_subject(headers.get('DN'))
-            common_name = cert_subject['CN']
 
             path_upload = self.get_path_upload_fuuid(common_name, fuuid)
 
@@ -274,11 +281,10 @@ class WebServer:
             # Afficher info (debug)
             self.__logger.debug("handle_delete_fuuid %s" % fuuid)
 
-            if headers.get('VERIFIED') != 'SUCCESS':
+            try:
+                common_name = get_common_name(request)
+            except Forbidden:
                 return web.HTTPForbidden()
-
-            cert_subject = extract_subject(headers.get('DN'))
-            common_name = cert_subject['CN']
 
             path_upload = self.get_path_upload_fuuid(common_name, fuuid)
             try:
@@ -481,7 +487,9 @@ class WebServer:
             # Afficher info (debug)
             self.__logger.debug("handle_post_backup_verifierfichiers %s/%s" % (uuid_backup, domaine))
 
-            if headers.get('VERIFIED') != 'SUCCESS':
+            try:
+                common_name = get_common_name(request)
+            except Forbidden:
                 return web.HTTPForbidden()
 
             # Creer un dict avec fichier:bool pour la reponse
@@ -518,7 +526,9 @@ class WebServer:
             for key, value in headers.items():
                 self.__logger.debug('handle_put_backup key: %s, value: %s' % (key, value))
 
-            if headers.get('VERIFIED') != 'SUCCESS':
+            try:
+                common_name = get_common_name(request)
+            except Forbidden:
                 return web.HTTPForbidden()
 
             # Conserver le fichier dans un tempfile
@@ -550,6 +560,11 @@ class WebServer:
             domaine: str = request.match_info['domaine']
             fichier_nom: str = request.match_info['nomfichier']
 
+            try:
+                common_name = get_common_name(request)
+            except Forbidden:
+                return web.HTTPForbidden()
+
             # Verifier si le fichier existe
             try:
                 info = await self.__consignation.get_info_fichier_backup(uuid_backup, domaine, fichier_nom)
@@ -580,7 +595,9 @@ class WebServer:
             for key, value in headers.items():
                 self.__logger.debug('handle_get_fichier_sync key: %s, value: %s' % (key, value))
 
-            if headers.get('VERIFIED') != 'SUCCESS':
+            try:
+                common_name = get_common_name(request)
+            except Forbidden:
                 return web.HTTPForbidden()
 
             path_data = pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_DATA)
@@ -678,3 +695,32 @@ def valider_hachage_upload_parts(path_upload: pathlib.Path, hachage: str):
                 verificateur.update(chunk)
 
     verificateur.verify()  # Lance une exception si le hachage est incorrect
+
+
+def get_common_name(request: Request):
+    headers = request.headers
+    peercert = request.get_extra_info('peercert')
+    subject_info = [v[0] for v in peercert['subject']]
+    cert_ou = [v[1] for v in subject_info if v[0] == 'organizationalUnitName'].pop()
+    common_name = [v[1] for v in subject_info if v[0] == 'commonName'].pop()
+
+    if cert_ou == 'nginx':
+        if headers.get('VERIFIED') == 'SUCCESS':
+            # Utiliser les headers fournis par nginx
+            cert_subject = extract_subject(headers.get('DN'))
+            common_name = cert_subject['CN']
+        elif headers.get('VERIFIED') == 'INTERNAL':
+            # Flag override interne - on laisse passer sans CN
+            common_name = None
+        else:
+            raise Forbidden()
+    else:
+        # Connexion interne - on ne peut pas verifier que le certificat a l'exchange secure, mais la
+        # connexion est directe (interne au VPN docker) et il est presentement valide.
+        pass
+
+    return common_name
+
+
+class Forbidden(Exception):
+    pass
