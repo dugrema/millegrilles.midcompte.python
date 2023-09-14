@@ -57,13 +57,13 @@ class ESMain:
 
         threads = [
             self.__rabbitmq_dao.run(),
-            self.__intake_images.run_entretien(),
+            self.__intake_images.run(),
             self._etat_media.run(self._stop_event, self.__rabbitmq_dao),
         ]
 
         # Video processing est optionnel
         if self.__intake_videos is not None:
-            threads.append(self.__intake_videos.run_entretien(), )
+            threads.append(self.__intake_videos.run(), )
 
         await asyncio.gather(*threads)
 
