@@ -856,6 +856,8 @@ class SyncManager:
                 await asyncio.wait_for(event_stop.wait(), timeout=5)
             except asyncio.TimeoutError:
                 pass  # OK
+            except asyncio.CancelledError:
+                return  # Stopped
 
     async def emettre_etat_upload(self, fuuid, entretien_db: EntretienDatabase, producer):
 
