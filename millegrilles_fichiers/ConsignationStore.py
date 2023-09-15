@@ -1110,11 +1110,11 @@ class ConsignationStoreMillegrille(ConsignationStore):
                 stat = item.stat()
                 # Ajouter visite, faire commit sur batch. Attendre 5 secondes entre batch (permettre acces a la DB).
                 taille_batch = entretien_db.ajouter_visite(bucket, item.name, stat.st_size)
-                if taille_batch > 5:
+                if taille_batch >= Constantes.CONST_BATCH_VISITES:
                     batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
                     await self.emettre_batch_visites(batch, False)
                     try:
-                        await asyncio.wait_for(self._stop_store.wait(), timeout=0.5)
+                        await asyncio.wait_for(self._stop_store.wait(), timeout=Constantes.CONST_ATTENTE_ENTRE_BATCH_VISITES)
                     except asyncio.TimeoutError:
                         pass  # OK
 
