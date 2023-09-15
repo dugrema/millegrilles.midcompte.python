@@ -8,9 +8,10 @@ import pathlib
 import shutil
 import sqlite3
 import tempfile
+import time
 
 from aiohttp import web, ClientSession
-from typing import Optional, Type
+from typing import Optional, Type, Union
 
 import pytz
 
@@ -40,7 +41,7 @@ class EntretienDatabase:
 
         self.__batch_visites: Optional[dict] = None
 
-        self.__limite_batch = 100
+        self.__limite_batch = 250
 
         self.__debut_entretien = datetime.datetime.now(tz=pytz.UTC)
 
@@ -58,7 +59,7 @@ class EntretienDatabase:
         self.__con.close()
         return False
 
-    def ajouter_visite(self, bucket: str, fuuid: str, taille: int):
+    def ajouter_visite(self, bucket: str, fuuid: str, taille: int) -> int:
         if self.__batch_visites is None:
             self.__batch_visites = list()
         row = {
@@ -70,15 +71,22 @@ class EntretienDatabase:
         }
         self.__batch_visites.append(row)
 
-        if len(self.__batch_visites) >= self.__limite_batch:
-            self.commit_visites()
+        return len(self.__batch_visites)
+
+        # if len(self.__batch_visites) >= self.__limite_batch:
+        #     self.commit_visites()
+        #     if batch_sleep is not None:
+        #         time.sleep(batch_sleep)
 
     def commit_visites(self):
         batch = self.__batch_visites
         self.__batch_visites = None
         if batch is not None:
-            self.__cur.executemany(scripts_database.CONST_PRESENCE_FICHIERS, batch)
+            resultat = self.__cur.executemany(scripts_database.CONST_PRESENCE_FICHIERS, batch)
+        else:
+            resultat = None
         self.__con.commit()
+        return batch, resultat
 
     def marquer_actifs_visites(self):
         """ Sert a marquer tous les fichiers "manquants" comme actifs si visites recemment. """
@@ -796,12 +804,21 @@ class ConsignationStore:
         else:
             return None
 
-    async def emettre_batch_visites(self, fuuids: list[str], verification=False):
+    async def emettre_batch_visites(self, fuuids: list[Union[str, dict]], verification=False):
+        fuuids_parsed = list()
+        for r in fuuids:
+            if isinstance(r, dict):
+                fuuids_parsed.append(r['fuuid'])
+            elif isinstance(r, str):
+                fuuids_parsed.append(r)
+            else:
+                raise TypeError('doit etre str ou dict["fuuid"]')
+
         producer = self._etat.producer
         await asyncio.wait_for(producer.producer_pret().wait(), timeout=10)
 
         message = {
-            'fuuids': fuuids,
+            'fuuids': fuuids_parsed,
             'verification': verification,
         }
         await producer.emettre_evenement(
@@ -1068,28 +1085,38 @@ class ConsignationStoreMillegrille(ConsignationStore):
         return input_file
 
     async def visiter_fuuids(self):
-        await asyncio.to_thread(self.__visiter_fuuids)
-
-    def __visiter_fuuids(self):
         dir_buckets = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BUCKETS)
-        with EntretienDatabase(self._etat) as entretien_db:
+        with EntretienDatabase(self._etat, check_same_thread=False) as entretien_db:
             # Parcourir tous les buckets recursivement (depth-first)
             for bucket in dir_buckets.iterdir():
-                self.visiter_bucket(bucket.name, bucket, entretien_db)
+                self.__logger.debug("Visiter bucket %s" % bucket.name)
+                await self.visiter_bucket(bucket.name, bucket, entretien_db)
 
-            entretien_db.commit_visites()
+            batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
+            await self.emettre_batch_visites(batch, False)
 
             # Marquer tous les fichiers 'manquants' qui viennent d'etre visites comme actifs (utilise date debut)
-            entretien_db.marquer_actifs_visites()
+            await asyncio.to_thread(entretien_db.marquer_actifs_visites)
 
-    def visiter_bucket(self, bucket: str, path_repertoire: pathlib.Path, entretien_db: EntretienDatabase):
+    async def visiter_bucket(self, bucket: str, path_repertoire: pathlib.Path, entretien_db: EntretienDatabase):
         for item in path_repertoire.iterdir():
+            if self._stop_store.is_set():
+                raise Exception('stopping')  # Stopping
+
             if item.is_dir():
                 # Parcourir recursivement
-                self.visiter_bucket(bucket, item, entretien_db)
+                await self.visiter_bucket(bucket, item, entretien_db)
             elif item.is_file():
                 stat = item.stat()
-                entretien_db.ajouter_visite(bucket, item.name, stat.st_size)
+                # Ajouter visite, faire commit sur batch. Attendre 5 secondes entre batch (permettre acces a la DB).
+                taille_batch = entretien_db.ajouter_visite(bucket, item.name, stat.st_size)
+                if taille_batch > 5:
+                    batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
+                    await self.emettre_batch_visites(batch, False)
+                    try:
+                        await asyncio.wait_for(self._stop_store.wait(), timeout=0.5)
+                    except asyncio.TimeoutError:
+                        pass  # OK
 
     async def conserver_backup(self, fichier_temp: tempfile.TemporaryFile, uuid_backup: str, domaine: str,
                                nom_fichier: str):

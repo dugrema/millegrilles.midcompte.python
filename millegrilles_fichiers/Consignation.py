@@ -114,11 +114,21 @@ class ConsignationHandler:
                     self.__logger.error("entretien_store Erreur tasK : %s" % d.exception())
 
             if premiere_execution:
+                self.__timestamp_visite = datetime.datetime.utcnow()
+                try:
+                    await self.__store_consignation.visiter_fuuids()
+                except:
+                    self.__logger.exception("entretien_store Erreur premiere execution de visite")
+                # Debloquer a la synchronisation (initiale)
+                self.__sync_manager.set_visite_completee()
+
                 if self.__etat_instance.est_primaire:
                     self.__logger.info("Declencher sync initial (primaire)")
+                    self.__timestamp_dernier_sync = datetime.datetime.utcnow()
                     await self.declencher_sync_primaire()
                 else:
                     self.__logger.info("Declencher sync initial (secondaire)")
+                    self.__timestamp_dernier_sync = datetime.datetime.utcnow()
                     await self.declencher_sync_secondaire()
 
             try:
@@ -187,6 +197,8 @@ class ConsignationHandler:
                     async with self.__etat_instance.lock_db_job:
                         self.__timestamp_visite = datetime.datetime.utcnow()
                         await self.__store_consignation.visiter_fuuids()
+                        # Debloquer a la synchronisation (initiale)
+                        self.__sync_manager.set_visite_completee()
             except Exception:
                 self.__logger.exception("__traiter_cedule_local Erreur visiter fuuids")
 

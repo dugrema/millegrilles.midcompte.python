@@ -44,6 +44,7 @@ class SyncManager:
         self.__upload_event: Optional[asyncio.Event] = None
         self.__download_event: Optional[asyncio.Event] = None
         self.__backup_event: Optional[asyncio.Event] = None
+        self.__event_attendre_visite: Optional[asyncio.Event] = None
 
         self.__download_en_cours: Optional[dict] = None
         self.__samples_download = list()  # Utilise pour calcul de vitesse
@@ -56,6 +57,10 @@ class SyncManager:
     def demarrer_sync_secondaire(self):
         self.__sync_event_secondaire.set()
 
+    def set_visite_completee(self):
+        """ Appele lorsque la premiere visite de tous les fichiers a ete completee """
+        self.__event_attendre_visite.set()
+
     async def run(self):
         self.__sync_event_primaire = asyncio.Event()
         self.__sync_event_secondaire = asyncio.Event()
@@ -63,6 +68,7 @@ class SyncManager:
         self.__upload_event = asyncio.Event()
         self.__download_event = asyncio.Event()
         self.__backup_event = asyncio.Event()
+        self.__event_attendre_visite = asyncio.Event()
 
         await asyncio.gather(
             self.thread_sync_primaire(),
@@ -75,7 +81,13 @@ class SyncManager:
         )
 
     async def thread_sync_primaire(self):
-        pending = {self.__stop_event.wait()}
+        pending = {self.__stop_event.wait(), self.__event_attendre_visite.wait()}
+        self.__logger.info('thread_sync_primaire Attendre premiere visite complete des fuuids')
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        if self.__stop_event.is_set():
+            return  # Stopping
+        self.__logger.info('thread_sync_primaire Deblocage thread apres premiere visite complete des fuuids')
+
         while self.__stop_event.is_set() is False:
             pending.add(self.__sync_event_primaire.wait())
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
@@ -90,7 +102,13 @@ class SyncManager:
             self.__sync_event_primaire.clear()
 
     async def thread_sync_secondaire(self):
-        pending = {self.__stop_event.wait()}
+        pending = {self.__stop_event.wait(), self.__event_attendre_visite.wait()}
+        self.__logger.info('thread_sync_secondaire Attendre premiere visite complete des fuuids')
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        if self.__stop_event.is_set():
+            return  # Stopping
+        self.__logger.info('thread_sync_secondaire Deblocage thread apres premiere visite complete des fuuids')
+
         while self.__stop_event.is_set() is False:
             pending.add(self.__sync_event_secondaire.wait())
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
