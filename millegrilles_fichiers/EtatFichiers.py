@@ -30,6 +30,9 @@ class EtatFichiers(EtatInstance):
         self.__public_key_ssh_ed25519 = None
         self.__public_key_ssh_rsa = None
 
+        # Semaphore pour empecher plusieurs jobs de s'executer en background en meme temps (DB lock)
+        self.__lock_db_job: Optional[asyncio.BoundedSemaphore] = None
+
     async def reload_configuration(self):
         await super().reload_configuration()
         self.__ssl_context = SSLContext()
@@ -107,6 +110,13 @@ class EtatFichiers(EtatInstance):
     @property
     def url_consignation_primaire(self) -> Optional[str]:
         return self.__url_consignation_primaire
+
+    @property
+    def lock_db_job(self) -> asyncio.BoundedSemaphore:
+        # Chargement valeurs au besoin
+        if self.__lock_db_job is None:
+            self.__lock_db_job = asyncio.BoundedSemaphore(value=1)
+        return self.__lock_db_job
 
     def get_public_key_ssh(self) -> dict:
         return {'rsa': self.__public_key_ssh_rsa, 'ed25519': self.__public_key_ssh_ed25519}

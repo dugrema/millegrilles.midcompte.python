@@ -223,24 +223,25 @@ class SyncManager:
         await asyncio.wait(pending, timeout=1)
 
     async def run_sync_primaire(self):
-        self.__logger.info("thread_sync_primaire Demarrer sync")
-        await self.emettre_etat_sync_primaire()
+        async with self.__etat_instance.lock_db_job:
+            self.__logger.info("thread_sync_primaire Demarrer sync")
+            await self.emettre_etat_sync_primaire()
 
-        event_sync = asyncio.Event()
+            event_sync = asyncio.Event()
 
-        done, pending = await asyncio.wait(
-            [
-                self.thread_emettre_evenement_primaire(event_sync),
-                self.__sequence_sync_primaire()
-            ],
-            return_when=asyncio.FIRST_COMPLETED
-        )
-        event_sync.set()  # Complete
-        for t in pending:
-            t.cancel('done')
+            done, pending = await asyncio.wait(
+                [
+                    self.thread_emettre_evenement_primaire(event_sync),
+                    self.__sequence_sync_primaire()
+                ],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            event_sync.set()  # Complete
+            for t in pending:
+                t.cancel('done')
 
-        await self.emettre_etat_sync_primaire(termine=True)
-        self.__logger.info("thread_sync_primaire Fin sync")
+            await self.emettre_etat_sync_primaire(termine=True)
+            self.__logger.info("thread_sync_primaire Fin sync")
 
     async def __sequence_sync_primaire(self):
         # Date debut utilise pour trouver les fichiers orphelins (si reclamation est complete)
@@ -257,24 +258,25 @@ class SyncManager:
         await self.__consignation.generer_backup_sync()
 
     async def run_sync_secondaire(self):
-        self.__logger.info("run_sync_secondaire Demarrer sync")
-        await self.emettre_etat_sync_secondaire()
+        async with self.__etat_instance.lock_db_job:
+            self.__logger.info("run_sync_secondaire Demarrer sync")
+            await self.emettre_etat_sync_secondaire()
 
-        event_sync = asyncio.Event()
+            event_sync = asyncio.Event()
 
-        done, pending = await asyncio.wait(
-            [
-                self.thread_emettre_evenement_secondaire(event_sync),
-                self.__sequence_sync_secondaire()
-            ],
-            return_when=asyncio.FIRST_COMPLETED
-        )
-        event_sync.set()  # Complete
-        for t in pending:
-            t.cancel('done')
+            done, pending = await asyncio.wait(
+                [
+                    self.thread_emettre_evenement_secondaire(event_sync),
+                    self.__sequence_sync_secondaire()
+                ],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            event_sync.set()  # Complete
+            for t in pending:
+                t.cancel('done')
 
-        await self.emettre_etat_sync_secondaire(termine=True)
-        self.__logger.info("run_sync_secondaire Fin sync")
+            await self.emettre_etat_sync_secondaire(termine=True)
+            self.__logger.info("run_sync_secondaire Fin sync")
 
     async def __sequence_sync_secondaire(self):
         # Download fichiers reclamations primaire
