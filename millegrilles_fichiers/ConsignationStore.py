@@ -294,34 +294,52 @@ class EntretienDatabase:
 
     def get_next_download(self):
         params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}
-        self.__cur.execute(scripts_database.COMMANDE_GET_NEXT_DOWNLOAD, params)
-        row = self.__cur.fetchone()
-        self.__con.commit()
+        cur = self.__con.cursor()
+        row = None
+        try:
+            cur.execute(scripts_database.COMMANDE_GET_NEXT_DOWNLOAD, params)
+            row = cur.fetchone()
+        finally:
+            cur.close()
+            self.__con.commit()
+
         if row is not None:
             fuuid, taille = row
             return {'fuuid': fuuid, 'taille': taille}
+
         return None
 
     def get_next_upload(self):
         params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}
-        self.__cur.execute(scripts_database.COMMANDE_GET_NEXT_UPLOAD, params)
-        row = self.__cur.fetchone()
-        self.__con.commit()
+        cur = self.__con.cursor()
+        row = None
+        try:
+            cur.execute(scripts_database.COMMANDE_GET_NEXT_UPLOAD, params)
+            row = cur.fetchone()
+        finally:
+            cur.close()
+            self.__con.commit()
+
         if row is not None:
             fuuid, taille = row
             return {'fuuid': fuuid, 'taille': taille}
+
         return None
 
     def touch_download(self, fuuid: str, erreur: Optional[int] = None):
         params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
-        self.__cur.execute(scripts_database.COMMANDE_TOUCH_DOWNLOAD, params)
-        self.__con.commit()
-
-    def get_etat_downloads(self):
-        self.__cur.execute(scripts_database.SELECT_ETAT_DOWNLOADS)
         cur = self.__con.cursor()
         try:
-            row = self.__cur.fetchone()
+            cur.execute(scripts_database.COMMANDE_TOUCH_DOWNLOAD, params)
+        finally:
+            cur.close()
+            self.__con.commit()
+
+    def get_etat_downloads(self):
+        cur = self.__con.cursor()
+        try:
+            cur.execute(scripts_database.SELECT_ETAT_DOWNLOADS)
+            row = cur.fetchone()
             if row:
                 nombre, taille = row
                 return {'nombre': nombre, 'taille': taille}
@@ -383,8 +401,12 @@ class EntretienDatabase:
 
     def touch_upload(self, fuuid: str, erreur: Optional[int] = None):
         params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
-        self.__cur.execute(scripts_database.COMMANDE_TOUCH_UPLOAD, params)
-        self.__con.commit()
+        cur = self.__con.cursor()
+        try:
+            cur.execute(scripts_database.COMMANDE_TOUCH_UPLOAD, params)
+        finally:
+            cur.close()
+            self.__con.commit()
 
     def ajouter_fichier_manquant(self, fuuid) -> bool:
         """ Ajoute un fichier qui devrait etre manquant (e.g. sur evenement consignationPrimaire)"""
