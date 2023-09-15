@@ -50,7 +50,7 @@ class CommandHandler(CommandesAbstract):
         # requete.fichiers.verifierExistance
         res_primaire.ajouter_rk(
             ConstantesMilleGrilles.SECURITE_PRIVE,
-            f'requete.{Constantes.DOMAINE_FICHIERS}.{Constantes.REQUETE_VERIFIER_EXISTANCE}',)
+            f'requete.{Constantes.DOMAINE_FICHIERS}.{Constantes.REQUETE_FUUID_VERIFIER_EXISTANCE}',)
         # commande.fichiers.declencherSync
         res_primaire.ajouter_rk(
             ConstantesMilleGrilles.SECURITE_PRIVE,
@@ -172,7 +172,7 @@ class CommandHandler(CommandesAbstract):
         elif type_message == 'requete':
             if action == Constantes.REQUETE_PUBLIC_KEY_SSH:
                 return await self.requete_cles_ssh()
-            elif action == Constantes.REQUETE_VERIFIER_EXISTANCE:
+            elif action == Constantes.REQUETE_FUUID_VERIFIER_EXISTANCE:
                 return await self.verifier_existance(message.parsed)
             else:
                 self.__logger.warning(
@@ -238,4 +238,19 @@ class CommandHandler(CommandesAbstract):
         return reponse
 
     async def verifier_existance(self, commande: dict):
-        raise NotImplementedError('todo')
+        fuuids = commande['fuuids']
+        visiter = commande.get('visiter')
+        if visiter is True:
+            self.__logger.warning('verifier_existance Flag visiter==true, non implemente (IGNORE)')
+
+        info_fuuids = dict()
+        reponse = {'fuuids': info_fuuids}
+
+        for fuuid in fuuids:
+            info_fuuids[fuuid] = False
+
+            info = self.__consignation.get_info_fichier(fuuid)
+            if info is not None:
+                info_fuuids[fuuid] = info['etat_fichier'] != Constantes.DATABASE_ETAT_MANQUANT
+
+        return reponse

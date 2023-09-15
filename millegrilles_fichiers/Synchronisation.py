@@ -104,7 +104,7 @@ class SyncManager:
             self.__sync_event_secondaire.clear()
 
     async def thread_upload(self):
-        pending = {self.__stop_event.wait()}
+        pending = {asyncio.create_task(self.__stop_event.wait())}
         while self.__stop_event.is_set() is False:
             pending.add(self.__upload_event.wait())
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
@@ -126,7 +126,7 @@ class SyncManager:
         await asyncio.wait(pending, timeout=1)
 
     async def thread_download(self):
-        pending = {self.__stop_event.wait()}
+        pending = {asyncio.create_task(self.__stop_event.wait())}
         while self.__stop_event.is_set() is False:
             pending.add(self.__download_event.wait())
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
@@ -187,7 +187,10 @@ class SyncManager:
             else:
                 bucket = Constantes.BUCKET_PRINCIPAL
 
+            # Faire un touch d'activite avant et apres traitement pour eviter un timeout
+            self.__attente_domaine_activite = datetime.datetime.utcnow()
             await self.__consignation.reclamer_fuuids_database(fuuids, bucket)
+            self.__attente_domaine_activite = datetime.datetime.utcnow()
 
             if self.__attente_domaine_event is not None and termine:
                 self.__attente_domaine_event.set()
@@ -237,8 +240,13 @@ class SyncManager:
                 return_when=asyncio.FIRST_COMPLETED
             )
             event_sync.set()  # Complete
-            for t in pending:
-                t.cancel('done')
+
+            # Finir executions pending
+            await asyncio.wait(pending, timeout=1)
+
+            for d in done:
+                if d.exception():
+                    raise d
 
             await self.emettre_etat_sync_primaire(termine=True)
             self.__logger.info("thread_sync_primaire Fin sync")
@@ -272,8 +280,13 @@ class SyncManager:
                 return_when=asyncio.FIRST_COMPLETED
             )
             event_sync.set()  # Complete
-            for t in pending:
-                t.cancel('done')
+
+            # Finir executions pending
+            await asyncio.wait(pending, timeout=1)
+
+            for d in done:
+                if d.exception():
+                    raise d
 
             await self.emettre_etat_sync_secondaire(termine=True)
             self.__logger.info("run_sync_secondaire Fin sync")
@@ -357,14 +370,18 @@ class SyncManager:
         wait_coro = self.__attente_domaine_event.wait()
         self.__attente_domaine_activite = datetime.datetime.utcnow()
         while self.__attente_domaine_event.is_set() is False:
-            expire = datetime.datetime.utcnow() - datetime.timedelta(seconds=15)
+            expire = datetime.datetime.utcnow() - datetime.timedelta(seconds=20)
             if expire > self.__attente_domaine_activite:
                 # Timeout activite
                 break
             await asyncio.wait([wait_coro], timeout=5)
 
         complete = self.__attente_domaine_event.is_set()
+
+        # Consommer wait
         self.__attente_domaine_event.set()
+        await asyncio.wait([wait_coro], timeout=1)
+
         self.__attente_domaine_event = None
 
         return complete
@@ -790,12 +807,17 @@ class SyncManager:
 
                 for p in pending:
                     p.cancel()
+
+                if len(pending) > 0:
+                    done_2, pending = await asyncio.wait(pending, timeout=5)
+                    for d in done_2:
+                        if d.exception():
+                            self.__logger.error("upload_fichier_primaire Exception task : %s" % str(d.exception()))
+
                 for d in done:
                     e = d.exception()
                     if e:
                         raise e
-                while len(pending) > 0:
-                    done, pending = await asyncio.wait(pending, timeout=5)
 
             # Transfert termine. Supprimer job d'upload
             await asyncio.to_thread(entretien_db.supprimer_job_upload, fuuid)

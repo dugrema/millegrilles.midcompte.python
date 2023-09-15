@@ -56,7 +56,8 @@ COMMANDE_SUPPRIMER_ORPHELINS = 'supprimerOrphelins'
 
 REQUETE_PUBLIC_KEY_SSH = 'getPublicKeySsh'
 REQUETE_LISTE_DOMAINES = 'listeDomaines'
-REQUETE_VERIFIER_EXISTANCE = 'verifierExistance'
+# REQUETE_VERIFIER_EXISTANCE = 'verifierExistance'
+REQUETE_FUUID_VERIFIER_EXISTANCE = 'fuuidVerifierExistance'
 
 CONST_CHAMPS_CONFIG = ['type_store', 'url_download', 'consignation_url']
 

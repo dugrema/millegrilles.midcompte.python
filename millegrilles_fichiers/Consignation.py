@@ -108,7 +108,10 @@ class ConsignationHandler:
         premiere_execution = True
         # Attente configuration store
         while self.__stop_event.is_set() is False:
-            await asyncio.wait([stop_event_wait, self.__store_pret_event.wait()], return_when=asyncio.FIRST_COMPLETED)
+            done, pending = await asyncio.wait([stop_event_wait, self.__store_pret_event.wait()], return_when=asyncio.FIRST_COMPLETED)
+            for d in done:
+                if d.exception():
+                    self.__logger.error("entretien_store Erreur tasK : %s" % d.exception())
 
             if premiere_execution:
                 if self.__etat_instance.est_primaire:
@@ -134,7 +137,11 @@ class ConsignationHandler:
         wait_coro = self.__stop_event.wait()
 
         while self.__stop_event.is_set() is False:
-            await asyncio.wait([wait_coro, self.__traiter_cedule_event.wait()], return_when=asyncio.FIRST_COMPLETED)
+            done, pending = await asyncio.wait([wait_coro, self.__traiter_cedule_event.wait()], return_when=asyncio.FIRST_COMPLETED)
+            for d in done:
+                if d.exception():
+                    self.__logger.error("entretien_store Erreur tasK : %s" % d.exception())
+
             if self.__stop_event.is_set():
                 break  # Termine
 

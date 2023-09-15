@@ -774,22 +774,27 @@ class ConsignationStore:
 
         return resultats_dict
 
-    def get_info_fichier(self, fuuid: str):
+    def get_info_fichier(self, fuuid: str) -> Optional[dict]:
         con = self.ouvrir_database()
         cur = con.cursor()
         cur.execute(scripts_database.CONST_INFO_FICHIER, {'fuuid': fuuid})
-        _fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation = cur.fetchone()
-        cur.close()
-        con.close()
 
-        return {
-            'fuuid': fuuid,
-            'taille': taille,
-            'etat_fichier': etat_fichier,
-            'date_presence': date_presence,
-            'date_verification': date_verification,
-            'date_reclamation': date_reclamation
-        }
+        row = cur.fetchone()
+        if row is not None:
+            _fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation = row
+            cur.close()
+            con.close()
+
+            return {
+                'fuuid': fuuid,
+                'taille': taille,
+                'etat_fichier': etat_fichier,
+                'date_presence': date_presence,
+                'date_verification': date_verification,
+                'date_reclamation': date_reclamation
+            }
+        else:
+            return None
 
     async def emettre_batch_visites(self, fuuids: list[str], verification=False):
         producer = self._etat.producer
