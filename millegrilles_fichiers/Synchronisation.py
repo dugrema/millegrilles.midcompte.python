@@ -994,7 +994,7 @@ class SyncManager:
                 self.__upload_event.set()
 
     async def run_sync_backup(self):
-        with self.__etat_instance.lock_db_job:
+        async with self.__etat_instance.lock_db_job:
             with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
                 timeout = aiohttp.ClientTimeout(connect=20, total=900)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
