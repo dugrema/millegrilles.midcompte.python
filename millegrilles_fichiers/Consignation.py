@@ -116,7 +116,8 @@ class ConsignationHandler:
             if premiere_execution:
                 self.__timestamp_visite = datetime.datetime.utcnow()
                 try:
-                    await self.__store_consignation.visiter_fuuids()
+                    async with self.__etat_instance.lock_db_job:
+                        await self.__store_consignation.visiter_fuuids()
                 except:
                     self.__logger.exception("entretien_store Erreur premiere execution de visite")
                 # Debloquer a la synchronisation (initiale)

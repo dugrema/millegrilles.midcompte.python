@@ -787,25 +787,29 @@ class SyncManager:
         )
 
     async def run_entretien_transferts(self):
-        with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
-            await asyncio.to_thread(entretien_db.entretien_transferts)
+        if self.__etat_instance.lock_db_job.locked() is False:
+            return  # Skip entretien, DB active
 
-        # Entretien repertoire staging/sync/download - supprimer fichiers inactifs
+        async with self.__etat_instance.lock_db_job:
+            with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
+                await asyncio.to_thread(entretien_db.entretien_transferts)
 
-        path_download = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_SYNC_DOWNLOAD)
-        date_expiration = (datetime.datetime.now() - datetime.timedelta(hours=2)).timestamp()
+            # Entretien repertoire staging/sync/download - supprimer fichiers inactifs
 
-        try:
-            for file in path_download.iterdir():
-                stat_file = file.stat()
-                if stat_file.st_mtime < date_expiration:
-                    self.__logger.info("Supprimer fichier sync download expire %s" % file)
-                    file.unlink()
-        except OSError as e:
-            if e.errno == errno.ENOENT:
-                pass  # OK
-            else:
-                raise e
+            path_download = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_SYNC_DOWNLOAD)
+            date_expiration = (datetime.datetime.now() - datetime.timedelta(hours=2)).timestamp()
+
+            try:
+                for file in path_download.iterdir():
+                    stat_file = file.stat()
+                    if stat_file.st_mtime < date_expiration:
+                        self.__logger.info("Supprimer fichier sync download expire %s" % file)
+                        file.unlink()
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    pass  # OK
+                else:
+                    raise e
 
     async def upload_fichier_primaire(self, session: aiohttp.ClientSession, entretien_db: EntretienDatabase, fichier: dict):
         fuuid = fichier['fuuid']
@@ -990,11 +994,12 @@ class SyncManager:
                 self.__upload_event.set()
 
     async def run_sync_backup(self):
-        with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
-            timeout = aiohttp.ClientTimeout(connect=20, total=900)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                await self.__consignation.upload_backups_primaire(session, entretien_db)
-                await self.download_backups_primaire(entretien_db, session)
+        with self.__etat_instance.lock_db_job:
+            with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
+                timeout = aiohttp.ClientTimeout(connect=20, total=900)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    await self.__consignation.upload_backups_primaire(session, entretien_db)
+                    await self.download_backups_primaire(entretien_db, session)
 
     async def download_backups_primaire(self, entretien_db: EntretienDatabase, session: aiohttp.ClientSession):
         """ Downloader les fichiers de backup qui sont manquants localement """
