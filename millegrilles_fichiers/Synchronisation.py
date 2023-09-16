@@ -788,28 +788,30 @@ class SyncManager:
 
     async def run_entretien_transferts(self):
         if self.__etat_instance.lock_db_job.locked() is False:
-            return  # Skip entretien, DB active
+            async with self.__etat_instance.lock_db_job:
+                with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
+                    await asyncio.to_thread(entretien_db.entretien_transferts)
 
-        async with self.__etat_instance.lock_db_job:
-            with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
-                await asyncio.to_thread(entretien_db.entretien_transferts)
+                # Entretien repertoire staging/sync/download - supprimer fichiers inactifs
 
-            # Entretien repertoire staging/sync/download - supprimer fichiers inactifs
+                path_download = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_SYNC_DOWNLOAD)
+                date_expiration = (datetime.datetime.now() - datetime.timedelta(hours=2)).timestamp()
 
-            path_download = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_SYNC_DOWNLOAD)
-            date_expiration = (datetime.datetime.now() - datetime.timedelta(hours=2)).timestamp()
+                try:
+                    for file in path_download.iterdir():
+                        stat_file = file.stat()
+                        if stat_file.st_mtime < date_expiration:
+                            self.__logger.info("Supprimer fichier sync download expire %s" % file)
+                            file.unlink()
+                except OSError as e:
+                    if e.errno == errno.ENOENT:
+                        pass  # OK
+                    else:
+                        raise e
 
-            try:
-                for file in path_download.iterdir():
-                    stat_file = file.stat()
-                    if stat_file.st_mtime < date_expiration:
-                        self.__logger.info("Supprimer fichier sync download expire %s" % file)
-                        file.unlink()
-            except OSError as e:
-                if e.errno == errno.ENOENT:
-                    pass  # OK
-                else:
-                    raise e
+        # Redeclencher transferts
+        self.__upload_event.set()
+        self.__download_event.set()
 
     async def upload_fichier_primaire(self, session: aiohttp.ClientSession, entretien_db: EntretienDatabase, fichier: dict):
         fuuid = fichier['fuuid']
