@@ -264,7 +264,7 @@ class SyncManager:
 
             for d in done:
                 if d.exception():
-                    raise d
+                    raise d.exception()
 
             await self.emettre_etat_sync_primaire(termine=True)
             self.__logger.info("thread_sync_primaire Fin sync")
@@ -304,7 +304,7 @@ class SyncManager:
 
             for d in done:
                 if d.exception():
-                    raise d
+                    raise d.exception()
 
             await self.emettre_etat_sync_secondaire(termine=True)
             self.__logger.info("run_sync_secondaire Fin sync")
