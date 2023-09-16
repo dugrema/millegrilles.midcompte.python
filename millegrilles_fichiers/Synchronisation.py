@@ -693,6 +693,10 @@ class SyncManager:
             async with session.get(url_primaire_reclamations.url, ssl=self.__etat_instance.ssl_context) as resp:
                 if resp.status != 200:
                     self.__logger.warning("Erreur download fichier %s (status %d)" % (fuuid, resp.status))
+                    if resp.status == 404:
+                        self.__logger.warning(
+                            "Erreur download fichier %s - supprimer le download" % fuuid)
+                        await asyncio.to_thread(entretien_db.supprimer_job_download, fuuid)
                     await asyncio.to_thread(entretien_db.touch_download, fuuid, resp.status)
                     path_fichier_work.unlink()
                     return
