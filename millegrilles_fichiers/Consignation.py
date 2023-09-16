@@ -100,8 +100,8 @@ class ConsignationHandler:
                 self.__logger.exception("entretien Erreur charger_topologie")
             await asyncio.wait([stop_event_wait], timeout=300)
 
-        if self.__store_consignation is not None:
-            await self.__store_consignation.stop()
+        # if self.__store_consignation is not None:
+        #     await self.__store_consignation.stop()
 
     async def entretien_store(self):
         stop_event_wait = self.__stop_event.wait()
@@ -190,11 +190,11 @@ class ConsignationHandler:
         await asyncio.wait_for(self.__store_pret_event.wait(), timeout=10)
 
         if self.__timestamp_visite is None or now - self.__intervalle_visites > self.__timestamp_visite:
-            self.__logger.info("__traiter_cedule_local Visiter fuuids")
             try:
                 # Demarrer la job si le semaphore n'est pas deja bloque
                 if self.__etat_instance.lock_db_job.locked() is False:
                     async with self.__etat_instance.lock_db_job:
+                        self.__logger.info("__traiter_cedule_local Visiter fuuids")
                         self.__timestamp_visite = datetime.datetime.utcnow()
                         await self.__store_consignation.visiter_fuuids()
                         # Debloquer a la synchronisation (initiale)
@@ -203,22 +203,22 @@ class ConsignationHandler:
                 self.__logger.exception("__traiter_cedule_local Erreur visiter fuuids")
 
         if self.__timestamp_verification is None or now - self.__intervalle_verification > self.__timestamp_verification:
-            self.__logger.info("__traiter_cedule_local Verifier fuuids")
             try:
                 # Demarrer la job si le semaphore n'est pas deja bloque
                 if self.__etat_instance.lock_db_job.locked() is False:
                     async with self.__etat_instance.lock_db_job:
+                        self.__logger.info("__traiter_cedule_local Verifier fuuids")
                         self.__timestamp_verification = datetime.datetime.utcnow()
                         await self.__store_consignation.verifier_fuuids()
             except Exception:
                 self.__logger.exception("__traiter_cedule_local Erreur verifier fuuids")
 
         if self.__timestamp_orphelins is None or now - self.__intervalle_orphelins > self.__timestamp_orphelins:
-            self.__logger.info("__traiter_cedule_local Supprimer orphelins")
             try:
                 # Demarrer la job si le semaphore n'est pas deja bloque
                 if self.__etat_instance.lock_db_job.locked() is False:
                     async with self.__etat_instance.lock_db_job:
+                        self.__logger.info("__traiter_cedule_local Supprimer orphelins")
                         self.__timestamp_orphelins = datetime.datetime.utcnow()
                         await self.__store_consignation.supprimer_orphelins()
             except Exception:
@@ -279,12 +279,12 @@ class ConsignationHandler:
         type_store = self.__etat_instance.topologie['type_store']
         class_type = map_type(type_store)
 
-        # Arreter store courant si present
-        if self.__store_consignation is not None:
-            await self.__store_consignation.stop()
-
         if self.__store_consignation is None or self.__store_consignation.__class__ != class_type:
-            self.__logger.info("Changer store consignation pour type %s" % type_store)
+            # Arreter store courant si present
+            self.__logger.info("modifier_topologie Changer store consignation pour type %s" % type_store)
+            if self.__store_consignation is not None:
+                self.__logger.info("modifier_topologie Arret store consignation courant (stop)")
+                await self.__store_consignation.stop()
             instance_store = class_type(self.__etat_instance)
             self.__store_consignation = instance_store
             self.__store_consignation.initialiser()
