@@ -46,6 +46,9 @@ class SyncManager:
         self.__backup_event: Optional[asyncio.Event] = None
         self.__event_attendre_visite: Optional[asyncio.Event] = None
 
+        self.__nombre_fuuids_reclames_domaine = 0
+        self.__total_fuuids_reclames_domaine: Optional[int] = None
+
         self.__download_en_cours: Optional[dict] = None
         self.__samples_download = list()  # Utilise pour calcul de vitesse
         self.__upload_en_cours: Optional[EtatUpload] = None
@@ -187,10 +190,13 @@ class SyncManager:
     async def thread_traiter_fuuids_reclames(self):
         pending = {self.__stop_event.wait()}
         while self.__stop_event.is_set() is False:
+            # Ajouter get queue (async block)
             pending.add(self.__reception_fuuids_reclames.get())
+
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             if self.__stop_event.is_set() is True:
                 break
+
             coro = done.pop()
             commande: dict = coro.result()
             if isinstance(commande, dict) is False:
@@ -199,6 +205,12 @@ class SyncManager:
             termine = commande.get('termine') or False
             fuuids = commande.get('fuuids') or list()
             archive = commande.get('archive') or False
+            total = commande.get('total')
+
+            self.__nombre_fuuids_reclames_domaine += len(fuuids)
+
+            if total:
+                self.__total_fuuids_reclames_domaine = total
 
             if archive is True:
                 bucket = Constantes.BUCKET_ARCHIVES
@@ -208,6 +220,7 @@ class SyncManager:
             # Faire un touch d'activite avant et apres traitement pour eviter un timeout
             self.__attente_domaine_activite = datetime.datetime.utcnow()
             await self.__consignation.reclamer_fuuids_database(fuuids, bucket)
+            await asyncio.sleep(0.5)  # Throttle pour permettre acces DB
             self.__attente_domaine_activite = datetime.datetime.utcnow()
 
             if self.__attente_domaine_event is not None and termine:
@@ -341,6 +354,8 @@ class SyncManager:
     async def reclamer_fuuids(self) -> bool:
         domaines = await self.get_domaines_reclamation()
         complet = True
+        self.__nombre_fuuids_reclames_domaine = 0  # Compteur de fuuids recus
+        self.__total_fuuids_reclames_domaine = None
         for domaine in domaines:
             resultat = await self.reclamer_fichiers_domaine(domaine)
             complet = complet and resultat
@@ -394,7 +409,8 @@ class SyncManager:
                 break
             await asyncio.wait([wait_coro], timeout=5)
 
-        complete = self.__attente_domaine_event.is_set()
+        complete = (self.__attente_domaine_event.is_set() and
+                    self.__nombre_fuuids_reclames_domaine == self.__total_fuuids_reclames_domaine)
 
         # Consommer wait
         self.__attente_domaine_event.set()

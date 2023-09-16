@@ -893,18 +893,25 @@ class ConsignationStore:
 
     def __marquer_orphelins(self, debut_reclamation: datetime.datetime, complet=False):
         con = self.ouvrir_database()
-        cur = con.cursor()
+        try:
+            cur = con.cursor()
 
-        if complet:
-            # Marquer les fichiers avec vieille date de reclamation comme non reclames (orphelins)
-            cur.execute(scripts_database.CONST_MARQUER_ORPHELINS, {'date_reclamation': debut_reclamation})
+            if complet:
+                # Marquer les fichiers avec vieille date de reclamation comme non reclames (orphelins)
+                resultat = cur.execute(scripts_database.CONST_MARQUER_ORPHELINS, {'date_reclamation': debut_reclamation})
+                self.__logger.info("__marquer_orphelins Marquer actif -> orphelins : %d rows" % resultat.rowcount)
+                con.commit()
+            else:
+                self.__logger.info("__marquer_orphelins Skip, reclamation est incomplete")
 
-        # Marquer fichiers orphelins qui viennent d'etre reclames comme actif
-        cur.execute(scripts_database.CONST_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
+            # Marquer fichiers orphelins qui viennent d'etre reclames comme actif
+            resultat = cur.execute(scripts_database.CONST_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
+            self.__logger.info("__marquer_orphelins Marquer orphelins -> actif : %d rows" % resultat.rowcount)
+            con.commit()
 
-        con.commit()
-        cur.close()
-        con.close()
+            cur.close()
+        finally:
+            con.close()
 
     def __charger_verifier_fuuids(self, limite_taille: Constantes.CONST_LIMITE_TAILLE_VERIFICATION) -> list[dict]:
         # Generer une batch de fuuids a verifier
