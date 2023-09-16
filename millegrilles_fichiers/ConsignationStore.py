@@ -1141,7 +1141,7 @@ class ConsignationStoreMillegrille(ConsignationStore):
         if path_fichier.exists() is False:
             path_fichier = self.get_path_fuuid(Constantes.BUCKET_ARCHIVES, fuuid)
             if path_fichier.exists() is False:
-                raise Exception('fichier inconnu %s' % fuuid)
+                raise FileNotFoundError('fichier inconnu %s' % fuuid)
 
         input_file = path_fichier.open(mode='rb')
         try:

@@ -873,6 +873,10 @@ class SyncManager:
             if e.status == 409:
                 self.__logger.info("upload_fichier_primaire Le fichier %s existe deja sur le serveur - OK, terminer job immediatement" % fuuid)
                 await asyncio.to_thread(entretien_db.supprimer_job_upload, fuuid)
+        except FileNotFoundError as e:
+            self.__logger.info(
+                "upload_fichier_primaire Le fichier %s n'existe pas localement : %s" % (fuuid, e))
+            await asyncio.to_thread(entretien_db.supprimer_job_upload, fuuid)
         except Exception:
             self.__logger.exception('upload_fichier_primaire Erreur upload fichier vers primaire')
             await asyncio.to_thread(entretien_db.touch_upload, fuuid, -1)
