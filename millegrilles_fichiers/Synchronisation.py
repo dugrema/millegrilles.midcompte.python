@@ -819,6 +819,8 @@ class SyncManager:
         producer = self.__etat_instance.producer
         await asyncio.wait_for(producer.producer_pret().wait(), timeout=1)
 
+        await self.__consignation.store_pret_wait()
+
         try:
             event_done = asyncio.Event()
             info_fichier = await self.__consignation.get_info_fichier(fuuid)

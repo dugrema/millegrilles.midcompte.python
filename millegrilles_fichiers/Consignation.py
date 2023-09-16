@@ -75,6 +75,9 @@ class ConsignationHandler:
 
         self.__rabbitmq_dao: Optional[MilleGrillesConnecteur] = None
 
+    async def store_pret_wait(self):
+        await self.__store_pret_event.wait()
+
     async def run(self):
         self.__logger.info("Demarrage run")
 
