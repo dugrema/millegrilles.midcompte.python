@@ -8,6 +8,7 @@ import gzip
 import json
 import logging
 import pathlib
+import time
 
 from cryptography.exceptions import InvalidSignature
 from certvalidator.errors import PathValidationError
@@ -550,7 +551,10 @@ class SyncManager:
                     if not row_str:
                         break
                     row = json.loads(row_str)
-                    entretien_db.ajouter_fichier_primaire(row)
+                    commit_done = entretien_db.ajouter_fichier_primaire(row)
+                    if commit_done:
+                        # Ajouter throttle pour permettre acces DB
+                        time.sleep(0.5)
 
             # Charger fichier intermediaire si present
             try:
@@ -560,7 +564,11 @@ class SyncManager:
                         if not row_str:
                             break
                         row = json.loads(row_str)
-                        entretien_db.ajouter_fichier_primaire(row)
+                        commit_done = entretien_db.ajouter_fichier_primaire(row)
+                        if commit_done:
+                            # Ajouter throttle pour permettre acces DB
+                            time.sleep(0.5)
+
             except OSError as e:
                 if e.errno == errno.ENOENT:
                     pass  # OK, fichier absent

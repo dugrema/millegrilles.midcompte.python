@@ -223,13 +223,21 @@ class EntretienDatabase:
         self.__cur.execute(scripts_database.COMMANDE_TRUNCATE_FICHIERS_PRIMAIRE)
         self.__con.commit()
 
-    def ajouter_fichier_primaire(self, fichier: dict):
+    def ajouter_fichier_primaire(self, fichier: dict) -> bool:
+        """
+
+        :param fichier:
+        :return: True si commit complete
+        """
         if self.__batch_visites is None:
             self.__batch_visites = list()
         self.__batch_visites.append(fichier)
 
         if len(self.__batch_visites) >= self.__limite_batch:
             self.commit_fichiers_primaire()
+            return True
+
+        return False
 
     def commit_fichiers_primaire(self):
         batch = self.__batch_visites
