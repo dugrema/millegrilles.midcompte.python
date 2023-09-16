@@ -81,18 +81,33 @@ class EntretienDatabase:
     def commit_visites(self):
         batch = self.__batch_visites
         self.__batch_visites = None
-        if batch is not None:
-            resultat = self.__cur.executemany(scripts_database.CONST_PRESENCE_FICHIERS, batch)
-        else:
-            resultat = None
-        self.__con.commit()
+        cur = self.__con.cursor()
+        try:
+            if batch is not None:
+                resultat = cur.executemany(scripts_database.CONST_PRESENCE_FICHIERS, batch)
+            else:
+                resultat = None
+        finally:
+            cur.close()
+            self.__con.commit()
+
         return batch, resultat
 
     def marquer_actifs_visites(self):
         """ Sert a marquer tous les fichiers "manquants" comme actifs si visites recemment. """
-        self.__cur.execute(scripts_database.UPDATE_ACTIFS_VISITES, {'date_presence': self.__debut_entretien})
-        self.__cur.execute(scripts_database.UPDATE_MANQANTS_VISITES, {'date_presence': self.__debut_entretien})
-        self.__con.commit()
+        cur = self.__con.cursor()
+        try:
+            resultat = cur.execute(scripts_database.UPDATE_ACTIFS_VISITES, {'date_presence': self.__debut_entretien})
+            self.__logger.info("marquer_actifs_visites Marquer manquants comme actifs si visite >= %s : %d rows" %
+                               (self.__debut_entretien, resultat.rowcount))
+            self.__con.commit()
+
+            resultat = cur.execute(scripts_database.UPDATE_MANQANTS_VISITES, {'date_presence': self.__debut_entretien})
+            self.__logger.info("marquer_actifs_visites Marquer actifs,orphelins comme manquants si visite < %s : %d rows" %
+                               (self.__debut_entretien, resultat.rowcount))
+        finally:
+            cur.close()
+            self.__con.commit()
 
     def marquer_verification(self, fuuid: str, etat_fichier: str):
         if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
