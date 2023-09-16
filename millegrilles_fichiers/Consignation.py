@@ -431,11 +431,13 @@ class ConsignationHandler:
 
     @asynccontextmanager
     async def get_fp_fuuid(self, fuuid: str, start: Optional[int] = None):
+        fichier = None
         try:
             fichier = await self.__store_consignation.get_fp_fuuid(fuuid, start)
             yield fichier
         finally:
-            fichier.close()
+            if fichier:
+                fichier.close()
 
     @property
     def stop_event(self) -> asyncio.Event:
