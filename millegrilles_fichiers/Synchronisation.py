@@ -86,17 +86,33 @@ class SyncManager:
         )
 
     async def thread_sync_primaire(self):
-        pending = {self.__stop_event.wait(), self.__event_attendre_visite.wait()}
+        pending = {asyncio.create_task(self.__stop_event.wait()), asyncio.create_task(self.__event_attendre_visite.wait())}
         self.__logger.info('thread_sync_primaire Attendre premiere visite complete des fuuids')
         done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+
+        for d in done:
+            if d.exception():
+                raise d.exception()
+
         if self.__stop_event.is_set():
             return  # Stopping
         self.__logger.info('thread_sync_primaire Deblocage thread apres premiere visite complete des fuuids')
 
         while self.__stop_event.is_set() is False:
-            pending.add(self.__sync_event_primaire.wait())
+            pending.add(asyncio.create_task(self.__sync_event_primaire.wait()))
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+
+            for d in done:
+                if d.exception():
+                    self.__logger.debug("thread_sync_primaire Erreur exceution thread : %s" % d.exception())
+
             if self.__stop_event.is_set():
+                for p in pending:
+                    p.cancel()
+                    try:
+                        await p
+                    except asyncio.CancelledError:
+                        pass  # OK
                 break  # Done
 
             try:
@@ -268,15 +284,26 @@ class SyncManager:
 
         done, pending = await asyncio.wait(
             [
-                self.thread_emettre_evenement_primaire(event_sync),
-                self.__sequence_sync_primaire(connection, dao_batch)
+                asyncio.create_task(self.thread_emettre_evenement_primaire(event_sync)),
+                asyncio.create_task(self.__sequence_sync_primaire(connection, dao_batch))
             ],
             return_when=asyncio.FIRST_COMPLETED
         )
         event_sync.set()  # Complete
 
         # Finir executions pending
-        await asyncio.wait(pending, timeout=1)
+        done2, pending = await asyncio.wait(pending, timeout=1)
+
+        for d in done2:
+            if d.exception():
+                self.__logger.error("run_sync_primaire Erreur arret taches : %s" % d.exception())
+
+        for p in pending:
+            p.cancel()
+            try:
+                await p
+            except asyncio.CancelledError:
+                pass  # Ok
 
         for d in done:
             if d.exception():
@@ -406,21 +433,32 @@ class SyncManager:
             raise Exception('Erreur requete fichiers domaine %s' % domaine)
 
         # Attendre fin de reception
-        wait_coro = self.__attente_domaine_event.wait()
+        wait_coro = asyncio.create_task(self.__attente_domaine_event.wait())
+        pending = {wait_coro}
         self.__attente_domaine_activite = datetime.datetime.utcnow()
         while self.__attente_domaine_event.is_set() is False:
             expire = datetime.datetime.utcnow() - datetime.timedelta(seconds=20)
             if expire > self.__attente_domaine_activite:
                 # Timeout activite
                 break
-            await asyncio.wait([wait_coro], timeout=5)
+            done, pending = await asyncio.wait([wait_coro], timeout=5)
+            for d in done:
+                if d.exception():
+                    self.__logger.error("reclamer_fichiers_domaine Erreur : %s" % d.exception())
+
+        for p in pending:
+            p.cancel()
+            try:
+                await p
+            except asyncio.CancelledError:
+                pass  # OK
 
         complete = (self.__attente_domaine_event.is_set() and
                     self.__nombre_fuuids_reclames_domaine == self.__total_fuuids_reclames_domaine)
 
         # Consommer wait
         self.__attente_domaine_event.set()
-        await asyncio.wait([wait_coro], timeout=1)
+        # await asyncio.wait([wait_coro], timeout=1)
 
         self.__attente_domaine_event = None
 
