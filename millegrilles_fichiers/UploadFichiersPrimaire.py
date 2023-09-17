@@ -31,7 +31,7 @@ class EtatUpload:
 
 async def feed_filepart2(etat_upload: EtatUpload, limit=BATCH_UPLOAD_DEFAULT):
     taille_uploade = 0
-    stop_coro = asyncio.create_task(etat_upload.stop_event.wait())
+    # stop_coro = asyncio.create_task(etat_upload.stop_event.wait())
 
     input_stream = etat_upload.fp_file
 
@@ -62,8 +62,8 @@ async def feed_filepart2(etat_upload: EtatUpload, limit=BATCH_UPLOAD_DEFAULT):
 
         debut_chunk = now
 
-    stop_coro.cancel()
-    await asyncio.wait([stop_coro], timeout=1)  # Cancel
+    # stop_coro.cancel()
+    # await asyncio.wait([stop_coro], timeout=1)  # Cancel
 
 
 async def uploader_fichier(

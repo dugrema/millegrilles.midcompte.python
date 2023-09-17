@@ -57,14 +57,21 @@ class IntakeFichiers(IntakeHandler):
         )
 
     async def trigger_regulier(self):
-        wait_coro = self._stop_event.wait()
+        wait_coro = asyncio.create_task(self._stop_event.wait())
 
         # Declenchement initial du traitement (recovery)
-        await asyncio.wait([wait_coro], timeout=5)
+        done, pending = await asyncio.wait([wait_coro], timeout=5)
 
         while self._stop_event.is_set() is False:
             await self.trigger_traitement()
-            await asyncio.wait([wait_coro], timeout=300)
+            done, pending = await asyncio.wait(pending, timeout=300)
+
+        for p in pending:
+            p.cancel()
+            try:
+                await p
+            except asyncio.CancelledError:
+                pass  # OK
 
     async def configurer(self):
         return await super().configurer()

@@ -95,24 +95,25 @@ class ConsignationHandler:
         self.__logger.info("Fin run")
 
     async def entretien(self):
-        stop_event_wait = self.__stop_event.wait()
-
         while self.__stop_event.is_set() is False:
             try:
                 await self.charger_topologie()
             except Exception:
                 self.__logger.exception("entretien Erreur charger_topologie")
-            await asyncio.wait([stop_event_wait], timeout=300)
-
-        # if self.__store_consignation is not None:
-        #     await self.__store_consignation.stop()
+            try:
+                await asyncio.wait_for(self.__stop_event.wait(), timeout=300)
+            except asyncio.TimeoutError:
+                pass  # OK
 
     async def entretien_store(self):
-        stop_event_wait = self.__stop_event.wait()
+        stop_event_wait = asyncio.create_task(self.__stop_event.wait())
+        pending = {stop_event_wait}
         premiere_execution = True
         # Attente configuration store
         while self.__stop_event.is_set() is False:
-            done, pending = await asyncio.wait([stop_event_wait, self.__store_pret_event.wait()], return_when=asyncio.FIRST_COMPLETED)
+            store_pret = asyncio.create_task(self.__store_pret_event.wait())
+            pending.add(store_pret)
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             for d in done:
                 if d.exception():
                     self.__logger.error("entretien_store Erreur tasK : %s" % d.exception())
@@ -141,17 +142,20 @@ class ConsignationHandler:
                 self.__logger.exception("entretien_store Erreur store_consignation.run()")
 
             premiere_execution = False
-            await asyncio.wait([stop_event_wait], timeout=15)
+            done, pending = await asyncio.wait(pending, timeout=15)
 
     async def traiter_cedule(self, producer: MessageProducerFormatteur, message: MessageWrapper):
         self.__traiter_cedule_event.set()
 
     async def thread_traiter_cedule(self):
         self.__traiter_cedule_event = asyncio.Event()
-        wait_coro = self.__stop_event.wait()
+        wait_coro = asyncio.create_task(self.__stop_event.wait())
+        pending = {wait_coro}
 
         while self.__stop_event.is_set() is False:
-            done, pending = await asyncio.wait([wait_coro, self.__traiter_cedule_event.wait()], return_when=asyncio.FIRST_COMPLETED)
+            traiter_cedule_task = asyncio.create_task(self.__traiter_cedule_event.wait())
+            pending.add(traiter_cedule_task)
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             for d in done:
                 if d.exception():
                     self.__logger.error("entretien_store Erreur tasK : %s" % d.exception())
@@ -225,14 +229,15 @@ class ConsignationHandler:
         self.__logger.debug("__traiter_cedule_local Fin")
 
     async def thread_emettre_etat(self):
-        stop_event_wait = self.__stop_event.wait()
-
         while self.__stop_event.is_set() is False:
             try:
                 await self.emettre_etat()
             except Exception:
                 self.__logger.exception("Erreur emettre_etat")
-            await asyncio.wait([stop_event_wait], timeout=90)
+            try:
+                await asyncio.wait_for(self.__stop_event.wait(), timeout=90)
+            except asyncio.TimeoutError:
+                pass  # OK
 
     async def ouvrir_sessions(self):
         if self.__session_http_download is None or self.__session_http_download.closed:

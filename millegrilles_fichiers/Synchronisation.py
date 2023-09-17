@@ -867,8 +867,8 @@ class SyncManager:
 
                 self.__upload_en_cours = etat_upload
                 pending = {
-                    uploader_fichier(session, self.__etat_instance, etat_upload),
-                    self.__run_emettre_etat_upload(fuuid, entretien_db, producer, event_done),
+                    asyncio.create_task(uploader_fichier(session, self.__etat_instance, etat_upload)),
+                    asyncio.create_task(self.__run_emettre_etat_upload(fuuid, entretien_db, producer, event_done)),
                 }
                 done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
 
@@ -877,12 +877,16 @@ class SyncManager:
 
                 for p in pending:
                     p.cancel()
+                    try:
+                        await p
+                    except asyncio.CancelledError:
+                        pass  # OK
 
-                if len(pending) > 0:
-                    done_2, pending = await asyncio.wait(pending, timeout=5)
-                    for d in done_2:
-                        if d.exception():
-                            self.__logger.error("upload_fichier_primaire Exception task : %s" % str(d.exception()))
+                # if len(pending) > 0:
+                #     done_2, pending = await asyncio.wait(pending, timeout=5)
+                #     for d in done_2:
+                #         if d.exception():
+                #             self.__logger.error("upload_fichier_primaire Exception task : %s" % str(d.exception()))
 
                 for d in done:
                     e = d.exception()

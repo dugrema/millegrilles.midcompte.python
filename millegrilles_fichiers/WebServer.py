@@ -361,16 +361,34 @@ class WebServer:
 
     async def thread_verifier_parts(self):
         self.__queue_verifier_parts = asyncio.Queue(maxsize=20)
-        pending = [self.__stop_event.wait(), self.__queue_verifier_parts.get()]
+        pending = [asyncio.create_task(self.__stop_event.wait()), asyncio.create_task(self.__queue_verifier_parts.get())]
         while self.__stop_event.is_set() is False:
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
 
             # Conditions de fin de thread
             if self.__stop_event.is_set() is True:
+                for p in pending:
+                    p.cancel()
+                    try:
+                        await p
+                    except asyncio.CancelledError:
+                        pass  # OK
+                for d in done:
+                    if d.exception():
+                        raise d.exception()
                 return  # Stopped
 
             for t in done:
                 if t.exception():
+                    for p in pending:
+                        try:
+                            p.cancel()
+                            await p
+                        except asyncio.CancelledError:
+                            pass  # OK
+                        except AttributeError:
+                            pass  # Pas une task
+
                     raise t.exception()
 
             job_verifier_parts: JobVerifierParts = done.pop().result()
@@ -387,7 +405,7 @@ class WebServer:
             # Liberer job
             job_verifier_parts.done.set()
 
-            pending.add(self.__queue_verifier_parts.get())
+            pending.add(asyncio.create_task(self.__queue_verifier_parts.get()))
 
     async def run(self, stop_event: Optional[Event] = None):
         if stop_event is not None:
