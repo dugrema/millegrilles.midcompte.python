@@ -871,7 +871,7 @@ class SyncManager:
             self.__upload_event.set()
             self.__download_event.set()
 
-    async def upload_fichier_primaire(self, session: aiohttp.ClientSession, entretien_db: SQLiteConnection, fichier: dict):
+    async def upload_fichier_primaire(self, session: aiohttp.ClientSession, connection: SQLiteConnection, fichier: dict):
         fuuid = fichier['fuuid']
 
         producer = self.__etat_instance.producer
@@ -892,11 +892,13 @@ class SyncManager:
 
                 async def cb_upload():
                     nonlocal dernier_update
-                    nonlocal entretien_db
+                    nonlocal connection
                     now = datetime.datetime.utcnow()
                     if now - intervalle_update > dernier_update:
                         dernier_update = now
-                        await asyncio.to_thread(entretien_db.touch_upload, fuuid, None)
+                        with self.__etat_instance.sqlite_connection() as connection2:
+                            async with SQLiteWriteOperations(connection2) as dao_write:
+                                await asyncio.to_thread(dao_write.touch_upload, fuuid, None)
 
                 etat_upload.cb_activite = cb_upload
 
@@ -906,7 +908,7 @@ class SyncManager:
                 self.__upload_en_cours = etat_upload
                 pending = {
                     asyncio.create_task(uploader_fichier(session, self.__etat_instance, etat_upload)),
-                    asyncio.create_task(self.__run_emettre_etat_upload(fuuid, entretien_db, producer, event_done)),
+                    asyncio.create_task(self.__run_emettre_etat_upload(fuuid, connection, producer, event_done)),
                 }
                 done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
 
@@ -932,18 +934,18 @@ class SyncManager:
                         raise e
 
             # Transfert termine. Supprimer job d'upload
-            await asyncio.to_thread(entretien_db.supprimer_job_upload, fuuid)
+            await asyncio.to_thread(connection.supprimer_job_upload, fuuid)
         except ClientResponseError as e:
             if e.status == 409:
                 self.__logger.info("upload_fichier_primaire Le fichier %s existe deja sur le serveur - OK, terminer job immediatement" % fuuid)
-                await asyncio.to_thread(entretien_db.supprimer_job_upload, fuuid)
+                await asyncio.to_thread(connection.supprimer_job_upload, fuuid)
         except FileNotFoundError as e:
             self.__logger.info(
                 "upload_fichier_primaire Le fichier %s n'existe pas localement : %s" % (fuuid, e))
-            await asyncio.to_thread(entretien_db.supprimer_job_upload, fuuid)
+            await asyncio.to_thread(connection.supprimer_job_upload, fuuid)
         except Exception:
             self.__logger.exception('upload_fichier_primaire Erreur upload fichier vers primaire')
-            await asyncio.to_thread(entretien_db.touch_upload, fuuid, -1)
+            await asyncio.to_thread(connection.touch_upload, fuuid, -1)
 
         self.__upload_en_cours = None
 
@@ -957,7 +959,7 @@ class SyncManager:
             except asyncio.CancelledError:
                 return  # Stopped
 
-    async def emettre_etat_upload(self, fuuid, entretien_db: SQLiteConnection, producer):
+    async def emettre_etat_upload(self, fuuid, connection: SQLiteConnection, producer):
 
         upload_en_cours = self.__upload_en_cours
         if upload_en_cours is not None:
