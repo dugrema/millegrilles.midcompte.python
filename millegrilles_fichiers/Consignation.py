@@ -336,6 +336,12 @@ class ConsignationHandler:
                 pass
 
         # Charger etat des fichiers (taille totale par type)
+        if self.__store_consignation is None:
+            try:
+                await asyncio.wait_for(self.__store_pret_event.wait(), 3)
+            except asyncio.TimeoutError:
+                pass
+
         if self.__store_consignation is not None:
             stats = await self.__store_consignation.get_stats()
             etat.update(stats)

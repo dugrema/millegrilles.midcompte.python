@@ -330,7 +330,7 @@ class ConsignationStore:
     async def get_stats(self):
         with self._etat.sqlite_connection() as connection:
             async with SQLiteReadOperations(connection) as dao_read:
-                return asyncio.to_thread(dao_read.get_stats_fichiers)
+                return await asyncio.to_thread(dao_read.get_stats_fichiers)
 
         # con = self.ouvrir_database()
         # cur = con.cursor()
