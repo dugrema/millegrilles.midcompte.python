@@ -46,9 +46,8 @@ class ConsignationStore:
         path_backup.mkdir(parents=True, exist_ok=True)
 
         self.__path_database.parent.mkdir(parents=True, exist_ok=True)
-        con = self.ouvrir_database()
-        con.executescript(scripts_database.CONST_CREATE_FICHIERS)
-        con.close()
+        with self._etat.sqlite_connection() as connection:
+            connection.init_database()
 
     async def run_entretien(self):
         raise NotImplementedError('must override')
@@ -166,9 +165,10 @@ class ConsignationStore:
 
     async def __verifier_fuuids(self, limite=Constantes.CONST_LIMITE_TAILLE_VERIFICATION):
         """ Visiter tous les fichiers presents, s'assurer qu'ils sont dans la base de donnees. """
-        liste_fichiers = self.__charger_verifier_fuuids(limite)
-
         with self._etat.sqlite_connection() as connection:
+            async with SQLiteReadOperations(connection) as dao_read:
+                liste_fichiers = await asyncio.to_thread(dao_read.charger_verifier_fuuids, limite)
+
             async with SQLiteBatchOperations(connection) as dao:
                 # Verifier chaque fichier individuellement
                 # On conserve le lock sur operations de batch pour la duree du traitement
@@ -254,7 +254,7 @@ class ConsignationStore:
         fuuids = commande['fuuids']
         sur_echec = commande.get('sur_echec') or False
 
-        fuuids_actifs = await asyncio.to_thread(self.__reactiver_fuuids, fuuids)
+        fuuids_actifs = await self.__reactiver_fuuids(fuuids)
 
         if len(fuuids_actifs) == 0 and sur_echec is False:
             return  # Aucun message de retour
@@ -280,107 +280,120 @@ class ConsignationStore:
 
         return reponse
 
-    def __reactiver_fuuids(self, fuuids: list) -> list[str]:
-        con = self.ouvrir_database()
-        cur = con.cursor()
+    async def __reactiver_fuuids(self, fuuids: list) -> list[str]:
+        # con = self.ouvrir_database()
+        # cur = con.cursor()
 
-        dict_fuuids = dict()
-        idx = 0
-        for fuuid in fuuids:
-            dict_fuuids['f%d' % idx] = fuuid
-            idx += 1
+        # dict_fuuids = dict()
+        # idx = 0
+        # for fuuid in fuuids:
+        #     dict_fuuids['f%d' % idx] = fuuid
+        #     idx += 1
 
-        params = {
-            'date_reclamation': datetime.datetime.now(tz=pytz.UTC)
-        }
-        params.update(dict_fuuids)
+        date_reclamation = datetime.datetime.now(tz=pytz.UTC)
+        # params = {
+        #     'date_reclamation': datetime.datetime.now(tz=pytz.UTC)
+        # }
+        # params.update(dict_fuuids)
 
-        requete = scripts_database.UPDATE_ACTIVER_SI_ORPHELIN.replace('$fuuids', ','.join([':%s' % f for f in dict_fuuids.keys()]))
+        # requete = scripts_database.UPDATE_ACTIVER_SI_ORPHELIN.replace('$fuuids', ','.join([':%s' % f for f in dict_fuuids.keys()]))
+        # cur.execute(requete, params)
+        # con.commit()
 
-        cur.execute(requete, params)
-        con.commit()
+        with self._etat.sqlite_connection() as connection:
+            async with SQLiteWriteOperations(connection) as dao_write:
+                fuuid_keys = await asyncio.to_thread(dao_write.activer_si_orphelin, fuuids, date_reclamation)
 
-        liste_fichiers_actifs = list()
-        requete = scripts_database.SELECT_INFO_FICHIERS_ACTIFS.replace('$fuuids', ','.join([':%s' % f for f in dict_fuuids.keys()]))
-        cur.execute(requete, dict_fuuids)
+            async with SQLiteReadOperations(connection) as dao_read:
+                liste_fichiers_actifs = await asyncio.to_thread(dao_read.get_info_fichiers_actif, fuuid_keys)
 
-        while True:
-            row = cur.fetchone()
-            if row is None:
-                break
-            fuuid = row[0]
-            liste_fichiers_actifs.append(fuuid)
+        # liste_fichiers_actifs = list()
+        # requete = scripts_database.SELECT_INFO_FICHIERS_ACTIFS.replace('$fuuids', ','.join([':%s' % f for f in dict_fuuids.keys()]))
+        # cur.execute(requete, dict_fuuids)
 
-        cur.close()
-        con.close()
+        # while True:
+        #     row = cur.fetchone()
+        #     if row is None:
+        #         break
+        #     fuuid = row[0]
+        #     liste_fichiers_actifs.append(fuuid)
+        #
+        # cur.close()
+        # con.close()
 
         return liste_fichiers_actifs
 
-    def ouvrir_database(self, ro=False) -> sqlite3.Connection:
-        return sqlite3.connect(self.__path_database, check_same_thread=True)
+    # def ouvrir_database(self, ro=False) -> sqlite3.Connection:
+    #     # return sqlite3.connect(self.__path_database, check_same_thread=True)
+    #     raise NotImplementedError('obsolete')
 
-    def get_stats(self):
-        con = self.ouvrir_database()
-        cur = con.cursor()
-        cur.execute(scripts_database.SELECT_STATS_FICHIERS)
+    async def get_stats(self):
+        with self._etat.sqlite_connection() as connection:
+            async with SQLiteReadOperations(connection) as dao_read:
+                return asyncio.to_thread(dao_read.get_stats_fichiers)
 
-        resultats_dict = dict()
-        nombre_orphelins = 0
-        taille_orphelins = 0
-        nombre_manquants = 0
+        # con = self.ouvrir_database()
+        # cur = con.cursor()
+        # cur.execute(scripts_database.SELECT_STATS_FICHIERS)
+        #
+        # resultats_dict = dict()
+        # nombre_orphelins = 0
+        # taille_orphelins = 0
+        # nombre_manquants = 0
+        #
+        # while True:
+        #     row = cur.fetchone()
+        #     if row is None:
+        #         break
+        #
+        #     etat_fichier, bucket, nombre, taille = row
+        #     if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
+        #         resultats_dict[bucket] = {
+        #             'nombre': nombre,
+        #             'taille': taille
+        #         }
+        #     elif etat_fichier == Constantes.DATABASE_ETAT_ORPHELIN:
+        #         nombre_orphelins += nombre
+        #         taille_orphelins += taille
+        #     elif etat_fichier == Constantes.DATABASE_ETAT_MANQUANT:
+        #         nombre_manquants += nombre
+        #
+        # cur.close()
+        # con.close()
+        #
+        # resultats_dict[Constantes.DATABASE_ETAT_ORPHELIN] = {
+        #     'nombre': nombre_orphelins,
+        #     'taille': taille_orphelins
+        # }
+        #
+        # resultats_dict[Constantes.DATABASE_ETAT_MANQUANT] = {
+        #     'nombre': nombre_manquants,
+        # }
+        #
+        # return resultats_dict
 
-        while True:
-            row = cur.fetchone()
-            if row is None:
-                break
+    async def get_info_fichier(self, fuuid: str) -> Optional[dict]:
+        with self._etat.sqlite_connection() as connection:
+            async with SQLiteReadOperations(connection) as dao_read:
+                return await asyncio.to_thread(dao_read.get_info_fichier, fuuid)
 
-            etat_fichier, bucket, nombre, taille = row
-            if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
-                resultats_dict[bucket] = {
-                    'nombre': nombre,
-                    'taille': taille
-                }
-            elif etat_fichier == Constantes.DATABASE_ETAT_ORPHELIN:
-                nombre_orphelins += nombre
-                taille_orphelins += taille
-            elif etat_fichier == Constantes.DATABASE_ETAT_MANQUANT:
-                nombre_manquants += nombre
-
-        cur.close()
-        con.close()
-
-        resultats_dict[Constantes.DATABASE_ETAT_ORPHELIN] = {
-            'nombre': nombre_orphelins,
-            'taille': taille_orphelins
-        }
-
-        resultats_dict[Constantes.DATABASE_ETAT_MANQUANT] = {
-            'nombre': nombre_manquants,
-        }
-
-        return resultats_dict
-
-    def get_info_fichier(self, fuuid: str) -> Optional[dict]:
-        con = self.ouvrir_database()
-        cur = con.cursor()
-        cur.execute(scripts_database.SELECT_INFO_FICHIER, {'fuuid': fuuid})
-
-        row = cur.fetchone()
-        if row is not None:
-            _fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation = row
-            cur.close()
-            con.close()
-
-            return {
-                'fuuid': fuuid,
-                'taille': taille,
-                'etat_fichier': etat_fichier,
-                'date_presence': date_presence,
-                'date_verification': date_verification,
-                'date_reclamation': date_reclamation
-            }
-        else:
-            return None
+        # cur.execute(scripts_database.SELECT_INFO_FICHIER, {'fuuid': fuuid})
+        # row = cur.fetchone()
+        # if row is not None:
+        #     _fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation = row
+        #     cur.close()
+        #     con.close()
+        #
+        #     return {
+        #         'fuuid': fuuid,
+        #         'taille': taille,
+        #         'etat_fichier': etat_fichier,
+        #         'date_presence': date_presence,
+        #         'date_verification': date_verification,
+        #         'date_reclamation': date_reclamation
+        #     }
+        # else:
+        #     return None
 
     async def emettre_batch_visites(self, fuuids: list[Union[str, dict]], verification=False):
         fuuids_parsed = list()
@@ -425,83 +438,43 @@ class ConsignationStore:
             )
 
     async def reclamer_fuuids_database(self, fuuids: list, bucket: str):
-        await asyncio.to_thread(self.__reclamer_fuuids_database, fuuids, bucket)
+        with self._etat.sqlite_connection() as connection:
+            # Note : ouvrir batch sans lock - la reclamation se fait via message (callback) durant une sync
+            async with SQLiteBatchOperations(connection, nolock=True) as dao_write:
+                for fuuid in fuuids:
+                    await dao_write.ajouter_reclamer_fichier(fuuid, bucket)
+        # rows = list()
+        # for fuuid in fuuids:
+        #     rows.append({
+        #         'fuuid': fuuid,
+        #         'etat_fichier': Constantes.DATABASE_ETAT_MANQUANT,
+        #         'bucket': bucket,
+        #         'date_reclamation': datetime.datetime.now(tz=pytz.UTC)
+        #     })
+        #
+        # con = self.ouvrir_database()
+        # cur = con.cursor()
+        # cur.executemany(scripts_database.INSERT_RECLAMER_FICHIER, rows)
+        # con.commit()
+        # cur.close()
+        # con.close()
 
-    def __reclamer_fuuids_database(self, fuuids: list, bucket: str):
-        rows = list()
-        for fuuid in fuuids:
-            rows.append({
-                'fuuid': fuuid,
-                'etat_fichier': Constantes.DATABASE_ETAT_MANQUANT,
-                'bucket': bucket,
-                'date_reclamation': datetime.datetime.now(tz=pytz.UTC)
-            })
+    async def marquer_orphelins(self, dao_batch: SQLiteBatchOperations, debut_reclamation: datetime.datetime, complet=False):
+        if complet:
+            # Marquer les fichiers avec vieille date de reclamation comme non reclames (orphelins)
+            resultat = await asyncio.to_thread(dao_batch.marquer_orphelins, debut_reclamation)
+            await dao_batch.commit_batch()
+            self.__logger.info("__marquer_orphelins Marquer actif -> orphelins : %d rows" % resultat.rowcount)
+        else:
+            self.__logger.info("__marquer_orphelins Skip, reclamation est incomplete")
 
-        con = self.ouvrir_database()
-        cur = con.cursor()
-        cur.executemany(scripts_database.INSERT_RECLAMER_FICHIER, rows)
-        con.commit()
-        cur.close()
-        con.close()
+        # Marquer fichiers orphelins qui viennent d'etre reclames comme actif
+        # resultat = cur.execute(scripts_database.UPDATE_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
+        resultat = await asyncio.to_thread(dao_batch.marquer_actifs, debut_reclamation)
+        await dao_batch.commit_batch()
+        self.__logger.info("__marquer_orphelins Marquer orphelins -> actif : %d rows" % resultat.rowcount)
 
-    async def marquer_orphelins(self, debut_reclamation: datetime.datetime, complet=False):
-        await asyncio.to_thread(self.__marquer_orphelins, debut_reclamation, complet)
-
-    def __marquer_orphelins(self, debut_reclamation: datetime.datetime, complet=False):
-        con = self.ouvrir_database()
-        try:
-            cur = con.cursor()
-
-            if complet:
-                # Marquer les fichiers avec vieille date de reclamation comme non reclames (orphelins)
-                resultat = cur.execute(scripts_database.UPDATE_MARQUER_ORPHELINS, {'date_reclamation': debut_reclamation})
-                self.__logger.info("__marquer_orphelins Marquer actif -> orphelins : %d rows" % resultat.rowcount)
-                con.commit()
-            else:
-                self.__logger.info("__marquer_orphelins Skip, reclamation est incomplete")
-
-            # Marquer fichiers orphelins qui viennent d'etre reclames comme actif
-            resultat = cur.execute(scripts_database.UPDATE_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
-            self.__logger.info("__marquer_orphelins Marquer orphelins -> actif : %d rows" % resultat.rowcount)
-            con.commit()
-
-            cur.close()
-        finally:
-            con.close()
-
-    def __charger_verifier_fuuids(self, limite_taille: Constantes.CONST_LIMITE_TAILLE_VERIFICATION) -> list[dict]:
-        # Generer une batch de fuuids a verifier
-        limite_nombre = 1000
-
-        # La reverification permet de controler la frequence de verification d'un fichier (e.g. aux trois mois)
-        expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_REVERIFICATION)
-        params = {
-            'expiration_verification': expiration,
-            'limit': limite_nombre
-        }
-
-        con = self.ouvrir_database()
-        cur = con.cursor()
-        cur.execute(scripts_database.SELECT_BATCH_VERIFIER, params)
-
-        taille_totale = 0
-        fuuids = list()
-        while True:
-            row = cur.fetchone()
-            if row is None:
-                break
-            fuuid, taille, bucket_visite = row
-            taille_totale += taille
-            if len(fuuids) > 0 and taille_totale > limite_taille:
-                break  # On a atteint la limite en bytes
-            fuuids.append({'fuuid': fuuid, 'taille': taille, 'bucket': bucket_visite})
-
-        cur.close()
-        con.close()
-
-        return fuuids
-
-    async def generer_reclamations_sync(self):
+    async def generer_reclamations_sync(self, connection: SQLiteConnection):
         dir_data = pathlib.Path(self._etat.configuration.dir_consignation)
         fichier_reclamations = pathlib.Path(dir_data,
                                             Constantes.DIR_DATA, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
@@ -510,18 +483,17 @@ class ConsignationStore:
         fichier_reclamations_work = pathlib.Path('%s.work' % fichier_reclamations)
         fichier_reclamations_work.unlink(missing_ok=True)
 
-        with self._etat.sqlite_connection() as connection:
-            async with SQLiteReadOperations(connection) as dao:
-                try:
-                    with gzip.open(fichier_reclamations_work, 'wt') as fichier:
-                        await asyncio.to_thread(dao.generer_relamations_primaires, fichier)
+        async with SQLiteReadOperations(connection) as dao:
+            try:
+                with gzip.open(fichier_reclamations_work, 'wt') as fichier:
+                    await asyncio.to_thread(dao.generer_relamations_primaires, fichier)
 
-                    # Renommer fichier .work pour remplacer le fichier de reclamations precedent
-                    fichier_reclamations.unlink(missing_ok=True)
-                    fichier_reclamations_work.rename(fichier_reclamations)
-                except:
-                    self.__logger.exception('Erreur generation fichier reclamations')
-                    fichier_reclamations_work.unlink(missing_ok=True)
+                # Renommer fichier .work pour remplacer le fichier de reclamations precedent
+                fichier_reclamations.unlink(missing_ok=True)
+                fichier_reclamations_work.rename(fichier_reclamations)
+            except:
+                self.__logger.exception('Erreur generation fichier reclamations')
+                fichier_reclamations_work.unlink(missing_ok=True)
 
     async def generer_backup_sync(self):
         """ Genere le fichier backup.jsonl.gz """

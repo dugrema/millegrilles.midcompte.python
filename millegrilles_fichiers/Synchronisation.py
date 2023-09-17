@@ -100,7 +100,9 @@ class SyncManager:
                 break  # Done
 
             try:
-                await self.run_sync_primaire()
+                with self.__etat_instance.sqlite_connection() as connection:
+                    async with SQLiteBatchOperations(connection) as dao_batch:
+                        await self.run_sync_primaire(connection, dao_batch)
             except Exception:
                 self.__logger.exception("Erreur synchronisation")
 
@@ -258,7 +260,7 @@ class SyncManager:
     #             pass  # OK
     #     await asyncio.wait(pending, timeout=1)
 
-    async def run_sync_primaire(self):
+    async def run_sync_primaire(self, connection: SQLiteConnection, dao_batch: SQLiteBatchOperations):
         self.__logger.info("thread_sync_primaire Demarrer sync")
         await self.emettre_etat_sync_primaire()
 
@@ -267,7 +269,7 @@ class SyncManager:
         done, pending = await asyncio.wait(
             [
                 self.thread_emettre_evenement_primaire(event_sync),
-                self.__sequence_sync_primaire()
+                self.__sequence_sync_primaire(connection, dao_batch)
             ],
             return_when=asyncio.FIRST_COMPLETED
         )
@@ -283,16 +285,16 @@ class SyncManager:
         await self.emettre_etat_sync_primaire(termine=True)
         self.__logger.info("thread_sync_primaire Fin sync")
 
-    async def __sequence_sync_primaire(self):
+    async def __sequence_sync_primaire(self, connection: SQLiteConnection, dao_batch: SQLiteBatchOperations):
         # Date debut utilise pour trouver les fichiers orphelins (si reclamation est complete)
         debut_reclamation = datetime.datetime.utcnow()
         reclamation_complete = await self.reclamer_fuuids()
 
         # Process orphelins
-        await self.__consignation.marquer_orphelins(debut_reclamation, reclamation_complete)
+        await self.__consignation.marquer_orphelins(dao_batch, debut_reclamation, reclamation_complete)
 
         # Generer la liste des reclamations en .jsonl.gz pour les secondaires
-        await self.__consignation.generer_reclamations_sync()
+        await self.__consignation.generer_reclamations_sync(connection)
 
         # Generer la liste des fichiers de backup
         await self.__consignation.generer_backup_sync()

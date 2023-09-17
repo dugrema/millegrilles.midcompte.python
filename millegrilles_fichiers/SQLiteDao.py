@@ -63,6 +63,14 @@ class SQLiteConnection:
         self.__con.close()
         self.__con = None
 
+    def init_database(self):
+        cur = self.__con.cursor()
+        try:
+            self.__con.executescript(scripts_database.CONST_CREATE_FICHIERS)
+        finally:
+            cur.close()
+            self.__con.commit()
+
     def __enter__(self):
         self.open()
         return self
@@ -193,6 +201,86 @@ class SQLiteReadOperations(SQLiteCursor):
             }
 
         return None
+
+    def charger_verifier_fuuids(self, limite_taille: Constantes.CONST_LIMITE_TAILLE_VERIFICATION) -> list[dict]:
+        # Generer une batch de fuuids a verifier
+        limite_nombre = 1000
+
+        # La reverification permet de controler la frequence de verification d'un fichier (e.g. aux trois mois)
+        expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_REVERIFICATION)
+        params = {
+            'expiration_verification': expiration,
+            'limit': limite_nombre
+        }
+
+        self._cur.execute(scripts_database.SELECT_BATCH_VERIFIER, params)
+
+        taille_totale = 0
+        fuuids = list()
+        while True:
+            row = self._cur.fetchone()
+            if row is None:
+                break
+            fuuid, taille, bucket_visite = row
+            taille_totale += taille
+            if len(fuuids) > 0 and taille_totale > limite_taille:
+                break  # On a atteint la limite en bytes
+            fuuids.append({'fuuid': fuuid, 'taille': taille, 'bucket': bucket_visite})
+
+        return fuuids
+
+    def get_stats_fichiers(self) -> dict:
+        self._cur.execute(scripts_database.SELECT_STATS_FICHIERS)
+
+        resultats_dict = dict()
+        nombre_orphelins = 0
+        taille_orphelins = 0
+        nombre_manquants = 0
+
+        while True:
+            row = self._cur.fetchone()
+            if row is None:
+                break
+
+            etat_fichier, bucket, nombre, taille = row
+            if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
+                resultats_dict[bucket] = {
+                    'nombre': nombre,
+                    'taille': taille
+                }
+            elif etat_fichier == Constantes.DATABASE_ETAT_ORPHELIN:
+                nombre_orphelins += nombre
+                taille_orphelins += taille
+            elif etat_fichier == Constantes.DATABASE_ETAT_MANQUANT:
+                nombre_manquants += nombre
+
+        resultats_dict[Constantes.DATABASE_ETAT_ORPHELIN] = {
+            'nombre': nombre_orphelins,
+            'taille': taille_orphelins
+        }
+
+        resultats_dict[Constantes.DATABASE_ETAT_MANQUANT] = {
+            'nombre': nombre_manquants,
+        }
+
+        return resultats_dict
+
+    def get_info_fichier(self, fuuid: str):
+        self._cur.execute(scripts_database.SELECT_INFO_FICHIER, {'fuuid': fuuid})
+        row = self._cur.fetchone()
+        if row is not None:
+            _fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation = row
+
+            return {
+                'fuuid': fuuid,
+                'taille': taille,
+                'etat_fichier': etat_fichier,
+                'date_presence': date_presence,
+                'date_verification': date_verification,
+                'date_reclamation': date_reclamation
+            }
+        else:
+            return None
 
 
 class SQLiteWriteOperations(SQLiteCursor):
@@ -385,12 +473,45 @@ class SQLiteWriteOperations(SQLiteCursor):
         # Le fichier est inconnu localement ou inactif
         return False
 
+    def activer_si_orphelin(self, fuuids: list[str], date_reclamation: datetime.datetime) -> list[str]:
+        dict_fuuids = dict()
+        idx = 0
+        for fuuid in fuuids:
+            dict_fuuids['f%d' % idx] = fuuid
+            idx += 1
+
+        params = {
+            'date_reclamation': date_reclamation
+        }
+        params.update(dict_fuuids)
+
+        requete = scripts_database.UPDATE_ACTIVER_SI_ORPHELIN.replace('$fuuids', ','.join([':%s' % f for f in dict_fuuids.keys()]))
+
+        self._cur.execute(requete, params)
+
+        return dict_fuuids.keys()
+
+    def get_info_fichiers_actif(self, fuuid_keys: list) -> list:
+        liste_fichiers_actifs = list()
+        requete = scripts_database.SELECT_INFO_FICHIERS_ACTIFS.replace('$fuuids', ','.join([':%s' % f for f in fuuid_keys]))
+        self._cur.execute(requete, fuuid_keys)
+
+        while True:
+            row = self._cur.fetchone()
+            if row is None:
+                break
+            fuuid = row[0]
+            liste_fichiers_actifs.append(fuuid)
+
+        return liste_fichiers_actifs
+
 
 class SQLiteBatchOperations(SQLiteCursor):
 
-    def __init__(self, connection: SQLiteConnection, batch_size=250):
+    def __init__(self, connection: SQLiteConnection, batch_size=250, nolock=False):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         super().__init__(connection)
+        self.__nolock = nolock
 
         self.__batch: Optional[list] = None
         self.__limite_batch = batch_size
@@ -412,7 +533,8 @@ class SQLiteBatchOperations(SQLiteCursor):
         self.__batch_script = batch_script
 
     async def __aenter__(self):
-        await self.__batch_lock.acquire()
+        if self.__nolock is False:
+            await self.__batch_lock.acquire()
         try:
             self.open()
         except Exception as e:
@@ -428,7 +550,8 @@ class SQLiteBatchOperations(SQLiteCursor):
             try:
                 self.close()
             finally:
-                self.__batch_lock.release()
+                if self.__nolock is False:
+                    self.__batch_lock.release()
         return False
 
     async def commit_batch(self):
@@ -503,6 +626,22 @@ class SQLiteBatchOperations(SQLiteCursor):
 
         if len(self.__batch) >= self.__limite_batch:
             await self.commit_batch()
+
+    async def ajouter_reclamer_fichier(self, fuuid: str, bucket: str):
+        self.batch_script = scripts_database.INSERT_RECLAMER_FICHIER
+
+        row = {
+            'fuuid': fuuid,
+            'etat_fichier': Constantes.DATABASE_ETAT_MANQUANT,
+            'bucket': bucket,
+            'date_reclamation': datetime.datetime.now(tz=pytz.UTC)
+        }
+        self.ajouter_item_batch(row)
+
+        if len(self.__batch) >= self.__limite_batch:
+            return await self.commit_batch()
+
+        return False
 
     async def marquer_secondaires_reclames(self):
         # Inserer secondaires manquants
@@ -580,3 +719,11 @@ class SQLiteBatchOperations(SQLiteCursor):
 
         if len(self.__batch) >= self.__limite_batch:
             await self.commit_batch()
+
+    def marquer_orphelins(self, debut_reclamation: datetime.datetime):
+        resultat = self._cur.execute(scripts_database.UPDATE_MARQUER_ORPHELINS, {'date_reclamation': debut_reclamation})
+        return resultat
+
+    def marquer_actifs(self, debut_reclamation: datetime.datetime):
+        resultat = self._cur.execute(scripts_database.UPDATE_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
+        return resultat

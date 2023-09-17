@@ -25,7 +25,7 @@ from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.ConsignationStore import ConsignationStore, map_type
 from millegrilles_fichiers.Synchronisation import SyncManager
-from millegrilles_fichiers.SQLiteDao import SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations
+from millegrilles_fichiers.SQLiteDao import SQLiteConnection, SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations
 
 
 class InformationFuuid:
@@ -337,7 +337,7 @@ class ConsignationHandler:
 
         # Charger etat des fichiers (taille totale par type)
         if self.__store_consignation is not None:
-            stats = self.__store_consignation.get_stats()
+            stats = await self.__store_consignation.get_stats()
             etat.update(stats)
 
         # Charger etat downloads et uploads si secondaire
@@ -363,7 +363,7 @@ class ConsignationHandler:
     async def get_info_fichier(self, fuuid: str):
         if self.__store_consignation is None:
             raise Exception("Store non initialise")
-        return self.__store_consignation.get_info_fichier(fuuid)
+        return await self.__store_consignation.get_info_fichier(fuuid)
 
     async def get_info_fichier_backup(self, uuid_backup: str, domaine: str, nom_fichier: str):
         return await self.__store_consignation.get_info_fichier_backup(uuid_backup, domaine, nom_fichier)
@@ -460,15 +460,15 @@ class ConsignationHandler:
         else:
             self.__logger.warning("reclamer_fuuids_database Reception message avant initialisation store")
 
-    async def marquer_orphelins(self, debut_reclamation: datetime.datetime, complet=False):
+    async def marquer_orphelins(self, dao_batch: SQLiteBatchOperations, debut_reclamation: datetime.datetime, complet=False):
         if self.__store_consignation is not None:
-            await self.__store_consignation.marquer_orphelins(debut_reclamation, complet)
+            await self.__store_consignation.marquer_orphelins(dao_batch, debut_reclamation, complet)
         else:
             self.__logger.warning("marquer_orphelins Reception message avant initialisation store")
 
-    async def generer_reclamations_sync(self):
+    async def generer_reclamations_sync(self, connection: SQLiteConnection):
         if self.__store_consignation is not None:
-            await self.__store_consignation.generer_reclamations_sync()
+            await self.__store_consignation.generer_reclamations_sync(connection)
         else:
             self.__logger.warning("generer_reclamations_sync Reception message avant initialisation store")
 
