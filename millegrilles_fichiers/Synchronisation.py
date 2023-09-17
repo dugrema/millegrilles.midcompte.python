@@ -82,7 +82,7 @@ class SyncManager:
             self.thread_upload(),
             self.thread_download(),
             self.thread_entretien_transferts(),
-            self.thread_sync_backup(),
+            # self.thread_sync_backup(),
         )
 
     async def thread_sync_primaire(self):
@@ -236,27 +236,27 @@ class SyncManager:
                 pass
         await asyncio.wait(pending, timeout=1)
 
-    async def thread_sync_backup(self):
-        pending = {self.__stop_event.wait()}
-        while self.__stop_event.is_set() is False:
-            pending.add(self.__upload_event.wait())
-            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-            if self.__stop_event.is_set():
-                break  # Done
-            try:
-                await self.run_sync_backup()
-            except Exception:
-                self.__logger.exception("thread_upload Erreur synchronisation")
-
-            self.__upload_event.clear()
-
-        # Terminer execution de toutes les tasks
-        for p in pending:
-            try:
-                p.cancel()
-            except AttributeError:
-                pass  # OK
-        await asyncio.wait(pending, timeout=1)
+    # async def thread_sync_backup(self):
+    #     pending = {self.__stop_event.wait()}
+    #     while self.__stop_event.is_set() is False:
+    #         pending.add(self.__backup_event.wait())
+    #         done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+    #         if self.__stop_event.is_set():
+    #             break  # Done
+    #         try:
+    #             await self.run_sync_backup()
+    #         except Exception:
+    #             self.__logger.exception("thread_upload Erreur synchronisation")
+    #
+    #         self.__backup_event.clear()
+    #
+    #     # Terminer execution de toutes les tasks
+    #     for p in pending:
+    #         try:
+    #             p.cancel()
+    #         except AttributeError:
+    #             pass  # OK
+    #     await asyncio.wait(pending, timeout=1)
 
     async def run_sync_primaire(self):
         self.__logger.info("thread_sync_primaire Demarrer sync")
@@ -340,6 +340,10 @@ class SyncManager:
         # Ajouter manquants, marquer fichiers reclames
         # Marquer orphelins, determiner downloads et upload
         await self.creer_operations_sur_secondaire()
+
+        # Declencher sync des fichiers de backup avec le primaire
+        # self.__backup_event.set()
+        await self.run_sync_backup()
 
     async def thread_emettre_evenement_secondaire(self, event_sync: asyncio.Event):
         wait_coro = event_sync.wait()
@@ -1018,12 +1022,13 @@ class SyncManager:
             self.__upload_event.set()
 
     async def run_sync_backup(self):
-        with self.__etat_instance.sqlite_connection() as connection:
-            timeout = aiohttp.ClientTimeout(connect=20, total=900)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with SQLiteReadOperations(connection) as dao:
-                    await self.__consignation.upload_backups_primaire(session, dao)
-                await self.download_backups_primaire(connection, session)
+        if self.__etat_instance.est_primaire is False:
+            with self.__etat_instance.sqlite_connection() as connection:
+                timeout = aiohttp.ClientTimeout(connect=20, total=900)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with SQLiteReadOperations(connection) as dao:
+                        await self.__consignation.upload_backups_primaire(session, dao)
+                    await self.download_backups_primaire(connection, session)
 
     async def download_backups_primaire(self, sqlite_connection: SQLiteConnection, session: aiohttp.ClientSession):
         """ Downloader les fichiers de backup qui sont manquants localement """
