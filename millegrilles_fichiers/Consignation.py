@@ -25,6 +25,7 @@ from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.ConsignationStore import ConsignationStore, map_type
 from millegrilles_fichiers.Synchronisation import SyncManager
+from millegrilles_fichiers.SQLiteDao import SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations
 
 
 class InformationFuuid:
@@ -119,8 +120,7 @@ class ConsignationHandler:
             if premiere_execution:
                 self.__timestamp_visite = datetime.datetime.utcnow()
                 try:
-                    async with self.__etat_instance.lock_db_job:
-                        await self.__store_consignation.visiter_fuuids()
+                    await self.__store_consignation.visiter_fuuids()
                 except:
                     self.__logger.exception("entretien_store Erreur premiere execution de visite")
                 # Debloquer a la synchronisation (initiale)
@@ -196,35 +196,29 @@ class ConsignationHandler:
         if self.__timestamp_visite is None or now - self.__intervalle_visites > self.__timestamp_visite:
             try:
                 # Demarrer la job si le semaphore n'est pas deja bloque
-                if self.__etat_instance.lock_db_job.locked() is False:
-                    async with self.__etat_instance.lock_db_job:
-                        self.__logger.info("__traiter_cedule_local Visiter fuuids")
-                        self.__timestamp_visite = datetime.datetime.utcnow()
-                        await self.__store_consignation.visiter_fuuids()
-                        # Debloquer a la synchronisation (initiale)
-                        self.__sync_manager.set_visite_completee()
+                self.__logger.info("__traiter_cedule_local Visiter fuuids")
+                self.__timestamp_visite = datetime.datetime.utcnow()
+                await self.__store_consignation.visiter_fuuids()
+                # Debloquer a la synchronisation (initiale)
+                self.__sync_manager.set_visite_completee()
             except Exception:
                 self.__logger.exception("__traiter_cedule_local Erreur visiter fuuids")
 
         if self.__timestamp_verification is None or now - self.__intervalle_verification > self.__timestamp_verification:
             try:
                 # Demarrer la job si le semaphore n'est pas deja bloque
-                if self.__etat_instance.lock_db_job.locked() is False:
-                    async with self.__etat_instance.lock_db_job:
-                        self.__logger.info("__traiter_cedule_local Verifier fuuids")
-                        self.__timestamp_verification = datetime.datetime.utcnow()
-                        await self.__store_consignation.verifier_fuuids()
+                self.__logger.info("__traiter_cedule_local Verifier fuuids")
+                self.__timestamp_verification = datetime.datetime.utcnow()
+                await self.__store_consignation.verifier_fuuids()
             except Exception:
                 self.__logger.exception("__traiter_cedule_local Erreur verifier fuuids")
 
         if self.__timestamp_orphelins is None or now - self.__intervalle_orphelins > self.__timestamp_orphelins:
             try:
                 # Demarrer la job si le semaphore n'est pas deja bloque
-                if self.__etat_instance.lock_db_job.locked() is False:
-                    async with self.__etat_instance.lock_db_job:
-                        self.__logger.info("__traiter_cedule_local Supprimer orphelins")
-                        self.__timestamp_orphelins = datetime.datetime.utcnow()
-                        await self.__store_consignation.supprimer_orphelins()
+                self.__logger.info("__traiter_cedule_local Supprimer orphelins")
+                self.__timestamp_orphelins = datetime.datetime.utcnow()
+                await self.__store_consignation.supprimer_orphelins()
             except Exception:
                 self.__logger.exception("__traiter_cedule_local Erreur supprimer_orphelins")
 
@@ -427,10 +421,12 @@ class ConsignationHandler:
         await self.__sync_manager.conserver_activite_fuuids(commande)
 
     async def reactiver_fuuids(self, commande: dict):
+        await self.__store_pret_event.wait()
         return await self.__store_consignation.reactiver_fuuids(commande)
 
-    async def upload_backups_primaire(self, session: aiohttp.ClientSession, entretien_db):
-        await self.__store_consignation.upload_backups_primaire(session, entretien_db)
+    async def upload_backups_primaire(self, session: aiohttp.ClientSession, dao: SQLiteReadOperations):
+        await self.__store_pret_event.wait()
+        await self.__store_consignation.upload_backups_primaire(session, dao)
 
     @asynccontextmanager
     async def get_fp_fuuid(self, fuuid: str, start: Optional[int] = None):

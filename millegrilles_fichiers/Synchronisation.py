@@ -21,8 +21,9 @@ from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
 from millegrilles_fichiers import Constantes
 # from millegrilles_fichiers.Consignation import ConsignationHandler
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
-from millegrilles_fichiers.ConsignationStore import EntretienDatabase
+from millegrilles_fichiers.SQLiteDao import SQLiteConnection
 from millegrilles_fichiers.UploadFichiersPrimaire import uploader_fichier, EtatUpload
+from millegrilles_fichiers.SQLiteDao import SQLiteConnection, SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations
 
 CONST_LIMITE_SAMPLES_DOWNLOAD = 50  # Utilise pour calcul taux de transfert
 
@@ -258,30 +259,29 @@ class SyncManager:
         await asyncio.wait(pending, timeout=1)
 
     async def run_sync_primaire(self):
-        async with self.__etat_instance.lock_db_job:
-            self.__logger.info("thread_sync_primaire Demarrer sync")
-            await self.emettre_etat_sync_primaire()
+        self.__logger.info("thread_sync_primaire Demarrer sync")
+        await self.emettre_etat_sync_primaire()
 
-            event_sync = asyncio.Event()
+        event_sync = asyncio.Event()
 
-            done, pending = await asyncio.wait(
-                [
-                    self.thread_emettre_evenement_primaire(event_sync),
-                    self.__sequence_sync_primaire()
-                ],
-                return_when=asyncio.FIRST_COMPLETED
-            )
-            event_sync.set()  # Complete
+        done, pending = await asyncio.wait(
+            [
+                self.thread_emettre_evenement_primaire(event_sync),
+                self.__sequence_sync_primaire()
+            ],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        event_sync.set()  # Complete
 
-            # Finir executions pending
-            await asyncio.wait(pending, timeout=1)
+        # Finir executions pending
+        await asyncio.wait(pending, timeout=1)
 
-            for d in done:
-                if d.exception():
-                    raise d.exception()
+        for d in done:
+            if d.exception():
+                raise d.exception()
 
-            await self.emettre_etat_sync_primaire(termine=True)
-            self.__logger.info("thread_sync_primaire Fin sync")
+        await self.emettre_etat_sync_primaire(termine=True)
+        self.__logger.info("thread_sync_primaire Fin sync")
 
     async def __sequence_sync_primaire(self):
         # Date debut utilise pour trouver les fichiers orphelins (si reclamation est complete)
@@ -298,30 +298,29 @@ class SyncManager:
         await self.__consignation.generer_backup_sync()
 
     async def run_sync_secondaire(self):
-        async with self.__etat_instance.lock_db_job:
-            self.__logger.info("run_sync_secondaire Demarrer sync")
-            await self.emettre_etat_sync_secondaire()
+        self.__logger.info("run_sync_secondaire Demarrer sync")
+        await self.emettre_etat_sync_secondaire()
 
-            event_sync = asyncio.Event()
+        event_sync = asyncio.Event()
 
-            done, pending = await asyncio.wait(
-                [
-                    self.thread_emettre_evenement_secondaire(event_sync),
-                    self.__sequence_sync_secondaire()
-                ],
-                return_when=asyncio.FIRST_COMPLETED
-            )
-            event_sync.set()  # Complete
+        done, pending = await asyncio.wait(
+            [
+                self.thread_emettre_evenement_secondaire(event_sync),
+                self.__sequence_sync_secondaire()
+            ],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        event_sync.set()  # Complete
 
-            # Finir executions pending
-            await asyncio.wait(pending, timeout=1)
+        # Finir executions pending
+        await asyncio.wait(pending, timeout=1)
 
-            for d in done:
-                if d.exception():
-                    raise d.exception()
+        for d in done:
+            if d.exception():
+                raise d.exception()
 
-            await self.emettre_etat_sync_secondaire(termine=True)
-            self.__logger.info("run_sync_secondaire Fin sync")
+        await self.emettre_etat_sync_secondaire(termine=True)
+        self.__logger.info("run_sync_secondaire Fin sync")
 
     async def __sequence_sync_secondaire(self):
         # Download fichiers reclamations primaire
@@ -532,92 +531,95 @@ class SyncManager:
         self.__logger.debug("traiter_fichiers_reclamation Download termine OK")
 
     async def merge_fichiers_reclamation(self):
-        # Utiliser thread pour traiter les fichiers et database sans bloquer
-        await asyncio.to_thread(self.__run_merge_fichiers_reclamation)
+        with self.__etat_instance.sqlite_connection() as connection:
+            async with SQLiteBatchOperations(connection) as dao:
+                path_data = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_DATA)
+                path_reclamations = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
+                path_reclamations_intermediaire = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
+                path_backup = pathlib.Path(path_data, Constantes.FICHIER_BACKUP)
 
-    def __run_merge_fichiers_reclamation(self):
-        with EntretienDatabase(self.__etat_instance) as entretien_db:
-            path_data = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_DATA)
-            path_reclamations = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
-            path_reclamations_intermediaire = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
-            path_backup = pathlib.Path(path_data, Constantes.FICHIER_BACKUP)
+                async with SQLiteWriteOperations(connection) as dao_write:
+                    await asyncio.to_thread(dao_write.truncate_fichiers_primaire)
 
-            entretien_db.truncate_fichiers_primaire()
-
-            # Lire le fichier de reclamations et conserver dans table FICHIERS_PRIMAIRE
-            with gzip.open(str(path_reclamations), 'rt') as fichier:
-                while True:
-                    row_str = fichier.readline(1024)
-                    if not row_str:
-                        break
-                    row = json.loads(row_str)
-                    commit_done = entretien_db.ajouter_fichier_primaire(row)
-                    if commit_done:
-                        # Ajouter throttle pour permettre acces DB
-                        time.sleep(0.5)
-
-            # Charger fichier intermediaire si present
-            try:
-                with path_reclamations_intermediaire.open('rt') as fichier:
+                # Lire le fichier de reclamations et conserver dans table FICHIERS_PRIMAIRE
+                with gzip.open(str(path_reclamations), 'rt') as fichier:
                     while True:
-                        row_str = fichier.readline(1024)
+                        row_str = await asyncio.to_thread(fichier.readline, 1024)
                         if not row_str:
                             break
                         row = json.loads(row_str)
-                        commit_done = entretien_db.ajouter_fichier_primaire(row)
+                        commit_done = await dao.ajouter_fichier_primaire(row)
                         if commit_done:
                             # Ajouter throttle pour permettre acces DB
-                            time.sleep(0.5)
+                            await asyncio.sleep(0.5)
 
-            except OSError as e:
-                if e.errno == errno.ENOENT:
-                    pass  # OK, fichier absent
-                else:
-                    raise e
+                # Charger fichier intermediaire si present
+                try:
+                    with path_reclamations_intermediaire.open('rt') as fichier:
+                        while True:
+                            row_str = await asyncio.to_thread(fichier.readline, 1024)
+                            if not row_str:
+                                break
+                            row = json.loads(row_str)
+                            commit_done = await dao.ajouter_fichier_primaire(row)
+                            if commit_done:
+                                # Ajouter throttle pour permettre acces DB
+                                await asyncio.sleep(0.5)
 
-            # Commit derniere batch
-            entretien_db.commit_fichiers_primaire()
+                except OSError as e:
+                    if e.errno == errno.ENOENT:
+                        pass  # OK, fichier absent
+                    else:
+                        raise e
 
-            # Charger fichier backup si present
-            entretien_db.truncate_backup_primaire()
-            try:
-                with gzip.open(str(path_backup), 'rt') as fichier:
-                    while True:
-                        row_str = fichier.readline(1024)
-                        if not row_str:
-                            break
-                        row = json.loads(row_str)
-                        entretien_db.ajouter_backup_primaire(row)
-            except OSError as e:
-                if e.errno == errno.ENOENT:
-                    pass  # OK, fichier absent
-                else:
-                    raise e
+                # Commit derniere batch
+                await dao.commit_batch()
 
-            # Commit derniere batch
-            entretien_db.commit_backup_primaire()
+                # Charger fichier backup si present
+                with SQLiteWriteOperations(connection) as dao_write:
+                    await asyncio.to_thread(dao_write.truncate_backup_primaire)
+
+                try:
+                    with gzip.open(str(path_backup), 'rt') as fichier:
+                        while True:
+                            row_str = await asyncio.to_thread(fichier.readline, 1024)
+                            if not row_str:
+                                break
+                            row = json.loads(row_str)
+                            await dao.ajouter_backup_primaire(row)
+                except OSError as e:
+                    if e.errno == errno.ENOENT:
+                        pass  # OK, fichier absent
+                    else:
+                        raise e
+
+                # Commit derniere batch
+                await dao.commit_batch()
 
     async def creer_operations_sur_secondaire(self):
-        await asyncio.to_thread(self.__creer_operations_sur_secondaire)
+        with self.__etat_instance.sqlite_connection() as connection:
+            async with SQLiteBatchOperations(connection) as dao:
+                await dao.marquer_secondaires_reclames()
+                await asyncio.sleep(2)
 
-    def __creer_operations_sur_secondaire(self):
-        with EntretienDatabase(self.__etat_instance) as entretien_db:
-            entretien_db.marquer_secondaires_reclames()
-            entretien_db.generer_uploads()
-            entretien_db.generer_downloads()
+                await dao.generer_uploads()
+                await asyncio.sleep(2)
 
-            # Declencher les threads d'upload et de download (aucun effect si threads deja actives)
-            self.__upload_event.set()
-            self.__download_event.set()
+                await dao.generer_downloads()
+
+        # Declencher les threads d'upload et de download (aucun effect si threads deja actives)
+        self.__upload_event.set()
+        self.__download_event.set()
 
     async def run_upload(self):
-        with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
+        with self.__etat_instance.sqlite_connection() as connection:
             self.__samples_upload = list()  # Reset samples download
 
             timeout = aiohttp.ClientTimeout(connect=20)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 while True:
-                    job_upload = await asyncio.to_thread(entretien_db.get_next_upload)
+                    async with SQLiteWriteOperations(connection) as dao_write:
+                        job_upload = await asyncio.to_thread(dao_write.get_next_upload)
                     if job_upload is None:
                         break
                     if self.__stop_event.is_set():
@@ -625,7 +627,7 @@ class SyncManager:
                         return
                     self.__logger.debug("run_upload Uploader fichier %s" % job_upload)
                     try:
-                        await self.upload_fichier_primaire(session, entretien_db, job_upload)
+                        await self.upload_fichier_primaire(session, connection, job_upload)
                     except Exception:
                         self.__logger.exception("run_upload Erreur upload fichier du primaire : %s" % job_upload['fuuid'])
 
@@ -635,13 +637,14 @@ class SyncManager:
         self.__logger.debug("run_upload Aucunes jobs d'upload restantes - uploads courants termines")
 
     async def run_download(self):
-        with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
+        with self.__etat_instance.sqlite_connection() as connection:
             self.__samples_download = list()  # Reset samples download
 
             timeout = aiohttp.ClientTimeout(connect=20)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 while True:
-                    job_download = await asyncio.to_thread(entretien_db.get_next_download)
+                    async with SQLiteWriteOperations(connection) as dao_write:
+                        job_download = await asyncio.to_thread(dao_write.get_next_download)
                     if job_download is None:
                         break
                     if self.__stop_event.is_set():
@@ -649,7 +652,7 @@ class SyncManager:
                         return
                     self.__logger.debug("run_download Downloader fichier %s" % job_download)
                     try:
-                        await self.download_fichier_primaire(session, entretien_db, job_download)
+                        await self.download_fichier_primaire(session, connection, job_download)
                     except Exception:
                         self.__logger.exception("Erreur download fichier du primaire : %s" % job_download['fuuid'])
 
@@ -658,7 +661,7 @@ class SyncManager:
         self.__samples_download = list()  # Reset samples download
         self.__logger.debug("run_download Aucunes jobs de download restant - downloads courants termines")
 
-    async def download_fichier_primaire(self, session: aiohttp.ClientSession, entretien_db: EntretienDatabase, fichier: dict):
+    async def download_fichier_primaire(self, session: aiohttp.ClientSession, connection: SQLiteConnection, fichier: dict):
         self.__download_en_cours = fichier
         self.__download_en_cours['position'] = 0
         fuuid = fichier['fuuid']
@@ -673,7 +676,8 @@ class SyncManager:
             if info_fichier['etat_fichier'] != 'manquant':
                 # Le fichier n'est pas manquant - annuler le download.
                 self.__download_en_cours = None
-                await asyncio.to_thread(entretien_db.supprimer_job_download, fuuid)
+                async with SQLiteWriteOperations(connection) as dao:
+                    await asyncio.to_thread(dao.supprimer_job_download, fuuid)
                 return
         except TypeError:
             pass  # OK, le fichier n'existe pas
@@ -693,15 +697,18 @@ class SyncManager:
             async with session.get(url_primaire_reclamations.url, ssl=self.__etat_instance.ssl_context) as resp:
                 if resp.status != 200:
                     self.__logger.warning("Erreur download fichier %s (status %d)" % (fuuid, resp.status))
-                    if resp.status == 404:
-                        self.__logger.warning(
-                            "Erreur download fichier %s - supprimer le download" % fuuid)
-                        await asyncio.to_thread(entretien_db.supprimer_job_download, fuuid)
-                    await asyncio.to_thread(entretien_db.touch_download, fuuid, resp.status)
+                    async with SQLiteWriteOperations(connection) as dao:
+                        if resp.status == 404:
+                            self.__logger.warning(
+                                "Erreur download fichier %s - supprimer le download" % fuuid)
+                            await asyncio.to_thread(dao.supprimer_job_download, fuuid)
+                        await asyncio.to_thread(dao.touch_download, fuuid, resp.status)
                     path_fichier_work.unlink()
                     return
 
-                await self.emettre_etat_download(fuuid, entretien_db, producer)
+                async with SQLiteReadOperations(connection) as dao_read:
+                    async with SQLiteWriteOperations(connection) as dao_write:
+                        await self.emettre_etat_download(fuuid, dao_read, dao_write, producer)
                 date_download_maj = datetime.datetime.utcnow()
 
                 debut_chunk = datetime.datetime.utcnow()
@@ -722,17 +729,20 @@ class SyncManager:
 
                     if now - intervalle_download_maj > date_download_maj:
                         date_download_maj = now
-                        await self.emettre_etat_download(fuuid, entretien_db, producer)
+                        async with SQLiteReadOperations(connection) as dao_read:
+                            async with SQLiteWriteOperations(connection) as dao_write:
+                                await self.emettre_etat_download(fuuid, dao_read, dao_write, producer)
 
                     # Debut compter pour prochain chunk
                     debut_chunk = now
 
         # Consigner le fichier recu
         await self.__consignation.consigner(path_fichier_work, fuuid)
-        await asyncio.to_thread(entretien_db.supprimer_job_download, fuuid)
+        async with SQLiteWriteOperations(connection) as dao_write:
+            await asyncio.to_thread(dao_write.supprimer_job_download, fuuid)
         self.__download_en_cours = None
 
-    async def emettre_etat_download(self, fuuid, entretien_db: EntretienDatabase, producer):
+    async def emettre_etat_download(self, fuuid, dao_read: SQLiteReadOperations, dao_write: SQLiteWriteOperations, producer):
         samples = self.__samples_download.copy()
         # Calculer vitesse de transfert
         duree = datetime.timedelta(seconds=0)
@@ -747,9 +757,9 @@ class SyncManager:
         else:
             taux = None
 
-        await asyncio.to_thread(entretien_db.touch_download, fuuid, None)
+        await asyncio.to_thread(dao_write.touch_download, fuuid, None)
         try:
-            etat = await asyncio.to_thread(entretien_db.get_etat_downloads)
+            etat = await asyncio.to_thread(dao_read.get_etat_downloads)
             nombre = etat['nombre']
             taille = etat['taille']
         except TypeError:
@@ -791,33 +801,32 @@ class SyncManager:
         )
 
     async def run_entretien_transferts(self):
-        if self.__etat_instance.lock_db_job.locked() is False:
-            async with self.__etat_instance.lock_db_job:
-                with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
-                    await asyncio.to_thread(entretien_db.entretien_transferts)
+        with self.__etat_instance.sqlite_connection() as connection:
+            async with SQLiteBatchOperations(connection) as dao:
+                await dao.entretien_transferts()
 
-                # Entretien repertoire staging/sync/download - supprimer fichiers inactifs
+        # Entretien repertoire staging/sync/download - supprimer fichiers inactifs
 
-                path_download = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_SYNC_DOWNLOAD)
-                date_expiration = (datetime.datetime.now() - datetime.timedelta(hours=2)).timestamp()
+        path_download = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_SYNC_DOWNLOAD)
+        date_expiration = (datetime.datetime.now() - datetime.timedelta(hours=2)).timestamp()
 
-                try:
-                    for file in path_download.iterdir():
-                        stat_file = file.stat()
-                        if stat_file.st_mtime < date_expiration:
-                            self.__logger.info("Supprimer fichier sync download expire %s" % file)
-                            file.unlink()
-                except OSError as e:
-                    if e.errno == errno.ENOENT:
-                        pass  # OK
-                    else:
-                        raise e
+        try:
+            for file in path_download.iterdir():
+                stat_file = file.stat()
+                if stat_file.st_mtime < date_expiration:
+                    self.__logger.info("Supprimer fichier sync download expire %s" % file)
+                    file.unlink()
+        except OSError as e:
+            if e.errno == errno.ENOENT:
+                pass  # OK
+            else:
+                raise e
 
         # Redeclencher transferts
         self.__upload_event.set()
         self.__download_event.set()
 
-    async def upload_fichier_primaire(self, session: aiohttp.ClientSession, entretien_db: EntretienDatabase, fichier: dict):
+    async def upload_fichier_primaire(self, session: aiohttp.ClientSession, entretien_db: SQLiteConnection, fichier: dict):
         fuuid = fichier['fuuid']
 
         producer = self.__etat_instance.producer
@@ -899,7 +908,7 @@ class SyncManager:
             except asyncio.CancelledError:
                 return  # Stopped
 
-    async def emettre_etat_upload(self, fuuid, entretien_db: EntretienDatabase, producer):
+    async def emettre_etat_upload(self, fuuid, entretien_db: SQLiteConnection, producer):
 
         upload_en_cours = self.__upload_en_cours
         if upload_en_cours is not None:
@@ -965,10 +974,11 @@ class SyncManager:
         fuuid = commande['fuuid']
         self.__logger.debug("ajouter_fichier_primaire Conserver nouveau fichier consigne su primaire %s" % fuuid)
 
-        with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
+        with self.__etat_instance.sqlite_connection() as connection:
 
-            # Ajouter le fuuid a la liste de fichiers manquants
-            ajoute = await asyncio.to_thread(entretien_db.ajouter_fichier_manquant, fuuid)
+            with SQLiteWriteOperations(connection) as dao:
+                # Ajouter le fuuid a la liste de fichiers manquants
+                ajoute = await asyncio.to_thread(dao.ajouter_fichier_manquant, fuuid)
 
             if ajoute:
                 # Tenter d'obtenir la taille du fichier pour ajouter a la liste FICHIERS_PRIMAIRE et DOWNLOADS
@@ -989,7 +999,8 @@ class SyncManager:
                     self.__logger.debug("ajouter_fichier_primaire Fichier %s accessible pour download, taille %s" % (fuuid, taille_str))
 
                 taille_int = int(taille_str)
-                await asyncio.to_thread(entretien_db.ajouter_download_primaire, fuuid, taille_int)
+                with SQLiteWriteOperations(connection) as dao:
+                    await asyncio.to_thread(dao.ajouter_download_primaire, fuuid, taille_int)
 
                 # Declencher thread download au besoin
                 self.__download_event.set()
@@ -998,26 +1009,31 @@ class SyncManager:
 
     async def ajouter_upload_secondaire(self, fuuid: str):
         """ Ajouter conditionnellement un upload vers le primaire """
-        with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
+        with self.__etat_instance.sqlite_connection() as connection:
             # Verifier si le fichier est present dans FICHIERS_PRIMAIRE
-            ajoute = await asyncio.to_thread(entretien_db.ajouter_upload_secondaire_conditionnel, fuuid)
-            if ajoute:
-                self.__logger.debug("ajouter_upload_secondaire Declencher upload pour fuuid %s" % fuuid)
-                self.__upload_event.set()
+            async with SQLiteWriteOperations(connection) as dao_write:
+                ajoute = await asyncio.to_thread(dao_write.ajouter_upload_secondaire_conditionnel, fuuid)
+        if ajoute:
+            self.__logger.debug("ajouter_upload_secondaire Declencher upload pour fuuid %s" % fuuid)
+            self.__upload_event.set()
 
     async def run_sync_backup(self):
-        async with self.__etat_instance.lock_db_job:
-            with EntretienDatabase(self.__etat_instance, check_same_thread=False) as entretien_db:
-                timeout = aiohttp.ClientTimeout(connect=20, total=900)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    await self.__consignation.upload_backups_primaire(session, entretien_db)
-                    await self.download_backups_primaire(entretien_db, session)
+        if self.__etat_instance.url_consignation_primaire is None:
+            raise Exception('run_sync_backup Avant configuration url')
 
-    async def download_backups_primaire(self, entretien_db: EntretienDatabase, session: aiohttp.ClientSession):
+        with self.__etat_instance.sqlite_connection() as connection:
+            timeout = aiohttp.ClientTimeout(connect=20, total=900)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with SQLiteReadOperations(connection) as dao:
+                    await self.__consignation.upload_backups_primaire(session, dao)
+                await self.download_backups_primaire(connection, session)
+
+    async def download_backups_primaire(self, sqlite_connection: SQLiteConnection, session: aiohttp.ClientSession):
         """ Downloader les fichiers de backup qui sont manquants localement """
 
         while True:
-            backups = await asyncio.to_thread(entretien_db.get_batch_backups_primaire)
+            with SQLiteWriteOperations(sqlite_connection) as dao:
+                backups = await asyncio.to_thread(dao.get_batch_backups_primaire)
             if len(backups) == 0:
                 break  # Done
 

@@ -10,12 +10,14 @@ from cryptography.hazmat.primitives import serialization as crypto_serialization
 
 from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_document
 from millegrilles_messages.MilleGrillesConnecteur import EtatInstance
+from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.Configuration import ConfigurationFichiers
+from millegrilles_fichiers.SQLiteDao import SQLiteConnection, SQLiteLocks
 
 
 class EtatFichiers(EtatInstance):
 
-    def __init__(self, configuration: ConfigurationFichiers):
+    def __init__(self, configuration: ConfigurationFichiers, sqlite_locks: SQLiteLocks):
         super().__init__(configuration)
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
 
@@ -31,7 +33,11 @@ class EtatFichiers(EtatInstance):
         self.__public_key_ssh_rsa = None
 
         # Semaphore pour empecher plusieurs jobs de s'executer en background en meme temps (DB lock)
-        self.__lock_db_job: Optional[asyncio.BoundedSemaphore] = None
+        # self.__lock_db_job: Optional[asyncio.BoundedSemaphore] = None
+        self.__sqlite_locks = sqlite_locks
+
+    async def ainit(self):
+        await self.__sqlite_locks.ainit()
 
     async def reload_configuration(self):
         await super().reload_configuration()
@@ -111,12 +117,19 @@ class EtatFichiers(EtatInstance):
     def url_consignation_primaire(self) -> Optional[str]:
         return self.__url_consignation_primaire
 
-    @property
-    def lock_db_job(self) -> asyncio.BoundedSemaphore:
-        # Chargement valeurs au besoin
-        if self.__lock_db_job is None:
-            self.__lock_db_job = asyncio.BoundedSemaphore(value=1)
-        return self.__lock_db_job
+    # @property
+    # def lock_db_job(self) -> asyncio.BoundedSemaphore:
+    #     raise NotImplementedError('obsolete')
+    #     # # Chargement valeurs au besoin
+    #     # if self.__lock_db_job is None:
+    #     #     self.__lock_db_job = asyncio.BoundedSemaphore(value=1)
+    #     # return self.__lock_db_job
+
+    def sqlite_connection(self, check_same_thread=False) -> SQLiteConnection:
+        path_data = pathlib.Path(self.configuration.dir_consignation, Constantes.DIR_DATA)
+        sqlite_connection = SQLiteConnection(path_data, self.__sqlite_locks, check_same_thread=check_same_thread)
+        # await sqlite_connection.ainit()
+        return sqlite_connection
 
     def get_public_key_ssh(self) -> dict:
         return {'rsa': self.__public_key_ssh_rsa, 'ed25519': self.__public_key_ssh_ed25519}

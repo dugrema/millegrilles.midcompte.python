@@ -15,6 +15,7 @@ from millegrilles_fichiers.Commandes import CommandHandler
 from millegrilles_fichiers.Intake import IntakeFichiers
 from millegrilles_fichiers.Consignation import ConsignationHandler
 from millegrilles_fichiers.WebServer import WebServer
+from millegrilles_fichiers.SQLiteDao import SQLiteConnection, SQLiteLocks
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class StreamingMain:
     def __init__(self, args: argparse.Namespace):
         self.__args = args
         self.__config = ConfigurationFichiers()
-        self._etat = EtatFichiers(self.__config)
+        self._etat = EtatFichiers(self.__config, SQLiteLocks())
 
         self.__rabbitmq_dao: Optional[MilleGrillesConnecteur] = None
         self.__web_server: Optional[WebServer] = None
@@ -37,11 +38,12 @@ class StreamingMain:
         self.__loop = None
         self._stop_event = None
 
-    async def configurer(self):
+    async def ainit(self):
         self.__loop = asyncio.get_event_loop()
         self._stop_event = asyncio.Event()
         self.__config.parse_config(self.__args.__dict__)
 
+        await self._etat.ainit()
         await self._etat.reload_configuration()
         self.__consignation_handler = ConsignationHandler(self._stop_event, self._etat)
         self.__intake = IntakeFichiers(self._stop_event, self._etat, self.__consignation_handler)
@@ -108,7 +110,7 @@ async def demarrer(args: argparse.Namespace):
     signal.signal(signal.SIGINT, main_inst.exit_gracefully)
     signal.signal(signal.SIGTERM, main_inst.exit_gracefully)
 
-    await main_inst.configurer()
+    await main_inst.ainit()
     logger.info("Run main millegrilles_fichiers")
     await main_inst.run()
     logger.info("Fin main millegrilles_fichiers")

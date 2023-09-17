@@ -8,13 +8,13 @@ import pathlib
 import shutil
 import sqlite3
 import tempfile
-import time
 
 from aiohttp import web, ClientSession
 from typing import Optional, Type, Union
 
 import pytz
 
+from millegrilles_fichiers.SQLiteDao import SQLiteConnection
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
 from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
 
@@ -22,504 +22,7 @@ import millegrilles_fichiers.DatabaseScripts as scripts_database
 from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.UploadFichiersPrimaire import EtatUpload, feed_filepart2
-
-
-class EntretienDatabase:
-
-    def __init__(self, etat: EtatFichiers, check_same_thread=True, timeout=5.0):
-        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-        self._etat = etat
-        self.__check_same_thread = check_same_thread
-        self.__timeout = timeout
-
-        path_database = pathlib.Path(
-            self._etat.configuration.dir_consignation, Constantes.DIR_DATA, Constantes.FICHIER_DATABASE)
-        self.__path_database = path_database
-
-        self.__con: Optional[sqlite3.Connection] = None  # sqlite3.connect(self.__path_database, check_same_thread=check_same_thread)
-        self.__cur: Optional[sqlite3.Cursor] = None  # self.__con.cursor()
-
-        self.__batch_visites: Optional[dict] = None
-
-        self.__limite_batch = 250
-
-        self.__debut_entretien = datetime.datetime.now(tz=pytz.UTC)
-
-    def __enter__(self):
-        self.__con = sqlite3.connect(
-            self.__path_database,
-            timeout=self.__timeout, check_same_thread=self.__check_same_thread
-        )
-        self.__cur = self.__con.cursor()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.__con.commit()
-        self.__cur.close()
-        self.__con.close()
-        return False
-
-    def ajouter_visite(self, bucket: str, fuuid: str, taille: int) -> int:
-        if self.__batch_visites is None:
-            self.__batch_visites = list()
-        row = {
-            'fuuid': fuuid,
-            'etat_fichier': Constantes.DATABASE_ETAT_ACTIF,
-            'taille': taille,
-            'bucket': bucket,
-            'date_presence': datetime.datetime.now(tz=pytz.UTC),
-        }
-        self.__batch_visites.append(row)
-
-        return len(self.__batch_visites)
-
-        # if len(self.__batch_visites) >= self.__limite_batch:
-        #     self.commit_visites()
-        #     if batch_sleep is not None:
-        #         time.sleep(batch_sleep)
-
-    def commit_visites(self):
-        batch = self.__batch_visites
-        self.__batch_visites = None
-        cur = self.__con.cursor()
-        try:
-            if batch is not None:
-                resultat = cur.executemany(scripts_database.CONST_PRESENCE_FICHIERS, batch)
-            else:
-                resultat = None
-        finally:
-            cur.close()
-            self.__con.commit()
-
-        return batch, resultat
-
-    def marquer_actifs_visites(self):
-        """ Sert a marquer tous les fichiers "manquants" comme actifs si visites recemment. """
-        cur = self.__con.cursor()
-        try:
-            resultat = cur.execute(scripts_database.UPDATE_ACTIFS_VISITES, {'date_presence': self.__debut_entretien})
-            self.__logger.info("marquer_actifs_visites Marquer manquants comme actifs si visite >= %s : %d rows" %
-                               (self.__debut_entretien, resultat.rowcount))
-            self.__con.commit()
-
-            resultat = cur.execute(scripts_database.UPDATE_MANQANTS_VISITES, {'date_presence': self.__debut_entretien})
-            self.__logger.info("marquer_actifs_visites Marquer actifs,orphelins comme manquants si visite < %s : %d rows" %
-                               (self.__debut_entretien, resultat.rowcount))
-        finally:
-            cur.close()
-            self.__con.commit()
-
-    def marquer_verification(self, fuuid: str, etat_fichier: str):
-        if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
-            # Mettre a jour la date de verification
-            params = {
-                'fuuid': fuuid,
-                'date_verification': datetime.datetime.now(tz=pytz.UTC)
-            }
-            self.__cur.execute(scripts_database.UPDATE_DATE_VERIFICATION, params)
-        else:
-            # Erreur - mettre a jour l'etat seulement
-            params = {
-                'fuuid': fuuid,
-                'etat_fichier': etat_fichier
-            }
-            self.__cur.execute(scripts_database.UPDATE_DATE_ETATFICHIER, params)
-        self.__con.commit()
-
-    def identifier_orphelins(self, expiration: datetime.datetime) -> list:
-        params = {
-            'date_reclamation': expiration,
-            'limit': 1000,
-        }
-        cur = self.__con.cursor()
-        orphelins = list()
-        try:
-            cur.execute(scripts_database.REQUETE_BATCH_ORPHELINS, params)
-            while True:
-                row = cur.fetchone()
-                if row is None:
-                    break
-                fuuid, taille, bucket_visite = row
-                orphelins.append({'fuuid': fuuid, 'taille': taille, 'bucket': bucket_visite})
-        finally:
-            cur.close()
-
-        return orphelins
-
-    def supprimer(self, fuuid: str):
-        params = {'fuuid': fuuid}
-        cur = self.__con.cursor()
-        try:
-            cur.execute(scripts_database.DELETE_SUPPRIMER_FUUIDS, params)
-        finally:
-            self.__con.commit()
-            cur.close()
-
-    def generer_relamations_primaires(self, fp):
-        """ Genere le contenu du fichier de transfert d'etat fichiers.jsonl.gz """
-        cur = self.__con.cursor()
-        try:
-            cur.execute(scripts_database.REQUETE_FICHIERS_TRANSFERT)
-            while True:
-                row = cur.fetchone()
-                if row is None:
-                    break
-                fuuid, etat_fichier, taille, bucket_visite = row
-                contenu_ligne = {'fuuid': fuuid, 'etat_fichier': etat_fichier, 'taille': taille, 'bucket': bucket_visite}
-                json.dump(contenu_ligne, fp)
-                fp.write('\n')
-        finally:
-            cur.close()
-
-        self.reset_intermediaires()
-
-    def get_path_database(self):
-        dir_data = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_DATA)
-        return pathlib.Path(dir_data, Constantes.FICHIER_DATABASE)
-
-    def get_path_reclamations(self):
-        dir_data = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_DATA)
-        return pathlib.Path(dir_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
-
-    def get_path_relamations_intermediaires(self):
-        dir_data = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_DATA)
-        return pathlib.Path(dir_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
-
-    def reset_intermediaires(self):
-        path_intermediaires = self.get_path_relamations_intermediaires()
-        path_intermediaires.unlink(missing_ok=True)
-
-    def consigner(self, fuuid: str, taille: int, bucket: str):
-        date_now = datetime.datetime.now(tz=pytz.UTC)
-        data = {
-            'fuuid': fuuid,
-            'etat_fichier': Constantes.DATABASE_ETAT_ACTIF,
-            'taille': taille,
-            'bucket': bucket,
-            'date_presence': date_now,
-            'date_verification': date_now,
-            'date_reclamation': date_now,
-        }
-
-        nouveau = False
-
-        try:
-            self.__cur.execute(scripts_database.CONST_INSERT_FICHIER, data)
-            nouveau = True
-        except sqlite3.IntegrityError as e:
-            if 'FICHIERS.fuuid' in e.args[0]:
-                self.__logger.debug("ConsignationStore.consigner fuuid %s existe deja - OK" % fuuid)
-                resultat_update_manquant = self.__cur.execute(scripts_database.CONST_ACTIVER_SI_MANQUANT, data)
-                if resultat_update_manquant.rowcount > 0:
-                    # Le fichier etait manquant, on le considere nouveau
-                    nouveau = True
-                self.__cur.execute(scripts_database.CONST_VERIFIER_FICHIER, data)
-            else:
-                raise e
-        finally:
-            self.__con.commit()
-
-        if nouveau:
-            try:
-                data_intermediaire = {
-                    'fuuid': fuuid,
-                    'etat_fichier': Constantes.DATABASE_ETAT_ACTIF,
-                    'taille': taille,
-                    'bucket': bucket,
-                }
-                path_intermediaire = self.get_path_relamations_intermediaires()
-                with open(path_intermediaire, 'at') as fichier:
-                    json.dump(data_intermediaire, fichier)
-                    fichier.write('\n')
-            except Exception:
-                self.__logger.exception("Erreur sauvegarde fuuid dans liste intermediaire")
-
-    def truncate_fichiers_primaire(self):
-        self.__cur.execute(scripts_database.COMMANDE_TRUNCATE_FICHIERS_PRIMAIRE)
-        self.__con.commit()
-
-    def ajouter_fichier_primaire(self, fichier: dict) -> bool:
-        """
-
-        :param fichier:
-        :return: True si commit complete
-        """
-        if self.__batch_visites is None:
-            self.__batch_visites = list()
-        self.__batch_visites.append(fichier)
-
-        if len(self.__batch_visites) >= self.__limite_batch:
-            self.commit_fichiers_primaire()
-            return True
-
-        return False
-
-    def commit_fichiers_primaire(self):
-        batch = self.__batch_visites
-        self.__batch_visites = None
-        try:
-            if batch is not None:
-                self.__cur.executemany(scripts_database.COMMANDE_INSERT_FICHIER_PRIMAIRE, batch)
-        finally:
-            self.__con.commit()
-
-    def truncate_backup_primaire(self):
-        self.__cur.execute(scripts_database.COMMANDE_TRUNCATE_BACKUPS_PRIMAIRE)
-        self.__con.commit()
-
-    def ajouter_backup_primaire(self, fichier: dict):
-        if self.__batch_visites is None:
-            self.__batch_visites = list()
-        self.__batch_visites.append(fichier)
-
-        if len(self.__batch_visites) >= self.__limite_batch:
-            self.commit_backup_primaire()
-
-    def commit_backup_primaire(self):
-        batch = self.__batch_visites
-        self.__batch_visites = None
-        try:
-            if batch is not None:
-                self.__cur.executemany(scripts_database.INSERT_BACKUP_PRIMAIRE, batch)
-        finally:
-            self.__con.commit()
-
-    def marquer_secondaires_reclames(self):
-        date_debut = datetime.datetime.now(tz=pytz.UTC)
-
-        # Inserer secondaires manquants
-        params = {'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
-        self.__cur.execute(scripts_database.COMMANDE_INSERT_SECONDAIRES_MANQUANTS, params)
-        self.__con.commit()
-
-        # Convertir les secondaires orphelins en actifs
-        self.__cur.execute(scripts_database.COMMANDE_UPDATE_SECONDAIRES_ORPHELINS_VERS_ACTIF, params)
-        self.__con.commit()
-
-        # Marquer les secondaires deja presents comme reclames (peu importe l'etat)
-        params = {'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
-        self.__cur.execute(scripts_database.COMMANDE_UPDATE_SECONDAIRES_RECLAMES, params)
-        self.__con.commit()
-
-        params = {'date_reclamation': date_debut}
-        self.__cur.execute(scripts_database.COMMANDE_UPDATE_SECONDAIRES_NON_RECLAMES_VERS_ORPHELINS, params)
-        self.__con.commit()
-
-    def generer_downloads(self):
-        params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
-        self.__cur.execute(scripts_database.COMMAND_INSERT_DOWNLOADS, params)
-        self.__con.commit()
-
-    def generer_uploads(self):
-        params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
-        self.__cur.execute(scripts_database.COMMAND_INSERT_UPLOADS, params)
-        self.__con.commit()
-
-    def get_next_download(self):
-        params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}
-        cur = self.__con.cursor()
-        row = None
-        try:
-            cur.execute(scripts_database.COMMANDE_GET_NEXT_DOWNLOAD, params)
-            row = cur.fetchone()
-        finally:
-            cur.close()
-            self.__con.commit()
-
-        if row is not None:
-            fuuid, taille = row
-            return {'fuuid': fuuid, 'taille': taille}
-
-        return None
-
-    def get_next_upload(self):
-        params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}
-        cur = self.__con.cursor()
-        row = None
-        try:
-            cur.execute(scripts_database.COMMANDE_GET_NEXT_UPLOAD, params)
-            row = cur.fetchone()
-        finally:
-            cur.close()
-            self.__con.commit()
-
-        if row is not None:
-            fuuid, taille = row
-            return {'fuuid': fuuid, 'taille': taille}
-
-        return None
-
-    def touch_download(self, fuuid: str, erreur: Optional[int] = None):
-        params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
-        cur = self.__con.cursor()
-        try:
-            cur.execute(scripts_database.COMMANDE_TOUCH_DOWNLOAD, params)
-        finally:
-            cur.close()
-            self.__con.commit()
-
-    def get_etat_downloads(self):
-        cur = self.__con.cursor()
-        try:
-            cur.execute(scripts_database.SELECT_ETAT_DOWNLOADS)
-            row = cur.fetchone()
-            if row:
-                nombre, taille = row
-                return {'nombre': nombre, 'taille': taille}
-        finally:
-            cur.close()
-
-        return None
-
-    def get_batch_backups_primaire(self) -> list[dict]:
-        self.__cur.execute(scripts_database.UPDATE_FETCH_BACKUP_PRIMAIRE)
-        rows = self.__cur.fetchall()
-        self.__con.commit()
-        tasks = list()
-        if rows is not None and len(rows) > 0:
-            for row in rows:
-                uuid_backup, domaine, nom_fichier, taille = row
-                tasks.append({'uuid_backup': uuid_backup, 'domaine': domaine, 'nom_fichier': nom_fichier, 'taille': taille})
-        return tasks
-
-    def get_etat_uploads(self):
-        self.__cur.execute(scripts_database.SELECT_ETAT_UPLOADS)
-        cur = self.__con.cursor()
-        try:
-            row = self.__cur.fetchone()
-            if row:
-                nombre, taille = row
-                return {'nombre': nombre, 'taille': taille}
-        finally:
-            cur.close()
-
-        return None
-
-    def entretien_transferts(self):
-        """ Marque downloads ou uploads expires, permet nouvel essai. """
-        now = datetime.datetime.now(tz=pytz.UTC)
-
-        self.__cur.execute(scripts_database.DELETE_DOWNLOADS_ESSAIS_EXCESSIFS)
-        self.__con.commit()
-
-        expiration_downloads = now - datetime.timedelta(minutes=30)
-        params = {'date_activite': expiration_downloads}
-        self.__cur.execute(scripts_database.UPDATE_RESET_DOWNLOAD_EXPIRE, params)
-
-        expiration_uploads = now - datetime.timedelta(minutes=30)
-        params = {'date_activite': expiration_uploads}
-        self.__cur.execute(scripts_database.UPDATE_RESET_UPLOADS_EXPIRE, params)
-
-        self.__con.commit()
-
-    def supprimer_job_download(self, fuuid: str):
-        params = {'fuuid': fuuid}
-        self.__cur.execute(scripts_database.COMMANDE_DELETE_DOWNLOAD, params)
-        self.__con.commit()
-
-    def supprimer_job_upload(self, fuuid: str):
-        params = {'fuuid': fuuid}
-        self.__cur.execute(scripts_database.COMMANDE_DELETE_UPLOAD, params)
-        self.__con.commit()
-
-    def touch_upload(self, fuuid: str, erreur: Optional[int] = None):
-        params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
-        cur = self.__con.cursor()
-        try:
-            cur.execute(scripts_database.COMMANDE_TOUCH_UPLOAD, params)
-        finally:
-            cur.close()
-            self.__con.commit()
-
-    def ajouter_fichier_manquant(self, fuuid) -> bool:
-        """ Ajoute un fichier qui devrait etre manquant (e.g. sur evenement consignationPrimaire)"""
-        ajoute = False
-        date_now = datetime.datetime.now(tz=pytz.UTC)
-        params = {
-            'fuuid': fuuid,
-            'etat_fichier': Constantes.DATABASE_ETAT_MANQUANT,
-            'taille': None,
-            'bucket': Constantes.BUCKET_PRINCIPAL,
-            'date_presence': date_now,
-            'date_verification': date_now,
-            'date_reclamation': date_now,
-        }
-        try:
-            self.__cur.execute(scripts_database.CONST_INSERT_FICHIER, params)
-            ajoute = True
-        except sqlite3.IntegrityError as e:
-            pass  # OK, le fichier existe deja
-        finally:
-            self.__con.commit()
-
-        return ajoute
-
-    def ajouter_download_primaire(self, fuuid: str, taille: int):
-        params = {
-            'fuuid': fuuid,
-            'taille': taille,
-            'date_creation': datetime.datetime.now(tz=pytz.UTC),
-        }
-        try:
-            self.__cur.execute(scripts_database.COMMAND_INSERT_DOWNLOAD, params)
-        except sqlite3.IntegrityError as e:
-            pass  # OK, le fichier existe deja dans la liste de downloads
-        finally:
-            self.__con.commit()
-
-    def ajouter_upload_secondaire_conditionnel(self, fuuid: str) -> bool:
-        """ Ajoute conditionnellement un upload vers le primaire """
-        self.__cur.execute(scripts_database.SELECT_PRIMAIRE_PAR_FUUID, {'fuuid': fuuid})
-        row = self.__cur.fetchone()
-        if row is not None:
-            _fuuid, etat_fichier, taille, bucket = row
-            if etat_fichier != 'manquant':
-                # Le fichier n'est pas manquant (il est deja sur le primaire). SKIP
-                return False
-
-        # Le fichier est inconnu ou manquant sur le primaire. On peut creer l'upload
-        self.__cur.execute(scripts_database.SELECT_FICHIER_PAR_FUUID, {'fuuid': fuuid})
-        row = self.__cur.fetchone()
-        if row is not None:
-            _fuuid, etat_fichier, taille, bucket = row
-            if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
-                # Creer la job d'upload
-                params = {
-                    'fuuid': fuuid,
-                    'taille': taille,
-                    'date_creation': datetime.datetime.now(tz=pytz.UTC),
-                }
-                try:
-                    self.__cur.execute(scripts_database.COMMAND_INSERT_UPLOAD, params)
-                except sqlite3.IntegrityError as e:
-                    pass  # OK, le fichier existe deja dans la liste d'uploads
-                finally:
-                    self.__con.commit()
-                return True
-
-        # Le fichier est inconnu localement ou inactif
-        return False
-
-    def get_info_backup_primaire(self, uuid_backup: str, domaine: str, nom_fichier: str) -> Optional[dict]:
-        params = {'uuid_backup': uuid_backup, 'domaine': domaine, 'nom_fichier': nom_fichier}
-        self.__cur.execute(scripts_database.SELECT_BACKUP_PRIMAIRE, params)
-        row = self.__cur.fetchone()
-        self.__con.commit()
-        if row is not None:
-            uuid_backup, domaine, nom_fichier, taille = row
-            return {
-                'uuid_backup': uuid_backup,
-                'domaine': domaine,
-                'nom_fichier': nom_fichier,
-                'taille': taille
-            }
-
-        return None
-
-    def close(self):
-        self.__con.commit()
-        self.__cur.close()
-        self.__con.close()
+from millegrilles_fichiers.SQLiteDao import SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations
 
 
 class ConsignationStore:
@@ -556,14 +59,15 @@ class ConsignationStore:
     def get_path_fuuid(self, bucket: str, fuuid: str) -> pathlib.Path:
         raise NotImplementedError('must override')
 
-    def __consigner_db(self, path_src: pathlib.Path, fuuid: str):
+    async def __consigner_db(self, path_src: pathlib.Path, fuuid: str):
         stat = path_src.stat()
-        with EntretienDatabase(self._etat) as entretien_db:
-            entretien_db.consigner(fuuid, stat.st_size, Constantes.BUCKET_PRINCIPAL)
+        with self._etat.sqlite_connection() as connection:
+            async with SQLiteWriteOperations(connection) as dao:
+                await asyncio.to_thread(dao.consigner, fuuid, stat.st_size, Constantes.BUCKET_PRINCIPAL)
 
     async def consigner(self, path_src: pathlib.Path, fuuid: str):
         # Tenter d'inserer le fichier comme nouveau actif dans la base de donnees
-        await asyncio.to_thread(self.__consigner_db, path_src, fuuid)
+        await self.__consigner_db(path_src, fuuid)
 
         # con = sqlite3.connect(self.__path_database, check_same_thread=True)
         # stat = path_src.stat()
@@ -630,22 +134,25 @@ class ConsignationStore:
 
     async def visiter_fuuids(self):
         dir_buckets = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BUCKETS)
-        self.__logger.info("visiter_fuuids Debut avec path buckets %s" % dir_buckets)
-        with EntretienDatabase(self._etat, check_same_thread=False) as entretien_db:
-            # Parcourir tous les buckets recursivement (depth-first)
-            for bucket in dir_buckets.iterdir():
-                self.__logger.debug("Visiter bucket %s" % bucket.name)
-                await self.visiter_bucket(bucket.name, bucket, entretien_db)
+        with self._etat.sqlite_connection() as connection:
+            async with SQLiteBatchOperations(connection) as dao:
+                self.__logger.info("visiter_fuuids Debut avec path buckets %s" % dir_buckets)
 
-            batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
-            await self.emettre_batch_visites(batch, False)
+                # Parcourir tous les buckets recursivement (depth-first)
+                for bucket in dir_buckets.iterdir():
+                    self.__logger.debug("Visiter bucket %s" % bucket.name)
+                    await self.visiter_bucket(bucket.name, bucket, dao)
 
-            # Marquer tous les fichiers 'manquants' qui viennent d'etre visites comme actifs (utilise date debut)
-            await asyncio.to_thread(entretien_db.marquer_actifs_visites)
+                # batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
+                batch, resultat = await dao.commit_batch()
+                await self.emettre_batch_visites(batch, False)
+
+                # Marquer tous les fichiers 'manquants' qui viennent d'etre visites comme actifs (utilise date debut)
+                await asyncio.to_thread(dao.marquer_actifs_visites)
 
         self.__logger.info("visiter_fuuids Fin")
 
-    async def visiter_bucket(self, bucket: str, path_repertoire: pathlib.Path, entretien_db: EntretienDatabase):
+    async def visiter_bucket(self, bucket: str, path_repertoire: pathlib.Path, dao: SQLiteBatchOperations):
         """ Visiter tous les fichiers presents, s'assurer qu'ils sont dans la base de donnees. """
         raise NotImplementedError('must override')
 
@@ -654,65 +161,73 @@ class ConsignationStore:
         raise NotImplementedError('must override')
 
     async def verifier_fuuids(self, limite=Constantes.CONST_LIMITE_TAILLE_VERIFICATION):
-        await asyncio.to_thread(self.__verifier_fuuids, limite)
+        await self.__verifier_fuuids(limite)
 
-    def __verifier_fuuids(self, limite=Constantes.CONST_LIMITE_TAILLE_VERIFICATION):
+    async def __verifier_fuuids(self, limite=Constantes.CONST_LIMITE_TAILLE_VERIFICATION):
         """ Visiter tous les fichiers presents, s'assurer qu'ils sont dans la base de donnees. """
         liste_fichiers = self.__charger_verifier_fuuids(limite)
 
-        with EntretienDatabase(self._etat) as entretien_db:
-            # Verifier chaque fichier individuellement
-            for fichier in liste_fichiers:
-                self.verifier_fichier(entretien_db, **fichier)
+        with self._etat.sqlite_connection() as connection:
+            async with SQLiteBatchOperations(connection) as dao:
+                # Verifier chaque fichier individuellement
+                # On conserve le lock sur operations de batch pour la duree du traitement
+                for fichier in liste_fichiers:
+                    await self.verifier_fichier(dao, **fichier)
 
     async def supprimer_orphelins(self):
-        producer = self._etat.producer
-        await asyncio.wait_for(producer.producer_pret().wait(), timeout=10)
+        with self._etat.sqlite_connection() as connection:
+            # Ouvrir l'operation de batch (lock)
+            async with SQLiteBatchOperations(connection) as dao:
+                producer = self._etat.producer
+                await asyncio.wait_for(producer.producer_pret().wait(), timeout=10)
 
-        est_primaire = self._etat.est_primaire
-        if est_primaire:
-            expiration_secs = Constantes.CONST_EXPIRATION_ORPHELIN_PRIMAIRE
-        else:
-            expiration_secs = Constantes.CONST_EXPIRATION_ORPHELIN_SECONDAIRE
-        expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=expiration_secs)
-        self.__logger.info("supprimer_orphelins Expires depuis %s" % expiration)
+                est_primaire = self._etat.est_primaire
+                if est_primaire:
+                    expiration_secs = Constantes.CONST_EXPIRATION_ORPHELIN_PRIMAIRE
+                else:
+                    expiration_secs = Constantes.CONST_EXPIRATION_ORPHELIN_SECONDAIRE
+                expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=expiration_secs)
+                self.__logger.info("supprimer_orphelins Expires depuis %s" % expiration)
 
-        with EntretienDatabase(self._etat, check_same_thread=False) as entretien_db:
-            batch_orphelins = await asyncio.to_thread(entretien_db.identifier_orphelins, expiration)
-            fuuids = [f['fuuid'] for f in batch_orphelins]
-            fuuids_a_supprimer = set(fuuids)
-            if est_primaire:
-                # Transmettre commande pour confirmer que la suppression peut avoir lieu
-                commande = {'fuuids': fuuids}
-                reponse = await producer.executer_commande(
-                    commande,
-                    domaine=Constantes.DOMAINE_GROSFICHIERS, action=Constantes.COMMANDE_SUPPRIMER_ORPHELINS,
-                    exchange=ConstantesMillegrilles.SECURITE_PRIVE, timeout=30
-                )
-                if reponse.parsed['ok'] is True:
-                    # Retirer tous les fuuids a conserver de la liste a supprimer
-                    fuuids_conserver = reponse.parsed.get('fuuids_a_conserver') or list()
-                    fuuids_a_supprimer = fuuids_a_supprimer.difference(fuuids_conserver)
+                # Operations de lectures
+                async with SQLiteReadOperations(connection) as dao_read:
+                    batch_orphelins = await asyncio.to_thread(dao_read.identifier_orphelins, expiration)
 
-            for fichier in batch_orphelins:
-                fuuid = fichier['fuuid']
-                bucket = fichier['bucket']
-                if fuuid in fuuids_a_supprimer:
-                    self.__logger.info("supprimer_orphelins Supprimer fichier orphelin expire %s" % fichier)
-                    try:
-                        await self.supprimer(bucket, fuuid)
-                    except OSError as e:
-                        if e.errno == errno.ENOENT:
-                            self.__logger.warning("Erreur suppression fichier %s/%s - non trouve" % (bucket, fuuid))
-                        else:
-                            raise e
+                fuuids = [f['fuuid'] for f in batch_orphelins]
+                fuuids_a_supprimer = set(fuuids)
+                if est_primaire:
+                    # Transmettre commande pour confirmer que la suppression peut avoir lieu
+                    commande = {'fuuids': fuuids}
+                    reponse = await producer.executer_commande(
+                        commande,
+                        domaine=Constantes.DOMAINE_GROSFICHIERS, action=Constantes.COMMANDE_SUPPRIMER_ORPHELINS,
+                        exchange=ConstantesMillegrilles.SECURITE_PRIVE, timeout=30
+                    )
+                    if reponse.parsed['ok'] is True:
+                        # Retirer tous les fuuids a conserver de la liste a supprimer
+                        fuuids_conserver = reponse.parsed.get('fuuids_a_conserver') or list()
+                        fuuids_a_supprimer = fuuids_a_supprimer.difference(fuuids_conserver)
 
-                    # Supprimer de la base de donnes locale
-                    await asyncio.to_thread(entretien_db.supprimer, fuuid)
+                    for fichier in batch_orphelins:
+                        fuuid = fichier['fuuid']
+                        bucket = fichier['bucket']
+                        if fuuid in fuuids_a_supprimer:
+                            self.__logger.info("supprimer_orphelins Supprimer fichier orphelin expire %s" % fichier)
+                            try:
+                                await self.supprimer(bucket, fuuid)
+                            except OSError as e:
+                                if e.errno == errno.ENOENT:
+                                    self.__logger.warning("Erreur suppression fichier %s/%s - non trouve" % (bucket, fuuid))
+                                else:
+                                    raise e
+
+                            # Supprimer de la base de donnes locale
+                            # await asyncio.to_thread(entretien_db.supprimer, fuuid)
+                            await dao.supprimer(fuuid)
 
         pass
 
-    def verifier_fichier(self, entretien_db: EntretienDatabase, fuuid: str, taille: int, bucket: str):
+    async def verifier_fichier(self, batch_dao: SQLiteBatchOperations, fuuid: str, taille: int, bucket: str):
         """ Verifie un fichier individuellement. Marque resultat dans la base de donnees. """
         raise NotImplementedError('must override')
 
@@ -779,13 +294,13 @@ class ConsignationStore:
         }
         params.update(dict_fuuids)
 
-        requete = scripts_database.CONST_ACTIVER_SI_ORPHELIN.replace('$fuuids', ','.join([':%s' % f for f in dict_fuuids.keys()]))
+        requete = scripts_database.UPDATE_ACTIVER_SI_ORPHELIN.replace('$fuuids', ','.join([':%s' % f for f in dict_fuuids.keys()]))
 
         cur.execute(requete, params)
         con.commit()
 
         liste_fichiers_actifs = list()
-        requete = scripts_database.CONST_INFO_FICHIERS_ACTIFS.replace('$fuuids', ','.join([':%s' % f for f in dict_fuuids.keys()]))
+        requete = scripts_database.SELECT_INFO_FICHIERS_ACTIFS.replace('$fuuids', ','.join([':%s' % f for f in dict_fuuids.keys()]))
         cur.execute(requete, dict_fuuids)
 
         while True:
@@ -806,7 +321,7 @@ class ConsignationStore:
     def get_stats(self):
         con = self.ouvrir_database()
         cur = con.cursor()
-        cur.execute(scripts_database.CONST_STATS_FICHIERS)
+        cur.execute(scripts_database.SELECT_STATS_FICHIERS)
 
         resultats_dict = dict()
         nombre_orphelins = 0
@@ -847,7 +362,7 @@ class ConsignationStore:
     def get_info_fichier(self, fuuid: str) -> Optional[dict]:
         con = self.ouvrir_database()
         cur = con.cursor()
-        cur.execute(scripts_database.CONST_INFO_FICHIER, {'fuuid': fuuid})
+        cur.execute(scripts_database.SELECT_INFO_FICHIER, {'fuuid': fuuid})
 
         row = cur.fetchone()
         if row is not None:
@@ -923,7 +438,7 @@ class ConsignationStore:
 
         con = self.ouvrir_database()
         cur = con.cursor()
-        cur.executemany(scripts_database.CONST_RECLAMER_FICHIER, rows)
+        cur.executemany(scripts_database.INSERT_RECLAMER_FICHIER, rows)
         con.commit()
         cur.close()
         con.close()
@@ -938,14 +453,14 @@ class ConsignationStore:
 
             if complet:
                 # Marquer les fichiers avec vieille date de reclamation comme non reclames (orphelins)
-                resultat = cur.execute(scripts_database.CONST_MARQUER_ORPHELINS, {'date_reclamation': debut_reclamation})
+                resultat = cur.execute(scripts_database.UPDATE_MARQUER_ORPHELINS, {'date_reclamation': debut_reclamation})
                 self.__logger.info("__marquer_orphelins Marquer actif -> orphelins : %d rows" % resultat.rowcount)
                 con.commit()
             else:
                 self.__logger.info("__marquer_orphelins Skip, reclamation est incomplete")
 
             # Marquer fichiers orphelins qui viennent d'etre reclames comme actif
-            resultat = cur.execute(scripts_database.CONST_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
+            resultat = cur.execute(scripts_database.UPDATE_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
             self.__logger.info("__marquer_orphelins Marquer orphelins -> actif : %d rows" % resultat.rowcount)
             con.commit()
 
@@ -966,7 +481,7 @@ class ConsignationStore:
 
         con = self.ouvrir_database()
         cur = con.cursor()
-        cur.execute(scripts_database.REQUETE_BATCH_VERIFIER, params)
+        cur.execute(scripts_database.SELECT_BATCH_VERIFIER, params)
 
         taille_totale = 0
         fuuids = list()
@@ -994,23 +509,24 @@ class ConsignationStore:
         fichier_reclamations_work = pathlib.Path('%s.work' % fichier_reclamations)
         fichier_reclamations_work.unlink(missing_ok=True)
 
-        with EntretienDatabase(self._etat, check_same_thread=False) as entretien_db:
-            try:
-                with gzip.open(fichier_reclamations_work, 'wt') as fichier:
-                    await asyncio.to_thread(entretien_db.generer_relamations_primaires, fichier)
+        with self._etat.sqlite_connection() as connection:
+            async with SQLiteReadOperations(connection) as dao:
+                try:
+                    with gzip.open(fichier_reclamations_work, 'wt') as fichier:
+                        await asyncio.to_thread(dao.generer_relamations_primaires, fichier)
 
-                # Renommer fichier .work pour remplacer le fichier de reclamations precedent
-                fichier_reclamations.unlink(missing_ok=True)
-                fichier_reclamations_work.rename(fichier_reclamations)
-            except:
-                self.__logger.exception('Erreur generation fichier reclamations')
-                fichier_reclamations_work.unlink(missing_ok=True)
+                    # Renommer fichier .work pour remplacer le fichier de reclamations precedent
+                    fichier_reclamations.unlink(missing_ok=True)
+                    fichier_reclamations_work.rename(fichier_reclamations)
+                except:
+                    self.__logger.exception('Erreur generation fichier reclamations')
+                    fichier_reclamations_work.unlink(missing_ok=True)
 
     async def generer_backup_sync(self):
         """ Genere le fichier backup.jsonl.gz """
         raise NotImplementedError('must implement')
 
-    async def upload_backups_primaire(self, session: ClientSession, entretien_db):
+    async def upload_backups_primaire(self, session: ClientSession, dao: SQLiteReadOperations):
         raise NotImplementedError('must implement')
 
     async def upload_backup_primaire(self, session: ClientSession, uuid_backup: str, domaine: str, nom_fichier: str, fichier):
@@ -1170,20 +686,21 @@ class ConsignationStoreMillegrille(ConsignationStore):
     #
     #     self.__logger.info("visiter_fuuids Fin")
 
-    async def visiter_bucket(self, bucket: str, path_repertoire: pathlib.Path, entretien_db: EntretienDatabase):
+    async def visiter_bucket(self, bucket: str, path_repertoire: pathlib.Path, dao: SQLiteBatchOperations):
         for item in path_repertoire.iterdir():
             if self._stop_store.is_set():
                 raise Exception('stopping')  # Stopping
 
             if item.is_dir():
                 # Parcourir recursivement
-                await self.visiter_bucket(bucket, item, entretien_db)
+                await self.visiter_bucket(bucket, item, dao)
             elif item.is_file():
                 stat = item.stat()
                 # Ajouter visite, faire commit sur batch. Attendre 5 secondes entre batch (permettre acces a la DB).
-                taille_batch = entretien_db.ajouter_visite(bucket, item.name, stat.st_size)
+                taille_batch = dao.ajouter_visite(bucket, item.name, stat.st_size)
                 if taille_batch >= Constantes.CONST_BATCH_VISITES:
-                    batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
+                    # batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
+                    batch, resultat = await dao.commit_batch()
                     await self.emettre_batch_visites(batch, False)
                     try:
                         await asyncio.wait_for(self._stop_store.wait(), timeout=Constantes.CONST_ATTENTE_ENTRE_BATCH_VISITES)
@@ -1249,7 +766,7 @@ class ConsignationStoreMillegrille(ConsignationStore):
 
         return info
 
-    def verifier_fichier(self, entretien_db: EntretienDatabase, fuuid: str, taille: int, bucket: str):
+    async def verifier_fichier(self, batch_dao: SQLiteBatchOperations, fuuid: str, taille: int, bucket: str):
         path_fichier = self.get_path_fuuid(bucket, fuuid)
         verificateur = VerificateurHachage(fuuid)
 
@@ -1262,14 +779,14 @@ class ConsignationStoreMillegrille(ConsignationStore):
                     verificateur.update(chunk)
             try:
                 verificateur.verify()
-                entretien_db.marquer_verification(fuuid, Constantes.DATABASE_ETAT_ACTIF)
+                await batch_dao.marquer_verification(fuuid, Constantes.DATABASE_ETAT_ACTIF)
             except ErreurHachage:
                 self.__logger.error("verifier_fichier Fichier %s est corrompu, marquer manquant" % fuuid)
-                entretien_db.marquer_verification(fuuid, Constantes.DATABASE_ETAT_MANQUANT)
+                await batch_dao.marquer_verification(fuuid, Constantes.DATABASE_ETAT_MANQUANT)
                 path_fichier.unlink()  # Supprimer le fichier invalide
         except FileNotFoundError:
             self.__logger.error("verifier_fichier Fichier %s est absent, marquer manquant" % fuuid)
-            entretien_db.marquer_verification(fuuid, Constantes.DATABASE_ETAT_MANQUANT)
+            await batch_dao.marquer_verification(fuuid, Constantes.DATABASE_ETAT_MANQUANT)
 
     async def generer_backup_sync(self):
         await asyncio.to_thread(self.__generer_backup_sync)
@@ -1313,7 +830,7 @@ class ConsignationStoreMillegrille(ConsignationStore):
             'taille': info.st_size
         }
 
-    async def upload_backups_primaire(self, session: ClientSession, entretien_db: EntretienDatabase):
+    async def upload_backups_primaire(self, session: ClientSession, dao: SQLiteReadOperations):
         path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
         for path_uuid_backup in path_backup.iterdir():
             uuid_backup = path_uuid_backup.name
@@ -1323,7 +840,7 @@ class ConsignationStoreMillegrille(ConsignationStore):
                     nom_fichier = path_fichier.name
 
                     info = await asyncio.to_thread(
-                        entretien_db.get_info_backup_primaire, uuid_backup, domaine, nom_fichier)
+                        dao.get_info_backup_primaire, uuid_backup, domaine, nom_fichier)
 
                     if info is None:
                         self.__logger.info("Fichier backup %s/%s/%s absent du primaire, on upload" % (uuid_backup, domaine, nom_fichier))
