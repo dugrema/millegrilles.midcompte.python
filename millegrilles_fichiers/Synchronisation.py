@@ -179,7 +179,7 @@ class SyncManager:
                 await self.run_entretien_transferts()
             except Exception:
                 self.__logger.exception("thread_download Erreur synchronisation")
-            await asyncio.wait([stop_coro], timeout=300)
+            await asyncio.wait([stop_coro], timeout=900)
 
     async def thread_emettre_evenement_primaire(self, event_sync: asyncio.Event):
         wait_coro = event_sync.wait()
@@ -828,9 +828,10 @@ class SyncManager:
             else:
                 raise e
 
-        # Redeclencher transferts
-        self.__upload_event.set()
-        self.__download_event.set()
+        if self.__etat_instance.est_primaire is False:
+            # Redeclencher transferts sur secondaire
+            self.__upload_event.set()
+            self.__download_event.set()
 
     async def upload_fichier_primaire(self, session: aiohttp.ClientSession, entretien_db: SQLiteConnection, fichier: dict):
         fuuid = fichier['fuuid']
