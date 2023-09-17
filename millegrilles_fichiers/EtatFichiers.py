@@ -37,6 +37,7 @@ class EtatFichiers(EtatInstance):
         self.__sqlite_locks = sqlite_locks
 
     async def ainit(self):
+        self.__event_consignation_primaire_pret = asyncio.Event()
         await self.__sqlite_locks.ainit()
 
     async def reload_configuration(self):
@@ -149,6 +150,11 @@ class EtatFichiers(EtatInstance):
         try:
             consignation_url = reponse.parsed['consignation_url']
             self.__url_consignation_primaire = consignation_url
+            self.__event_consignation_primaire_pret.set()
             return consignation_url
         except Exception as e:
             self.__logger.exception("Erreur chargement URL consignation")
+
+    @property
+    def consignation_primaire_pret(self):
+        return self.__event_consignation_primaire_pret

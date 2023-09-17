@@ -530,7 +530,7 @@ class ConsignationStore:
         raise NotImplementedError('must implement')
 
     async def upload_backup_primaire(self, session: ClientSession, uuid_backup: str, domaine: str, nom_fichier: str, fichier):
-        url_consignation_primaire = self._etat.url_consignation_primaire
+        url_consignation_primaire = await self._etat.charger_consignation_primaire()
         url_backup = '%s/fichiers_transfert/backup/upload' % url_consignation_primaire
         url_fichier = f"{url_backup}/{uuid_backup}/{domaine}/{nom_fichier}"
 

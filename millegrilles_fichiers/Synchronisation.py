@@ -576,7 +576,7 @@ class SyncManager:
                 await dao.commit_batch()
 
                 # Charger fichier backup si present
-                with SQLiteWriteOperations(connection) as dao_write:
+                async with SQLiteWriteOperations(connection) as dao_write:
                     await asyncio.to_thread(dao_write.truncate_backup_primaire)
 
                 try:
@@ -976,7 +976,7 @@ class SyncManager:
 
         with self.__etat_instance.sqlite_connection() as connection:
 
-            with SQLiteWriteOperations(connection) as dao:
+            async with SQLiteWriteOperations(connection) as dao:
                 # Ajouter le fuuid a la liste de fichiers manquants
                 ajoute = await asyncio.to_thread(dao.ajouter_fichier_manquant, fuuid)
 
@@ -999,7 +999,7 @@ class SyncManager:
                     self.__logger.debug("ajouter_fichier_primaire Fichier %s accessible pour download, taille %s" % (fuuid, taille_str))
 
                 taille_int = int(taille_str)
-                with SQLiteWriteOperations(connection) as dao:
+                async with SQLiteWriteOperations(connection) as dao:
                     await asyncio.to_thread(dao.ajouter_download_primaire, fuuid, taille_int)
 
                 # Declencher thread download au besoin
@@ -1018,9 +1018,6 @@ class SyncManager:
             self.__upload_event.set()
 
     async def run_sync_backup(self):
-        if self.__etat_instance.url_consignation_primaire is None:
-            raise Exception('run_sync_backup Avant configuration url')
-
         with self.__etat_instance.sqlite_connection() as connection:
             timeout = aiohttp.ClientTimeout(connect=20, total=900)
             async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -1032,7 +1029,7 @@ class SyncManager:
         """ Downloader les fichiers de backup qui sont manquants localement """
 
         while True:
-            with SQLiteWriteOperations(sqlite_connection) as dao:
+            async with SQLiteWriteOperations(sqlite_connection) as dao:
                 backups = await asyncio.to_thread(dao.get_batch_backups_primaire)
             if len(backups) == 0:
                 break  # Done
