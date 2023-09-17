@@ -145,7 +145,8 @@ class ConsignationStore:
 
                 # batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
                 batch, resultat = await dao.commit_batch()
-                await self.emettre_batch_visites(batch, False)
+                if batch is not None:
+                    await self.emettre_batch_visites(batch, False)
 
                 # Marquer tous les fichiers 'manquants' qui viennent d'etre visites comme actifs (utilise date debut)
                 await asyncio.to_thread(dao.marquer_actifs_visites)
