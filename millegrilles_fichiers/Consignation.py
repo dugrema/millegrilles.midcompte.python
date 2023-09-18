@@ -316,6 +316,7 @@ class ConsignationHandler:
             producer = self.__etat_instance.producer
             if producer is None:
                 raise Exception('producer pas pret')
+
         await asyncio.wait_for(producer.producer_pret().wait(), 30)
 
         instance_id = self.__etat_instance.clecertificat.enveloppe.subject_common_name

@@ -260,7 +260,10 @@ class SyncManager:
 
     async def run_sync_primaire(self, connection: SQLiteConnection, dao_batch: SQLiteBatchOperations):
         self.__logger.info("thread_sync_primaire Demarrer sync")
-        await self.emettre_etat_sync_primaire()
+        try:
+            await self.emettre_etat_sync_primaire()
+        except asyncio.TimeoutError:
+            self.__logger.info("thread_sync_primaire Erreur emission etat sync initial (timeout)")
 
         event_sync = asyncio.Event()
         tasks = [
@@ -269,7 +272,11 @@ class SyncManager:
         ]
         await asyncio.gather(*tasks)
 
-        await self.emettre_etat_sync_primaire(termine=True)
+        try:
+            await self.emettre_etat_sync_primaire(termine=True)
+        except asyncio.TimeoutError:
+            self.__logger.info("thread_sync_primaire Erreur emission etat sync final (timeout)")
+
         self.__logger.info("thread_sync_primaire Fin sync")
 
     async def __sequence_sync_primaire(self, connection: SQLiteConnection, dao_batch: SQLiteBatchOperations, event_sync: asyncio.Event):
@@ -278,11 +285,20 @@ class SyncManager:
             debut_reclamation = datetime.datetime.utcnow()
             reclamation_complete = await self.reclamer_fuuids()
 
+            if self.__stop_event.is_set():
+                return  # Stopped
+
             # Process orphelins
             await self.__consignation.marquer_orphelins(dao_batch, debut_reclamation, reclamation_complete)
 
+            if self.__stop_event.is_set():
+                return  # Stopped
+
             # Generer la liste des reclamations en .jsonl.gz pour les secondaires
             await self.__consignation.generer_reclamations_sync(connection)
+
+            if self.__stop_event.is_set():
+                return  # Stopped
 
             # Generer la liste des fichiers de backup
             await self.__consignation.generer_backup_sync()
@@ -291,7 +307,10 @@ class SyncManager:
 
     async def run_sync_secondaire(self):
         self.__logger.info("run_sync_secondaire Demarrer sync")
-        await self.emettre_etat_sync_secondaire()
+        try:
+            await self.emettre_etat_sync_secondaire()
+        except asyncio.TimeoutError:
+            self.__logger.info("thread_sync_secondaire Erreur emission etat sync initial (timeout)")
 
         event_sync = asyncio.Event()
 
@@ -301,7 +320,11 @@ class SyncManager:
         ]
         await asyncio.gather(*tasks)
 
-        await self.emettre_etat_sync_secondaire(termine=True)
+        try:
+            await self.emettre_etat_sync_secondaire(termine=True)
+        except asyncio.TimeoutError:
+            self.__logger.info("thread_sync_primaire Erreur emission etat sync final (timeout)")
+
         self.__logger.info("run_sync_secondaire Fin sync")
 
     async def __sequence_sync_secondaire(self, event_sync: asyncio.Event):
@@ -317,15 +340,23 @@ class SyncManager:
                         "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
                 return  # Abandonner la sync
 
+            if self.__stop_event.is_set():
+                return  # Stopped
+
             # Merge information dans database
             await self.merge_fichiers_reclamation()
+
+            if self.__stop_event.is_set():
+                return  # Stopped
 
             # Ajouter manquants, marquer fichiers reclames
             # Marquer orphelins, determiner downloads et upload
             await self.creer_operations_sur_secondaire()
 
+            if self.__stop_event.is_set():
+                return  # Stopped
+
             # Declencher sync des fichiers de backup avec le primaire
-            # self.__backup_event.set()
             await self.run_sync_backup()
         finally:
             event_sync.set()
@@ -414,7 +445,7 @@ class SyncManager:
     async def emettre_etat_sync_primaire(self, termine=False):
         message = {'termine': termine}
         producer = self.__etat_instance.producer
-        await asyncio.wait_for(producer.producer_pret().wait(), timeout=5)
+        await asyncio.wait_for(producer.producer_pret().wait(), timeout=1)
 
         await producer.emettre_evenement(
             message,
@@ -538,6 +569,8 @@ class SyncManager:
                         row_str = await asyncio.to_thread(fichier.readline, 1024)
                         if not row_str:
                             break
+                        if self.__stop_event.is_set():
+                            raise Exception('stopped')  # Stopped
                         row = json.loads(row_str)
                         commit_done = await dao.ajouter_fichier_primaire(row)
                         if commit_done:
@@ -551,6 +584,8 @@ class SyncManager:
                             row_str = await asyncio.to_thread(fichier.readline, 1024)
                             if not row_str:
                                 break
+                            if self.__stop_event.is_set():
+                                raise Exception('stopped')  # Stopped
                             row = json.loads(row_str)
                             commit_done = await dao.ajouter_fichier_primaire(row)
                             if commit_done:
@@ -576,6 +611,8 @@ class SyncManager:
                             row_str = await asyncio.to_thread(fichier.readline, 1024)
                             if not row_str:
                                 break
+                            if self.__stop_event.is_set():
+                                raise Exception('stopped')  # Stopped
                             row = json.loads(row_str)
                             await dao.ajouter_backup_primaire(row)
                 except OSError as e:
