@@ -454,9 +454,11 @@ class SyncManager:
         complete = (self.__attente_domaine_event.is_set() and
                     self.__nombre_fuuids_reclames_domaine == self.__total_fuuids_reclames_domaine)
 
-        # Consommer wait
+        # Reset event, compteurs pour prochain domaine
         self.__attente_domaine_event.set()
         self.__attente_domaine_event = None
+        self.__nombre_fuuids_reclames_domaine = 0
+        self.__total_fuuids_reclames_domaine = 0
 
         return complete
 
