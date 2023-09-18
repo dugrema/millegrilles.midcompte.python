@@ -431,10 +431,14 @@ class SyncManager:
         self.__attente_domaine_event = asyncio.Event()
 
         requete = {}
-        reponse = await producer.executer_commande(
-            requete,
-            domaine=domaine, action=Constantes.COMMANDE_RECLAMER_FUUIDS, exchange=ConstantesMillegrilles.SECURITE_PRIVE
-        )
+        try:
+            reponse = await producer.executer_commande(
+                requete,
+                domaine=domaine, action=Constantes.COMMANDE_RECLAMER_FUUIDS, exchange=ConstantesMillegrilles.SECURITE_PRIVE
+            )
+        except asyncio.TimeoutError:
+            self.__logger.warning("reclamer_fichiers_domaine Timeout sur domaine %s, pas de reclamations recues (incomplet)" % domaine)
+            return False
 
         if reponse.parsed['ok'] is not True:
             raise Exception('Erreur requete fichiers domaine %s' % domaine)
