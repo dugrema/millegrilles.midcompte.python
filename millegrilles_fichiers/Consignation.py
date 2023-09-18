@@ -2,6 +2,7 @@ import datetime
 import enum
 import pathlib
 import shutil
+import sqlite3
 
 import aiohttp
 import asyncio
@@ -242,6 +243,8 @@ class ConsignationHandler:
         while self.__stop_event.is_set() is False:
             try:
                 await self.emettre_etat()
+            except sqlite3.OperationalError:
+                self.__logger.debug("thread_emettre_etat DB Locked, etat n'est pas emis")
             except Exception:
                 self.__logger.exception("Erreur emettre_etat")
             try:
