@@ -414,6 +414,9 @@ class WebServer:
                     # Liberer job
                     job_verifier_parts.done.set()
 
+            if len(pending) == 0:
+                raise Exception('arrete indirectement (pending vide)')
+
             pending.add(asyncio.create_task(self.__queue_verifier_parts.get()))
 
     async def run(self, stop_event: Optional[Event] = None):
