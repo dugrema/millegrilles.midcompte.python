@@ -361,7 +361,10 @@ class WebServer:
 
     async def thread_verifier_parts(self):
         self.__queue_verifier_parts = asyncio.Queue(maxsize=20)
-        pending = [asyncio.create_task(self.__stop_event.wait()), asyncio.create_task(self.__queue_verifier_parts.get())]
+        pending = [
+            asyncio.create_task(self.__stop_event.wait()),
+            asyncio.create_task(self.__queue_verifier_parts.get())
+        ]
         while self.__stop_event.is_set() is False:
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
 
@@ -373,6 +376,8 @@ class WebServer:
                         await p
                     except asyncio.CancelledError:
                         pass  # OK
+                    except AttributeError:
+                        pass  # Pas une task
                 for d in done:
                     if d.exception():
                         raise d.exception()
@@ -391,19 +396,23 @@ class WebServer:
 
                     raise t.exception()
 
-            job_verifier_parts: JobVerifierParts = done.pop().result()
-            try:
-                path_upload = job_verifier_parts.path_upload
-                hachage = job_verifier_parts.hachage
-                args = [path_upload, hachage]
-                # Utiliser thread pool pour validation
-                await asyncio.to_thread(valider_hachage_upload_parts, *args)
-            except Exception as e:
-                self.__logger.exception("thread_verifier_parts Erreur verification hachage %s" % job_verifier_parts.hachage)
-                job_verifier_parts.exception = e
+            for d in done:
+                if d.exception():
+                    self.__logger.error("thread_verifier_parts Erreur traitement message : %s" % d.exception())
+                else:
+                    job_verifier_parts: JobVerifierParts = d.result()
+                    try:
+                        path_upload = job_verifier_parts.path_upload
+                        hachage = job_verifier_parts.hachage
+                        args = [path_upload, hachage]
+                        # Utiliser thread pool pour validation
+                        await asyncio.to_thread(valider_hachage_upload_parts, *args)
+                    except Exception as e:
+                        self.__logger.exception("thread_verifier_parts Erreur verification hachage %s" % job_verifier_parts.hachage)
+                        job_verifier_parts.exception = e
 
-            # Liberer job
-            job_verifier_parts.done.set()
+                    # Liberer job
+                    job_verifier_parts.done.set()
 
             pending.add(asyncio.create_task(self.__queue_verifier_parts.get()))
 

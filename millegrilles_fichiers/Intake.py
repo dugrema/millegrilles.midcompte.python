@@ -57,40 +57,21 @@ class IntakeFichiers(IntakeHandler):
         )
 
     async def trigger_regulier(self):
-        wait_coro = asyncio.create_task(self._stop_event.wait())
-
         # Declenchement initial du traitement (recovery)
-        done, pending = await asyncio.wait([wait_coro], timeout=5)
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            pass  # OK
 
         while self._stop_event.is_set() is False:
             await self.trigger_traitement()
-            done, pending = await asyncio.wait(pending, timeout=300)
-
-        for p in pending:
-            p.cancel()
             try:
-                await p
-            except asyncio.CancelledError:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=300)
+            except asyncio.TimeoutError:
                 pass  # OK
 
     async def configurer(self):
         return await super().configurer()
-
-    # async def entretien_download_thread(self):
-    #     wait_coro = self._stop_event.wait()
-    #     while self._stop_event.is_set() is False:
-    #         self.__logger.debug("Entretien download")
-    #         path_download = pathlib.Path(self.get_path_download())
-    #         fuuids_supprimes = entretien_download(path_download, self.__events_fuuids)
-    #         await asyncio.wait([wait_coro], timeout=20)
-
-    # async def entretien_dechiffre_thread(self):
-    #     wait_coro = self._stop_event.wait()
-    #     while self._stop_event.is_set() is False:
-    #         self.__logger.debug("Entretien dechiffre")
-    #         path_dechiffre = pathlib.Path(self.get_path_dechiffre())
-    #         fuuids_supprimes = entretien_dechiffre(path_dechiffre)
-    #         await asyncio.wait([wait_coro], timeout=300)
 
     async def traiter_prochaine_job(self) -> Optional[dict]:
         try:

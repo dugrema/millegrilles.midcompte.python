@@ -905,32 +905,14 @@ class SyncManager:
                 etat_upload.samples = self.__samples_upload or list()
 
                 self.__upload_en_cours = etat_upload
-                pending = {
-                    asyncio.create_task(uploader_fichier(session, self.__etat_instance, etat_upload)),
-                    asyncio.create_task(self.__run_emettre_etat_upload(fuuid, producer, event_done)),
-                }
-                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                tasks = [
+                    uploader_fichier(session, self.__etat_instance, event_done, etat_upload),
+                    self.__run_emettre_etat_upload(fuuid, producer, event_done),
+                ]
+                await asyncio.gather(*tasks)
 
                 # Conserver liste samples pour calculer la vitesse
                 self.__samples_upload = etat_upload.samples
-
-                for p in pending:
-                    p.cancel()
-                    try:
-                        await p
-                    except asyncio.CancelledError:
-                        pass  # OK
-
-                # if len(pending) > 0:
-                #     done_2, pending = await asyncio.wait(pending, timeout=5)
-                #     for d in done_2:
-                #         if d.exception():
-                #             self.__logger.error("upload_fichier_primaire Exception task : %s" % str(d.exception()))
-
-                for d in done:
-                    e = d.exception()
-                    if e:
-                        raise e
 
             # Transfert termine. Supprimer job d'upload
             async with SQLiteWriteOperations(connection) as dao_write:
@@ -1002,7 +984,8 @@ class SyncManager:
                 nombre = None
                 taille = None
 
-        self.__logger.debug("emettre_etat_upload %s fichiers, %s bytes transfere a %s KB/sec (courant: %s/%s)" % (nombre, taille, taux, position_en_cours, taille_en_cours))
+        self.__logger.debug("emettre_etat_upload %s fichiers, %s bytes transfere a %s KB/sec (courant: %s/%s)" %
+                            (nombre, taille, taux, position_en_cours, taille_en_cours))
 
         evenement = {
             'termine': False,

@@ -555,17 +555,6 @@ class ConsignationStoreMillegrille(ConsignationStore):
             else:
                 raise e
 
-    # async def thread_visiter(self):
-    #     stop_coro = self._stop_store.wait()
-    #     await asyncio.wait([stop_coro], timeout=30)
-    #     while self._stop_store.is_set() is False:
-    #         self.__logger.info("thread_visiter Debut visiter fuuids")
-    #         try:
-    #             await asyncio.to_thread(self.visiter_fuuids)
-    #         except Exception:
-    #             self.__logger.exception('thread_visiter Erreur visite fuuids')
-    #         await asyncio.wait([stop_coro], timeout=Constantes.CONST_INTERVALLE_VISITE_MILLEGRILLE)
-
     async def run_entretien(self):
         pass
 

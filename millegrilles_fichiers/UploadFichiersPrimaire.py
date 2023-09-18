@@ -31,8 +31,6 @@ class EtatUpload:
 
 async def feed_filepart2(etat_upload: EtatUpload, limit=BATCH_UPLOAD_DEFAULT):
     taille_uploade = 0
-    # stop_coro = asyncio.create_task(etat_upload.stop_event.wait())
-
     input_stream = etat_upload.fp_file
 
     debut_chunk = datetime.datetime.now()
@@ -62,13 +60,11 @@ async def feed_filepart2(etat_upload: EtatUpload, limit=BATCH_UPLOAD_DEFAULT):
 
         debut_chunk = now
 
-    # stop_coro.cancel()
-    # await asyncio.wait([stop_coro], timeout=1)  # Cancel
-
 
 async def uploader_fichier(
         session: aiohttp.ClientSession,
         etat_fichiers,
+        event_done: asyncio.Event,
         etat_upload: EtatUpload,
         batch_size=BATCH_UPLOAD_DEFAULT):
 
@@ -79,19 +75,23 @@ async def uploader_fichier(
 
     headers = {'x-fuuid': fuuid}
 
-    while not etat_upload.done:
-        position = etat_upload.position
-        feeder_coro = feed_filepart2(etat_upload, batch_size)
-        session_coro = session.put(f'{url_fichier}/{position}', ssl=ssl_context, headers=headers, data=feeder_coro)
+    try:
+        while not etat_upload.done:
+            position = etat_upload.position
+            feeder_coro = feed_filepart2(etat_upload, batch_size)
+            session_coro = session.put(f'{url_fichier}/{position}', ssl=ssl_context, headers=headers, data=feeder_coro)
 
-        # Uploader chunk
-        session_response = None
-        try:
-            session_response = await session_coro
-        finally:
-            if session_response is not None:
-                session_response.release()
-                session_response.raise_for_status()
+            # Uploader chunk
+            session_response = None
+            try:
+                session_response = await session_coro
+            finally:
+                if session_response is not None:
+                    session_response.release()
+                    session_response.raise_for_status()
 
-    async with session.post(url_fichier, ssl=ssl_context, headers=headers) as resp:
-        resp.raise_for_status()
+        async with session.post(url_fichier, ssl=ssl_context, headers=headers) as resp:
+            resp.raise_for_status()
+    finally:
+        event_done.set()
+

@@ -106,43 +106,53 @@ class ConsignationHandler:
                 pass  # OK
 
     async def entretien_store(self):
-        stop_event_wait = asyncio.create_task(self.__stop_event.wait())
-        pending = {stop_event_wait}
-        premiere_execution = True
+        pending = {asyncio.create_task(self.__stop_event.wait()), asyncio.create_task(self.__store_pret_event.wait())}
+
         # Attente configuration store
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        for d in done:
+            if d.exception():
+                raise d.exception()
+        # Annuler tasks
+        for p in pending:
+            p.cancel()
+            try:
+                await p
+            except asyncio.CancelledError:
+                pass  # OK
+
+        if self.__stop_event.is_set() is True:
+            return  # Stopped
+
+        # Premier entretien
+        self.__timestamp_visite = datetime.datetime.utcnow()
+        try:
+            await self.__store_consignation.visiter_fuuids()
+        except:
+            self.__logger.exception("entretien_store Erreur premiere execution de visite")
+        # Debloquer a la synchronisation (initiale)
+        self.__sync_manager.set_visite_completee()
+
+        if self.__etat_instance.est_primaire:
+            self.__logger.info("Declencher sync initial (primaire)")
+            self.__timestamp_dernier_sync = datetime.datetime.utcnow()
+            await self.declencher_sync_primaire()
+        else:
+            self.__logger.info("Declencher sync initial (secondaire)")
+            self.__timestamp_dernier_sync = datetime.datetime.utcnow()
+            await self.declencher_sync_secondaire()
+
+        # Boucle entretien
         while self.__stop_event.is_set() is False:
-            store_pret = asyncio.create_task(self.__store_pret_event.wait())
-            pending.add(store_pret)
-            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-            for d in done:
-                if d.exception():
-                    self.__logger.error("entretien_store Erreur tasK : %s" % d.exception())
-
-            if premiere_execution:
-                self.__timestamp_visite = datetime.datetime.utcnow()
-                try:
-                    await self.__store_consignation.visiter_fuuids()
-                except:
-                    self.__logger.exception("entretien_store Erreur premiere execution de visite")
-                # Debloquer a la synchronisation (initiale)
-                self.__sync_manager.set_visite_completee()
-
-                if self.__etat_instance.est_primaire:
-                    self.__logger.info("Declencher sync initial (primaire)")
-                    self.__timestamp_dernier_sync = datetime.datetime.utcnow()
-                    await self.declencher_sync_primaire()
-                else:
-                    self.__logger.info("Declencher sync initial (secondaire)")
-                    self.__timestamp_dernier_sync = datetime.datetime.utcnow()
-                    await self.declencher_sync_secondaire()
-
             try:
                 await self.__store_consignation.run_entretien()
             except Exception:
                 self.__logger.exception("entretien_store Erreur store_consignation.run()")
 
-            premiere_execution = False
-            done, pending = await asyncio.wait(pending, timeout=15)
+            try:
+                await asyncio.wait_for(self.__stop_event.wait(), timeout=300)
+            except asyncio.TimeoutError:
+                pass  # OK
 
     async def traiter_cedule(self, producer: MessageProducerFormatteur, message: MessageWrapper):
         self.__traiter_cedule_event.set()
