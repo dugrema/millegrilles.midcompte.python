@@ -281,50 +281,31 @@ class SyncManager:
         await self.emettre_etat_sync_primaire()
 
         event_sync = asyncio.Event()
-
-        done, pending = await asyncio.wait(
-            [
-                asyncio.create_task(self.thread_emettre_evenement_primaire(event_sync)),
-                asyncio.create_task(self.__sequence_sync_primaire(connection, dao_batch))
-            ],
-            return_when=asyncio.FIRST_COMPLETED
-        )
-        event_sync.set()  # Complete
-
-        # Finir executions pending
-        done2, pending = await asyncio.wait(pending, timeout=1)
-
-        for d in done2:
-            if d.exception():
-                self.__logger.error("run_sync_primaire Erreur arret taches : %s" % d.exception())
-
-        for p in pending:
-            p.cancel()
-            try:
-                await p
-            except asyncio.CancelledError:
-                pass  # Ok
-
-        for d in done:
-            if d.exception():
-                raise d.exception()
+        tasks = [
+            self.thread_emettre_evenement_primaire(event_sync),
+            self.__sequence_sync_primaire(connection, dao_batch, event_sync)
+        ]
+        await asyncio.gather(*tasks)
 
         await self.emettre_etat_sync_primaire(termine=True)
         self.__logger.info("thread_sync_primaire Fin sync")
 
-    async def __sequence_sync_primaire(self, connection: SQLiteConnection, dao_batch: SQLiteBatchOperations):
-        # Date debut utilise pour trouver les fichiers orphelins (si reclamation est complete)
-        debut_reclamation = datetime.datetime.utcnow()
-        reclamation_complete = await self.reclamer_fuuids()
+    async def __sequence_sync_primaire(self, connection: SQLiteConnection, dao_batch: SQLiteBatchOperations, event_sync: asyncio.Event):
+        try:
+            # Date debut utilise pour trouver les fichiers orphelins (si reclamation est complete)
+            debut_reclamation = datetime.datetime.utcnow()
+            reclamation_complete = await self.reclamer_fuuids()
 
-        # Process orphelins
-        await self.__consignation.marquer_orphelins(dao_batch, debut_reclamation, reclamation_complete)
+            # Process orphelins
+            await self.__consignation.marquer_orphelins(dao_batch, debut_reclamation, reclamation_complete)
 
-        # Generer la liste des reclamations en .jsonl.gz pour les secondaires
-        await self.__consignation.generer_reclamations_sync(connection)
+            # Generer la liste des reclamations en .jsonl.gz pour les secondaires
+            await self.__consignation.generer_reclamations_sync(connection)
 
-        # Generer la liste des fichiers de backup
-        await self.__consignation.generer_backup_sync()
+            # Generer la liste des fichiers de backup
+            await self.__consignation.generer_backup_sync()
+        finally:
+            event_sync.set()
 
     async def run_sync_secondaire(self):
         self.__logger.info("run_sync_secondaire Demarrer sync")
@@ -332,57 +313,52 @@ class SyncManager:
 
         event_sync = asyncio.Event()
 
-        done, pending = await asyncio.wait(
-            [
-                self.thread_emettre_evenement_secondaire(event_sync),
-                self.__sequence_sync_secondaire()
-            ],
-            return_when=asyncio.FIRST_COMPLETED
-        )
-        event_sync.set()  # Complete
-
-        # Finir executions pending
-        await asyncio.wait(pending, timeout=1)
-
-        for d in done:
-            if d.exception():
-                raise d.exception()
+        tasks = [
+            self.thread_emettre_evenement_secondaire(event_sync),
+            self.__sequence_sync_secondaire(event_sync)
+        ]
+        await asyncio.gather(*tasks)
 
         await self.emettre_etat_sync_secondaire(termine=True)
         self.__logger.info("run_sync_secondaire Fin sync")
 
-    async def __sequence_sync_secondaire(self):
-        # Download fichiers reclamations primaire
+    async def __sequence_sync_secondaire(self, event_sync: asyncio.Event):
         try:
-            await self.download_fichiers_reclamation()
-        except aiohttp.client.ClientResponseError as e:
-            if e.status == 404:
-                self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
-            else:
-                self.__logger.error(
-                    "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
-            return  # Abandonner la sync
+            # Download fichiers reclamations primaire
+            try:
+                await self.download_fichiers_reclamation()
+            except aiohttp.client.ClientResponseError as e:
+                if e.status == 404:
+                    self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
+                else:
+                    self.__logger.error(
+                        "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
+                return  # Abandonner la sync
 
-        # Merge information dans database
-        await self.merge_fichiers_reclamation()
+            # Merge information dans database
+            await self.merge_fichiers_reclamation()
 
-        # Ajouter manquants, marquer fichiers reclames
-        # Marquer orphelins, determiner downloads et upload
-        await self.creer_operations_sur_secondaire()
+            # Ajouter manquants, marquer fichiers reclames
+            # Marquer orphelins, determiner downloads et upload
+            await self.creer_operations_sur_secondaire()
 
-        # Declencher sync des fichiers de backup avec le primaire
-        # self.__backup_event.set()
-        await self.run_sync_backup()
+            # Declencher sync des fichiers de backup avec le primaire
+            # self.__backup_event.set()
+            await self.run_sync_backup()
+        finally:
+            event_sync.set()
 
     async def thread_emettre_evenement_secondaire(self, event_sync: asyncio.Event):
-        wait_coro = event_sync.wait()
         while event_sync.is_set() is False:
             try:
                 await self.emettre_etat_sync_secondaire()
             except Exception as e:
                 self.__logger.info("thread_emettre_evenement_secondaire Erreur emettre etat sync : %s" % e)
 
-            await asyncio.wait([wait_coro], timeout=5)
+            try:
+                await asyncio.wait_for(event_sync.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                pass  # OK
 
     async def reclamer_fuuids(self) -> bool:
         domaines = await self.get_domaines_reclamation()
@@ -433,24 +409,15 @@ class SyncManager:
             raise Exception('Erreur requete fichiers domaine %s' % domaine)
 
         # Attendre fin de reception
-        wait_coro = asyncio.create_task(self.__attente_domaine_event.wait())
-        pending = {wait_coro}
         self.__attente_domaine_activite = datetime.datetime.utcnow()
         while self.__attente_domaine_event.is_set() is False:
             expire = datetime.datetime.utcnow() - datetime.timedelta(seconds=20)
             if expire > self.__attente_domaine_activite:
                 # Timeout activite
                 break
-            done, pending = await asyncio.wait([wait_coro], timeout=5)
-            for d in done:
-                if d.exception():
-                    self.__logger.error("reclamer_fichiers_domaine Erreur : %s" % d.exception())
-
-        for p in pending:
-            p.cancel()
             try:
-                await p
-            except asyncio.CancelledError:
+                await asyncio.wait_for(self.__attente_domaine_event.wait(), timeout=5)
+            except asyncio.TimeoutError:
                 pass  # OK
 
         complete = (self.__attente_domaine_event.is_set() and
@@ -458,8 +425,6 @@ class SyncManager:
 
         # Consommer wait
         self.__attente_domaine_event.set()
-        # await asyncio.wait([wait_coro], timeout=1)
-
         self.__attente_domaine_event = None
 
         return complete
