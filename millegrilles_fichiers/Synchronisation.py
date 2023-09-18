@@ -115,6 +115,9 @@ class SyncManager:
                         pass  # OK
                 break  # Done
 
+            if len(pending) == 0:
+                raise Exception('arrete indirectement (stop event gone)')
+
             try:
                 with self.__etat_instance.sqlite_connection() as connection:
                     async with SQLiteBatchOperations(connection) as dao_batch:
@@ -133,7 +136,7 @@ class SyncManager:
         self.__logger.info('thread_sync_secondaire Deblocage thread apres premiere visite complete des fuuids')
 
         while self.__stop_event.is_set() is False:
-            pending.add(self.__sync_event_secondaire.wait())
+            pending.add(asyncio.create_task(self.__sync_event_secondaire.wait()))
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             if self.__stop_event.is_set():
                 break  # Done
@@ -144,10 +147,13 @@ class SyncManager:
 
             self.__sync_event_secondaire.clear()
 
+            if len(pending) == 0:
+                raise Exception('arrete indirectement (stop event gone)')
+
     async def thread_upload(self):
         pending = {asyncio.create_task(self.__stop_event.wait())}
         while self.__stop_event.is_set() is False:
-            pending.add(self.__upload_event.wait())
+            pending.add(asyncio.create_task(self.__upload_event.wait()))
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             if self.__stop_event.is_set():
                 break  # Done
@@ -157,6 +163,9 @@ class SyncManager:
                 self.__logger.exception("thread_upload Erreur synchronisation")
 
             self.__upload_event.clear()
+
+            if len(pending) == 0:
+                raise Exception('arrete indirectement (stop event gone)')
 
         # Terminer execution de toutes les tasks
         for p in pending:
@@ -169,7 +178,7 @@ class SyncManager:
     async def thread_download(self):
         pending = {asyncio.create_task(self.__stop_event.wait())}
         while self.__stop_event.is_set() is False:
-            pending.add(self.__download_event.wait())
+            pending.add(asyncio.create_task(self.__download_event.wait()))
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             if self.__stop_event.is_set():
                 break  # Done
@@ -179,6 +188,9 @@ class SyncManager:
                 self.__logger.exception("thread_download Erreur synchronisation")
 
             self.__download_event.clear()
+
+            if len(pending) == 0:
+                raise Exception('arrete indirectement (stop event gone)')
 
         # Terminer execution de toutes les tasks
         for p in pending:
@@ -215,7 +227,7 @@ class SyncManager:
         pending = {self.__stop_event.wait()}
         while self.__stop_event.is_set() is False:
             # Ajouter get queue (async block)
-            pending.add(self.__reception_fuuids_reclames.get())
+            pending.add(asyncio.create_task(self.__reception_fuuids_reclames.get()))
 
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             if self.__stop_event.is_set() is True:
@@ -249,6 +261,9 @@ class SyncManager:
 
             if self.__attente_domaine_event is not None and termine:
                 self.__attente_domaine_event.set()
+
+            if len(pending) == 0:
+                raise Exception('arrete indirectement (stop event gone)')
 
         # Terminer execution de toutes les tasks
         for p in pending:
