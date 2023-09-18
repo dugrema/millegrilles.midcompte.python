@@ -128,9 +128,11 @@ class ConsignationHandler:
         # Premier entretien
         self.__timestamp_visite = datetime.datetime.utcnow()
         try:
+            self.__logger.info("entretien_store Visite initiale des fuuids")
             await self.__store_consignation.visiter_fuuids()
         except:
             self.__logger.exception("entretien_store Erreur premiere execution de visite")
+
         # Debloquer a la synchronisation (initiale)
         self.__sync_manager.set_visite_completee()
 
@@ -208,7 +210,8 @@ class ConsignationHandler:
 
         await asyncio.wait_for(self.__store_pret_event.wait(), timeout=10)
 
-        if self.__timestamp_visite is None or now - self.__intervalle_visites > self.__timestamp_visite:
+        if self.__timestamp_visite is not None and now - self.__intervalle_visites > self.__timestamp_visite:
+            # Note : si le timestamp est None, la visite initiale n'est pas completee (store.entretien)
             try:
                 # Demarrer la job si le semaphore n'est pas deja bloque
                 self.__logger.info("__traiter_cedule_local Visiter fuuids")
