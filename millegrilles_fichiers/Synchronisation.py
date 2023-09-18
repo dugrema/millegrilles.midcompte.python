@@ -189,23 +189,27 @@ class SyncManager:
         await asyncio.wait(pending, timeout=1)
 
     async def thread_entretien_transferts(self):
-        stop_coro = self.__stop_event.wait()
         while self.__stop_event.is_set() is False:
             try:
                 await self.run_entretien_transferts()
             except Exception:
                 self.__logger.exception("thread_download Erreur synchronisation")
-            await asyncio.wait([stop_coro], timeout=900)
+            try:
+                await asyncio.wait_for(self.__stop_event.wait(), timeout=900)
+            except asyncio.TimeoutError:
+                pass  # OK
 
     async def thread_emettre_evenement_primaire(self, event_sync: asyncio.Event):
-        wait_coro = event_sync.wait()
         while event_sync.is_set() is False:
             try:
                 await self.emettre_etat_sync_primaire()
             except Exception as e:
                 self.__logger.info("thread_emettre_evenement Erreur emettre etat sync : %s" % e)
 
-            await asyncio.wait([wait_coro], timeout=5)
+            try:
+                await asyncio.wait_for(event_sync.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                pass  # OK
 
     async def thread_traiter_fuuids_reclames(self):
         pending = {self.__stop_event.wait()}
@@ -253,28 +257,6 @@ class SyncManager:
             except AttributeError:
                 pass
         await asyncio.wait(pending, timeout=1)
-
-    # async def thread_sync_backup(self):
-    #     pending = {self.__stop_event.wait()}
-    #     while self.__stop_event.is_set() is False:
-    #         pending.add(self.__backup_event.wait())
-    #         done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-    #         if self.__stop_event.is_set():
-    #             break  # Done
-    #         try:
-    #             await self.run_sync_backup()
-    #         except Exception:
-    #             self.__logger.exception("thread_upload Erreur synchronisation")
-    #
-    #         self.__backup_event.clear()
-    #
-    #     # Terminer execution de toutes les tasks
-    #     for p in pending:
-    #         try:
-    #             p.cancel()
-    #         except AttributeError:
-    #             pass  # OK
-    #     await asyncio.wait(pending, timeout=1)
 
     async def run_sync_primaire(self, connection: SQLiteConnection, dao_batch: SQLiteBatchOperations):
         self.__logger.info("thread_sync_primaire Demarrer sync")
