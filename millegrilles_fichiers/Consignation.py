@@ -71,7 +71,7 @@ class ConsignationHandler:
         self.__timestamp_verification: Optional[datetime.datetime] = None
         self.__timestamp_orphelins: Optional[datetime.datetime] = None
 
-        self.__intervalle_visites = datetime.timedelta(hours=Constantes.CONST_INTERVALLE_VISITE_MILLEGRILLE)
+        self.__intervalle_visites = datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_VISITE_MILLEGRILLE)
         self.__intervalle_verification = datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_VERIFICATION)
         self.__intervalle_orphelins = datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_ORPHELINS)
 
