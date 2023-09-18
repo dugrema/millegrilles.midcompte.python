@@ -237,33 +237,42 @@ class SyncManager:
                 if d.exception():
                     self.__logger.error("thread_traiter_fuuids_reclames Erreur traitement : %s" % d.exception())
                 else:
-                    commande: dict = d.result()
-                    if isinstance(commande, dict) is False:
-                        continue  # Mauvais type, skip
+                    commande: Optional[dict] = d.result()
 
-                    termine = commande.get('termine') or False
-                    fuuids = commande.get('fuuids') or list()
-                    archive = commande.get('archive') or False
-                    total = commande.get('total')
+                    while commande is not None:
+                        if not commande or isinstance(commande, dict) is False:
+                            commande = None
+                            continue  # Mauvais type, skip
 
-                    self.__nombre_fuuids_reclames_domaine += len(fuuids)
+                        termine = commande.get('termine') or False
+                        fuuids = commande.get('fuuids') or list()
+                        archive = commande.get('archive') or False
+                        total = commande.get('total')
 
-                    if total:
-                        self.__total_fuuids_reclames_domaine = total
+                        self.__nombre_fuuids_reclames_domaine += len(fuuids)
 
-                    if archive is True:
-                        bucket = Constantes.BUCKET_ARCHIVES
-                    else:
-                        bucket = Constantes.BUCKET_PRINCIPAL
+                        if total:
+                            self.__total_fuuids_reclames_domaine = total
 
-                    # Faire un touch d'activite avant et apres traitement pour eviter un timeout
-                    self.__attente_domaine_activite = datetime.datetime.utcnow()
-                    await self.__consignation.reclamer_fuuids_database(fuuids, bucket)
-                    await asyncio.sleep(0.5)  # Throttle pour permettre acces DB
-                    self.__attente_domaine_activite = datetime.datetime.utcnow()
+                        if archive is True:
+                            bucket = Constantes.BUCKET_ARCHIVES
+                        else:
+                            bucket = Constantes.BUCKET_PRINCIPAL
 
-                    if self.__attente_domaine_event is not None and termine:
-                        self.__attente_domaine_event.set()
+                        # Faire un touch d'activite avant et apres traitement pour eviter un timeout
+                        self.__attente_domaine_activite = datetime.datetime.utcnow()
+                        await self.__consignation.reclamer_fuuids_database(fuuids, bucket)
+                        # await asyncio.sleep(0.5)  # Throttle pour permettre acces DB
+                        self.__attente_domaine_activite = datetime.datetime.utcnow()
+
+                        if self.__attente_domaine_event is not None and termine:
+                            self.__attente_domaine_event.set()
+
+                        try:
+                            commande = self.__reception_fuuids_reclames.get_nowait()
+                        except asyncio.QueueEmpty:
+                            # Done
+                            commande = None
 
             if len(pending) == 0:
                 raise Exception('arrete indirectement (stop event gone)')
