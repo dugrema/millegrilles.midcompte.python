@@ -131,24 +131,22 @@ class ConsignationStore:
         """ Declenche un entretien (visite, verification, purge, etc.) """
         raise NotImplementedError('must override')
 
-    async def visiter_fuuids(self):
+    async def visiter_fuuids(self, dao: SQLiteBatchOperations):
         dir_buckets = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BUCKETS)
-        with self._etat.sqlite_connection() as connection:
-            async with SQLiteBatchOperations(connection) as dao:
-                self.__logger.info("visiter_fuuids Debut avec path buckets %s" % dir_buckets)
+        self.__logger.info("visiter_fuuids Debut avec path buckets %s" % dir_buckets)
 
-                # Parcourir tous les buckets recursivement (depth-first)
-                for bucket in dir_buckets.iterdir():
-                    self.__logger.debug("Visiter bucket %s" % bucket.name)
-                    await self.visiter_bucket(bucket.name, bucket, dao)
+        # Parcourir tous les buckets recursivement (depth-first)
+        for bucket in dir_buckets.iterdir():
+            self.__logger.debug("Visiter bucket %s" % bucket.name)
+            await self.visiter_bucket(bucket.name, bucket, dao)
 
-                # batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
-                batch, resultat = await dao.commit_batch()
-                if batch is not None:
-                    await self.emettre_batch_visites(batch, False)
+        # batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
+        batch, resultat = await dao.commit_batch()
+        if batch is not None:
+            await self.emettre_batch_visites(batch, False)
 
-                # Marquer tous les fichiers 'manquants' qui viennent d'etre visites comme actifs (utilise date debut)
-                await asyncio.to_thread(dao.marquer_actifs_visites)
+        # Marquer tous les fichiers 'manquants' qui viennent d'etre visites comme actifs (utilise date debut)
+        await asyncio.to_thread(dao.marquer_actifs_visites)
 
         self.__logger.info("visiter_fuuids Fin")
 

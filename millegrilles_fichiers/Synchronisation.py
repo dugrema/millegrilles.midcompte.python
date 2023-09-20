@@ -46,7 +46,7 @@ class SyncManager:
         self.__upload_event: Optional[asyncio.Event] = None
         self.__download_event: Optional[asyncio.Event] = None
         self.__backup_event: Optional[asyncio.Event] = None
-        self.__event_attendre_visite: Optional[asyncio.Event] = None
+        # self.__event_attendre_visite: Optional[asyncio.Event] = None
 
         self.__nombre_fuuids_reclames_domaine = 0
         self.__total_fuuids_reclames_domaine: Optional[int] = None
@@ -62,18 +62,18 @@ class SyncManager:
     def demarrer_sync_secondaire(self):
         self.__sync_event_secondaire.set()
 
-    def set_visite_completee(self):
-        """ Appele lorsque la premiere visite de tous les fichiers a ete completee """
-        self.__event_attendre_visite.set()
+    # def set_visite_completee(self):
+    #     """ Appele lorsque la premiere visite de tous les fichiers a ete completee """
+    #     self.__event_attendre_visite.set()
 
     async def run(self):
-        self.__sync_event_primaire = asyncio.Event()
-        self.__sync_event_secondaire = asyncio.Event()
-        self.__reception_fuuids_reclames = asyncio.Queue(maxsize=3)
-        self.__upload_event = asyncio.Event()
-        self.__download_event = asyncio.Event()
-        self.__backup_event = asyncio.Event()
-        self.__event_attendre_visite = asyncio.Event()
+        # self.__sync_event_primaire = asyncio.Event()
+        # self.__sync_event_secondaire = asyncio.Event()
+        # self.__reception_fuuids_reclames = asyncio.Queue(maxsize=3)
+        # self.__upload_event = asyncio.Event()
+        # self.__download_event = asyncio.Event()
+        # self.__backup_event = asyncio.Event()
+        # self.__event_attendre_visite = asyncio.Event()
 
         await asyncio.gather(
             self.thread_sync_primaire(),
@@ -86,18 +86,19 @@ class SyncManager:
         )
 
     async def thread_sync_primaire(self):
-        pending = {asyncio.create_task(self.__stop_event.wait()), asyncio.create_task(self.__event_attendre_visite.wait())}
-        self.__logger.info('thread_sync_primaire Attendre premiere visite complete des fuuids')
-        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        # pending = {asyncio.create_task(self.__stop_event.wait()), asyncio.create_task(self.__event_attendre_visite.wait())}
+        # self.__logger.info('thread_sync_primaire Attendre premiere visite complete des fuuids')
+        # done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
 
-        for d in done:
-            if d.exception():
-                raise d.exception()
+        # for d in done:
+        #     if d.exception():
+        #         raise d.exception()
+        #
+        # if self.__stop_event.is_set():
+        #     return  # Stopping
+        # self.__logger.info('thread_sync_primaire Deblocage thread apres premiere visite complete des fuuids')
 
-        if self.__stop_event.is_set():
-            return  # Stopping
-        self.__logger.info('thread_sync_primaire Deblocage thread apres premiere visite complete des fuuids')
-
+        pending = {asyncio.create_task(self.__stop_event.wait())}
         while self.__stop_event.is_set() is False:
             pending.add(asyncio.create_task(self.__sync_event_primaire.wait()))
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
@@ -128,13 +129,14 @@ class SyncManager:
             self.__sync_event_primaire.clear()
 
     async def thread_sync_secondaire(self):
-        pending = {self.__stop_event.wait(), self.__event_attendre_visite.wait()}
-        self.__logger.info('thread_sync_secondaire Attendre premiere visite complete des fuuids')
-        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-        if self.__stop_event.is_set():
-            return  # Stopping
-        self.__logger.info('thread_sync_secondaire Deblocage thread apres premiere visite complete des fuuids')
+        # pending = {self.__stop_event.wait(), self.__event_attendre_visite.wait()}
+        # self.__logger.info('thread_sync_secondaire Attendre premiere visite complete des fuuids')
+        # done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        # if self.__stop_event.is_set():
+        #     return  # Stopping
+        # self.__logger.info('thread_sync_secondaire Deblocage thread apres premiere visite complete des fuuids')
 
+        pending = {asyncio.create_task(self.__stop_event.wait())}
         while self.__stop_event.is_set() is False:
             pending.add(asyncio.create_task(self.__sync_event_secondaire.wait()))
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
@@ -309,27 +311,44 @@ class SyncManager:
     async def __sequence_sync_primaire(self, connection: SQLiteConnection, dao_batch: SQLiteBatchOperations, event_sync: asyncio.Event):
         try:
             # Date debut utilise pour trouver les fichiers orphelins (si reclamation est complete)
+            tasks_initiales = [
+                self.reclamer_fuuids(),
+            ]
+            if self.__consignation.timestamp_visite is None:
+                # Debloquer les visites (pour prochaine visite)
+                self.__consignation.timestamp_visite = datetime.datetime.utcnow()
+                # Ajouter visiter_fuuids dans les taches de sync
+                tasks_initiales.append(asyncio.create_task(self.__consignation.visiter_fuuids(dao_batch)))
+                self.__logger.info("__sequence_sync_primaire reclamer_fuuids + visiter_fuuids (Progres: 1/4)")
+            else:
+                self.__logger.info("__sequence_sync_primaire reclamer_fuuids (Progres: 1/4)")
+
             debut_reclamation = datetime.datetime.utcnow()
-            reclamation_complete = await self.reclamer_fuuids()
+            resultat_initial = await asyncio.gather(*tasks_initiales)
+            reclamation_complete = resultat_initial[0]
 
             if self.__stop_event.is_set():
                 return  # Stopped
 
             # Process orphelins
+            self.__logger.info("__sequence_sync_primaire marquer_orphelins (Progres: 2/4)")
             await self.__consignation.marquer_orphelins(dao_batch, debut_reclamation, reclamation_complete)
 
             if self.__stop_event.is_set():
                 return  # Stopped
 
             # Generer la liste des reclamations en .jsonl.gz pour les secondaires
+            self.__logger.info("__sequence_sync_primaire generer_reclamations_sync (Progres: 3/4)")
             await self.__consignation.generer_reclamations_sync(connection)
 
             if self.__stop_event.is_set():
                 return  # Stopped
 
             # Generer la liste des fichiers de backup
+            self.__logger.info("__sequence_sync_primaire generer_backup_sync (Progres: 4/4)")
             await self.__consignation.generer_backup_sync()
         finally:
+            self.__logger.info("__sequence_sync_primaire termine")
             event_sync.set()
 
     async def run_sync_secondaire(self):
@@ -356,21 +375,49 @@ class SyncManager:
 
     async def __sequence_sync_secondaire(self, event_sync: asyncio.Event):
         try:
-            # Download fichiers reclamations primaire
-            try:
-                await self.download_fichiers_reclamation()
-            except aiohttp.client.ClientResponseError as e:
-                if e.status == 404:
-                    self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
-                else:
-                    self.__logger.error(
-                        "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
-                return  # Abandonner la sync
+
+            with self.__etat_instance.sqlite_connection() as connection:
+                async with SQLiteBatchOperations(connection) as dao_batch:
+                    tasks_initiales = [
+                        self.download_fichiers_reclamation(),
+                    ]
+
+                    # Download fichiers reclamations primaire
+                    if self.__consignation.timestamp_visite is None:
+                        # Debloquer les visites (pour prochaine visite)
+                        self.__consignation.timestamp_visite = datetime.datetime.utcnow()
+                        # Ajouter visiter_fuuids dans les taches de sync
+                        tasks_initiales.append(self.__consignation.visiter_fuuids(dao_batch))
+                        self.__logger.info("__sequence_sync_primaire download_fichiers_reclamation + visiter_fuuids (Progres: 1/4)")
+                    else:
+                        self.__logger.info("__sequence_sync_secondaire download_fichiers_reclamation (Progres: 1/4)")
+
+                    try:
+                        await asyncio.gather(*tasks_initiales)
+                    except aiohttp.client.ClientResponseError as e:
+                        if e.status == 404:
+                            self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
+                        else:
+                            self.__logger.error(
+                                "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
+                        return  # Abandonner la sync
+
+            # try:
+            #     self.__logger.info("__sequence_sync_secondaire download_fichiers_reclamation (Progres: 1/4)")
+            #     await self.download_fichiers_reclamation()
+            # except aiohttp.client.ClientResponseError as e:
+            #     if e.status == 404:
+            #         self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
+            #     else:
+            #         self.__logger.error(
+            #             "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
+            #     return  # Abandonner la sync
 
             if self.__stop_event.is_set():
                 return  # Stopped
 
             # Merge information dans database
+            self.__logger.info("__sequence_sync_secondaire merge_fichiers_reclamation (Progres: 2/4)")
             await self.merge_fichiers_reclamation()
 
             if self.__stop_event.is_set():
@@ -378,14 +425,17 @@ class SyncManager:
 
             # Ajouter manquants, marquer fichiers reclames
             # Marquer orphelins, determiner downloads et upload
+            self.__logger.info("__sequence_sync_secondaire creer_operations_sur_secondaire (Progres: 3/4)")
             await self.creer_operations_sur_secondaire()
 
             if self.__stop_event.is_set():
                 return  # Stopped
 
             # Declencher sync des fichiers de backup avec le primaire
+            self.__logger.info("__sequence_sync_secondaire run_sync_backup (Progres: 4/4)")
             await self.run_sync_backup()
         finally:
+            self.__logger.info("__sequence_sync_secondaire Termine")
             event_sync.set()
 
     async def thread_emettre_evenement_secondaire(self, event_sync: asyncio.Event):

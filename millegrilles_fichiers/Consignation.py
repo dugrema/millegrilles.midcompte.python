@@ -126,15 +126,17 @@ class ConsignationHandler:
             return  # Stopped
 
         # Premier entretien
-        self.__timestamp_visite = datetime.datetime.utcnow()
-        try:
-            self.__logger.info("entretien_store Visite initiale des fuuids")
-            await self.__store_consignation.visiter_fuuids()
-        except:
-            self.__logger.exception("entretien_store Erreur premiere execution de visite")
+
+        # self.__timestamp_visite = datetime.datetime.utcnow()
+        # try:
+        #     self.__logger.info("entretien_store Visite initiale des fuuids (debut)")
+        #     await self.__store_consignation.visiter_fuuids()
+        #     self.__logger.info("entretien_store Visite initiale des fuuids (terminee)")
+        # except:
+        #     self.__logger.exception("entretien_store Erreur premiere execution de visite")
 
         # Debloquer a la synchronisation (initiale)
-        self.__sync_manager.set_visite_completee()
+        # self.__sync_manager.set_visite_completee()
 
         if self.__etat_instance.est_primaire:
             self.__logger.info("Declencher sync initial (primaire)")
@@ -156,6 +158,16 @@ class ConsignationHandler:
                 await asyncio.wait_for(self.__stop_event.wait(), timeout=300)
             except asyncio.TimeoutError:
                 pass  # OK
+
+    async def visiter_fuuids(self, dao: Optional[SQLiteBatchOperations] = None):
+        # Note : le lock pour eviter run redondant est fait via SQLiteBatchOperations
+        if dao is not None:
+            await self.__store_consignation.visiter_fuuids(dao)
+        else:
+            # Besoin de faire un lock sur le DAO batch jobs
+            with self.__etat_instance.sqlite_connection() as connection:
+                async with SQLiteBatchOperations(connection) as dao:
+                    await self.__store_consignation.visiter_fuuids(dao)
 
     async def traiter_cedule(self, producer: MessageProducerFormatteur, message: MessageWrapper):
         self.__traiter_cedule_event.set()
@@ -211,14 +223,15 @@ class ConsignationHandler:
         await asyncio.wait_for(self.__store_pret_event.wait(), timeout=10)
 
         if self.__timestamp_visite is not None and now - self.__intervalle_visites > self.__timestamp_visite:
-            # Note : si le timestamp est None, la visite initiale n'est pas completee (store.entretien)
+            # Note : si le timestamp est None, la visite initiale n'est pas completee (sync)
             try:
                 # Demarrer la job si le semaphore n'est pas deja bloque
                 self.__logger.info("__traiter_cedule_local Visiter fuuids")
                 self.__timestamp_visite = datetime.datetime.utcnow()
-                await self.__store_consignation.visiter_fuuids()
+                # await self.__store_consignation.visiter_fuuids()
+                await self.visiter_fuuids()
                 # Debloquer a la synchronisation (initiale)
-                self.__sync_manager.set_visite_completee()
+                # self.__sync_manager.set_visite_completee()
             except Exception:
                 self.__logger.exception("__traiter_cedule_local Erreur visiter fuuids")
 
@@ -481,6 +494,14 @@ class ConsignationHandler:
     @rabbitmq_dao.setter
     def rabbitmq_dao(self, rabbitmq_dao: MilleGrillesConnecteur):
         self.__rabbitmq_dao = rabbitmq_dao
+
+    @property
+    def timestamp_visite(self):
+        return self.__timestamp_visite
+
+    @timestamp_visite.setter
+    def timestamp_visite(self, ts):
+        self.__timestamp_visite = ts
 
     async def reclamer_fuuids_database(self, fuuids: list, bucket: str):
         if self.__store_consignation is not None:
