@@ -27,6 +27,10 @@ RUN apt update && \
 RUN cp /etc/ImageMagick-6/policy.xml /etc/ImageMagick-6/policy.xml.old && \
     sed -i -e 's/rights="none" pattern="PDF"/rights="read" pattern="PDF"/' /etc/ImageMagick-6/policy.xml
 
+# UID fichiers = 984
+# GID millegrilles = 980
+USER 984:980
+
 WORKDIR /opt/millegrilles/dist
 
 CMD ["-m", "millegrilles_media", "--verbose"]
