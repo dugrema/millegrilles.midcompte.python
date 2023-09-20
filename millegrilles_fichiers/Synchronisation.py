@@ -67,13 +67,13 @@ class SyncManager:
     #     self.__event_attendre_visite.set()
 
     async def run(self):
-        # self.__sync_event_primaire = asyncio.Event()
-        # self.__sync_event_secondaire = asyncio.Event()
-        # self.__reception_fuuids_reclames = asyncio.Queue(maxsize=3)
-        # self.__upload_event = asyncio.Event()
-        # self.__download_event = asyncio.Event()
-        # self.__backup_event = asyncio.Event()
-        # self.__event_attendre_visite = asyncio.Event()
+        self.__sync_event_primaire = asyncio.Event()
+        self.__sync_event_secondaire = asyncio.Event()
+        self.__reception_fuuids_reclames = asyncio.Queue(maxsize=3)
+        self.__upload_event = asyncio.Event()
+        self.__download_event = asyncio.Event()
+        self.__backup_event = asyncio.Event()
+        self.__event_attendre_visite = asyncio.Event()
 
         await asyncio.gather(
             self.thread_sync_primaire(),
