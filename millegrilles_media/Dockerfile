@@ -21,7 +21,9 @@ RUN apt update && \
     pip3 install --no-cache-dir -r $BUILD_FOLDER/requirements.txt && \
     pip3 install --no-cache-dir -r $BUILD_FOLDER/millegrilles_media/requirements.txt && \
     python3 ./millegrilles_media/setup.py install && \
-    apt clean
+    apt clean && \
+    mkdir -p /var/opt/millegrilles/staging && \
+    chown 984:980 /var/opt/millegrilles/staging
 
 # Reference : https://stackoverflow.com/questions/52998331/imagemagick-security-policy-pdf-blocking-conversion#53180170
 RUN cp /etc/ImageMagick-6/policy.xml /etc/ImageMagick-6/policy.xml.old && \
@@ -30,6 +32,8 @@ RUN cp /etc/ImageMagick-6/policy.xml /etc/ImageMagick-6/policy.xml.old && \
 # UID fichiers = 984
 # GID millegrilles = 980
 USER 984:980
+
+VOLUME ["/var/opt/millegrilles/staging"]
 
 WORKDIR /opt/millegrilles/dist
 
