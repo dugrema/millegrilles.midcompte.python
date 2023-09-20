@@ -19,11 +19,15 @@ COPY . $BUILD_FOLDER
 WORKDIR /opt/millegrilles/build
 
 RUN pip3 install --no-cache-dir -r $BUILD_FOLDER/requirements.txt && \
-    python3 ./setup.py install
+    python3 ./setup.py install && \
+    mkdir -p /var/opt/millegrilles/consignation && \
+    chown 984:980 /var/opt/millegrilles/consignation
 
 # UID fichiers = 984
 # GID millegrilles = 980
 USER 984:980
+
+VOLUME ["/var/opt/millegrilles/consignation"]
 
 WORKDIR /opt/millegrilles/dist
 
