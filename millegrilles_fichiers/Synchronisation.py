@@ -388,7 +388,7 @@ class SyncManager:
                         self.__consignation.timestamp_visite = datetime.datetime.utcnow()
                         # Ajouter visiter_fuuids dans les taches de sync
                         tasks_initiales.append(self.__consignation.visiter_fuuids(dao_batch))
-                        self.__logger.info("__sequence_sync_primaire download_fichiers_reclamation + visiter_fuuids (Progres: 1/4)")
+                        self.__logger.info("__sequence_sync_secondaire download_fichiers_reclamation + visiter_fuuids (Progres: 1/4)")
                     else:
                         self.__logger.info("__sequence_sync_secondaire download_fichiers_reclamation (Progres: 1/4)")
 
