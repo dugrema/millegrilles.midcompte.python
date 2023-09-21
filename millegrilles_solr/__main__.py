@@ -3,6 +3,7 @@ import asyncio
 import logging
 import signal
 
+from aiohttp.client_exceptions import ClientResponseError
 from typing import Optional
 
 from millegrilles_solr.mqdao import RabbitMQDao
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 class ESMain:
 
     def __init__(self, args: argparse.Namespace):
+        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__args = args
         self.__config = ConfigurationRelaiSolr()
         self._etat_relaisolr = EtatRelaiSolr(self.__config)
@@ -49,6 +51,12 @@ class ESMain:
         await self.__intake.configurer()
 
         # Configurer core1
+        try:
+            await self.__solrdao.ping()
+        except ClientResponseError as e:
+            if e.status == 400:
+                self.__logger.fatal("Erreur connexion a SOLR, certificat HTTPS rejete")
+            raise e
         await self.__solrdao.initialiser_solr()
 
     async def run(self):
