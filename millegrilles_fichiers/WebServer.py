@@ -739,9 +739,12 @@ def get_common_name(request: Request):
             # Utiliser les headers fournis par nginx
             cert_subject = extract_subject(headers.get('DN'))
             common_name = cert_subject['CN']
-        elif headers.get('VERIFIED') == 'INTERNAL':
-            # Flag override interne - on laisse passer sans CN
-            common_name = None
+        elif headers.get('VERIFIED') == 'NONE':
+            # Flag NONE - on utilise le header X-User-Id
+            try:
+                common_name = headers['X-User-Id']
+            except KeyError:
+                raise Forbidden()
         else:
             raise Forbidden()
     else:
