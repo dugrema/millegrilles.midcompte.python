@@ -401,6 +401,14 @@ class ConsignationHandler:
             raise Exception("Store non initialise")
         await self.__store_consignation.consigner(path_source, fuuid)
 
+    async def emettre_evenement_consigne(self, fuuid: str):
+        """
+        Emet l'evenement consigne (visite).
+        :param fuuid:
+        :return:
+        """
+        await self.__store_consignation.emettre_evenement_consigne(fuuid)
+
     async def get_info_fichier(self, fuuid: str):
         if self.__store_consignation is None:
             raise Exception("Store non initialise")

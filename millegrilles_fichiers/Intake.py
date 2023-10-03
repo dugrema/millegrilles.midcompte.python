@@ -167,6 +167,7 @@ class IntakeFichiers(IntakeHandler):
 
     async def emettre_transactions(self, job: IntakeJob):
         producer = self._etat_instance.producer
+        fuuid = job.fuuid
         await asyncio.wait_for(producer.producer_pret().wait(), 20)
 
         path_transaction = pathlib.Path(job.path_job, Constantes.FICHIER_TRANSACTION)
@@ -202,6 +203,9 @@ class IntakeFichiers(IntakeHandler):
                 timeout=60,
                 noformat=True
             )
+
+        # Re-emettre l'evenement de visite. Si le fichier n'etait pas deja initialise, l'evenement a ete perdu.
+        await self.__consignation_handler.emettre_evenement_consigne(fuuid)
 
     # def cleanup_download(self, fuuid):
     #     try:

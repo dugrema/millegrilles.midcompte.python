@@ -68,34 +68,6 @@ class ConsignationStore:
         # Tenter d'inserer le fichier comme nouveau actif dans la base de donnees
         await self.__consigner_db(path_src, fuuid)
 
-        # con = sqlite3.connect(self.__path_database, check_same_thread=True)
-        # stat = path_src.stat()
-        #
-        # date_now = datetime.datetime.now(tz=pytz.UTC)
-        # data = {
-        #     'fuuid': fuuid,
-        #     'etat_fichier': Constantes.DATABASE_ETAT_ACTIF,
-        #     'taille': stat.st_size,
-        #     'bucket': Constantes.BUCKET_PRINCIPAL,
-        #     'date_presence': date_now,
-        #     'date_verification': date_now,
-        #     'date_reclamation': date_now,
-        # }
-        # cur = con.cursor()
-        # try:
-        #     cur.execute(scripts_database.CONST_INSERT_FICHIER, data)
-        # except sqlite3.IntegrityError as e:
-        #     if 'FICHIERS.fuuid' in e.args[0]:
-        #         self.__logger.debug("ConsignationStore.consigner fuuid %s existe deja - OK" % fuuid)
-        #         cur.execute(scripts_database.CONST_ACTIVER_SI_MANQUANT, data)
-        #         cur.execute(scripts_database.CONST_VERIFIER_FICHIER, data)
-        #     else:
-        #         raise e
-        # finally:
-        #     cur.close()
-        #     con.commit()
-        #     con.close()
-
         # await self.emettre_batch_visites([fuuid], verification=True)
         await self.emettre_evenement_consigne(fuuid)
 
