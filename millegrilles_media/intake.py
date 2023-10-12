@@ -10,6 +10,7 @@ from ssl import SSLContext
 from asyncio import Event, TimeoutError, wait, FIRST_COMPLETED, gather
 
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher
+from millegrilles_messages.Mimetypes import est_video
 from millegrilles_media.EtatMedia import EtatMedia
 from millegrilles_media.ImagesHandler import traiter_image, traiter_poster_video
 from millegrilles_media.VideosHandler import VideoConversionJob
@@ -70,7 +71,8 @@ class IntakeHandler:
                     mimetype = job['mimetype']
 
                     # Les videos (ffmpeg) utilisent un fichier avec nom
-                    if mimetype.lower().startswith('video/'):
+                    if est_video(mimetype):
+                    # if mimetype.lower().startswith('video/'):
                         class_tempfile = tempfile.NamedTemporaryFile
                     else:
                         class_tempfile = tempfile.TemporaryFile
@@ -157,7 +159,7 @@ class IntakeJobImage(IntakeHandler):
         self.__logger.debug("Traiter image %s" % job)
         mimetype: str = job['mimetype']
 
-        if mimetype.lower().startswith('video/'):
+        if est_video(mimetype):
             await traiter_poster_video(job, tmp_file, self._etat_media)
         else:
             await traiter_image(job, tmp_file, self._etat_media)
