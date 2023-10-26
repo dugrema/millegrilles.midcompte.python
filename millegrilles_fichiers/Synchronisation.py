@@ -56,6 +56,10 @@ class SyncManager:
         self.__upload_en_cours: Optional[EtatUpload] = None
         self.__samples_upload = list()  # Utilise pour calcul de vitesse
 
+    @property
+    def sync_en_cours(self) -> bool:
+        return self.__sync_event_primaire.is_set() or self.__sync_event_secondaire.is_set()
+
     def demarrer_sync_primaire(self):
         self.__sync_event_primaire.set()
 
