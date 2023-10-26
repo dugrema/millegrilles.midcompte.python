@@ -183,14 +183,17 @@ class ConsignationStore:
                         fuuid = fichier['fuuid']
                         bucket = fichier['bucket']
                         if fuuid in fuuids_a_supprimer:
-                            self.__logger.info("supprimer_orphelins Supprimer fichier orphelin expire %s" % fichier)
-                            try:
-                                await self.supprimer(bucket, fuuid)
-                            except OSError as e:
-                                if e.errno == errno.ENOENT:
-                                    self.__logger.warning("Erreur suppression fichier %s/%s - non trouve" % (bucket, fuuid))
-                                else:
-                                    raise e
+                            if bucket is not None:
+                                self.__logger.info("supprimer_orphelins Supprimer fichier orphelin expire %s" % fichier)
+                                try:
+                                    await self.supprimer(bucket, fuuid)
+                                except OSError as e:
+                                    if e.errno == errno.ENOENT:
+                                        self.__logger.warning("Erreur suppression fichier %s/%s - non trouve" % (bucket, fuuid))
+                                    else:
+                                        raise e
+                            else:
+                                self.__logger.info("supprimer_orphelins Nettoyer DB pour fichier orphelin deja supprime %s" % fichier)
 
                             # Supprimer de la base de donnes locale
                             # await asyncio.to_thread(entretien_db.supprimer, fuuid)
