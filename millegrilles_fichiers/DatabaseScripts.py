@@ -292,6 +292,7 @@ SELECT_BATCH_VERIFIER = """
     FROM FICHIERS
     WHERE date_verification < :expiration_verification
       AND etat_fichier = 'actif'
+      AND taille is NOT NULL
     ORDER BY date_verification
     LIMIT :limit;
 """

@@ -10,7 +10,7 @@ import pytz
 
 from millegrilles_fichiers import Constantes, DatabaseScripts as scripts_database
 
-sqlite3.threadsafety = 2
+# sqlite3.threadsafety = 3
 
 
 class SQLiteLocks:
@@ -36,13 +36,15 @@ class SQLiteLocks:
 
 class SQLiteConnection:
 
-    def __init__(self, path_data: pathlib.Path, locks: Optional[SQLiteLocks] = None, check_same_thread=True, timeout=5.0):
+    def __init__(self, path_data: pathlib.Path, locks: Optional[SQLiteLocks] = None,
+                 check_same_thread=True, timeout=5.0, reuse=False):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__path_data = path_data
         self.__path_database = pathlib.Path(path_data, Constantes.FICHIER_DATABASE)
         self.__sqlite_locks = locks
         self.__check_same_thread = check_same_thread
         self.__timeout = timeout
+        self.__reuse = reuse
 
         self.__con: Optional[sqlite3.Connection] = None
 
@@ -60,8 +62,9 @@ class SQLiteConnection:
 
     def close(self):
         self.__con.commit()
-        self.__con.close()
-        self.__con = None
+        if self.__reuse is False:
+            self.__con.close()
+            self.__con = None
 
     def init_database(self):
         cur = self.__con.cursor()
@@ -72,7 +75,8 @@ class SQLiteConnection:
             self.__con.commit()
 
     def __enter__(self):
-        self.open()
+        if self.__con is None:
+            self.open()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -219,13 +223,16 @@ class SQLiteReadOperations(SQLiteCursor):
         fuuids = list()
         while True:
             row = self._cur.fetchone()
-            if row is None:
+            if row is None or taille_totale > limite_taille:
                 break
             fuuid, taille, bucket_visite = row
-            taille_totale += taille
-            if len(fuuids) > 0 and taille_totale > limite_taille:
-                break  # On a atteint la limite en bytes
-            fuuids.append({'fuuid': fuuid, 'taille': taille, 'bucket': bucket_visite})
+            if isinstance(taille, int):
+                taille_totale += taille
+                if len(fuuids) > 0 and taille_totale > limite_taille:
+                    break  # On a atteint la limite en bytes
+                fuuids.append({'fuuid': fuuid, 'taille': taille, 'bucket': bucket_visite})
+            else:
+                self.__logger.warning('fuuid %s avec taille NULL, skip' % fuuid)
 
         return fuuids
 

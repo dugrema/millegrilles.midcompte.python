@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import pathlib
+import sqlite3
 
 from typing import Optional
 
@@ -35,6 +36,7 @@ class EtatFichiers(EtatInstance):
         # Semaphore pour empecher plusieurs jobs de s'executer en background en meme temps (DB lock)
         # self.__lock_db_job: Optional[asyncio.BoundedSemaphore] = None
         self.__sqlite_locks = sqlite_locks
+        self.__sqlite_connection: Optional[sqlite3.Connection] = None
 
     async def ainit(self):
         self.__event_consignation_primaire_pret = asyncio.Event()
@@ -127,10 +129,14 @@ class EtatFichiers(EtatInstance):
     #     # return self.__lock_db_job
 
     def sqlite_connection(self, check_same_thread=False) -> SQLiteConnection:
-        path_data = pathlib.Path(self.configuration.dir_consignation, Constantes.DIR_DATA)
-        sqlite_connection = SQLiteConnection(path_data, self.__sqlite_locks, check_same_thread=check_same_thread)
-        # await sqlite_connection.ainit()
-        return sqlite_connection
+        if not self.__sqlite_connection:
+            path_data = pathlib.Path(self.configuration.dir_consignation, Constantes.DIR_DATA)
+
+            # Creer une connexion reutilisable (qui ne se ferme pas apres chaque utilisation)
+            self.__sqlite_connection = SQLiteConnection(
+                path_data, self.__sqlite_locks, check_same_thread=check_same_thread, reuse=True)
+
+        return self.__sqlite_connection
 
     def get_public_key_ssh(self) -> dict:
         return {'rsa': self.__public_key_ssh_rsa, 'ed25519': self.__public_key_ssh_ed25519}
