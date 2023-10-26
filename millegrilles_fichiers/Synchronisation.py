@@ -383,22 +383,26 @@ class SyncManager:
 
             with self.__etat_instance.sqlite_connection() as connection:
                 async with SQLiteBatchOperations(connection) as dao_batch:
-                    tasks_initiales = [
-                        self.download_fichiers_reclamation(),
-                    ]
+
+                    # tasks_initiales = [
+                    #     self.download_fichiers_reclamation(),
+                    # ]
 
                     # Download fichiers reclamations primaire
                     if self.__consignation.timestamp_visite is None:
                         # Debloquer les visites (pour prochaine visite)
                         self.__consignation.timestamp_visite = datetime.datetime.utcnow()
                         # Ajouter visiter_fuuids dans les taches de sync
-                        tasks_initiales.append(self.__consignation.visiter_fuuids(dao_batch))
-                        self.__logger.info("__sequence_sync_secondaire download_fichiers_reclamation + visiter_fuuids (Progres: 1/4)")
+                        # tasks_initiales.append(self.__consignation.visiter_fuuids(dao_batch))
+                        self.__logger.info("__sequence_sync_secondaire visiter_fuuids (Progres: 1/5)")
+                        await self.__consignation.visiter_fuuids(dao_batch)
                     else:
-                        self.__logger.info("__sequence_sync_secondaire download_fichiers_reclamation (Progres: 1/4)")
+                        self.__logger.info("__sequence_sync_secondaire skip visiter fuuids (Progres: 1/5)")
 
+                    self.__logger.info(
+                        "__sequence_sync_secondaire download_fichiers_reclamation (Progres: 2/5)")
                     try:
-                        await asyncio.gather(*tasks_initiales)
+                        await self.download_fichiers_reclamation()
                     except aiohttp.client.ClientResponseError as e:
                         if e.status == 404:
                             self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
@@ -406,6 +410,17 @@ class SyncManager:
                             self.__logger.error(
                                 "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
                         return  # Abandonner la sync
+
+
+                    # try:
+                    #     await asyncio.gather(*tasks_initiales)
+                    # except aiohttp.client.ClientResponseError as e:
+                    #     if e.status == 404:
+                    #         self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
+                    #     else:
+                    #         self.__logger.error(
+                    #             "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
+                    #     return  # Abandonner la sync
 
             # try:
             #     self.__logger.info("__sequence_sync_secondaire download_fichiers_reclamation (Progres: 1/4)")
@@ -422,7 +437,7 @@ class SyncManager:
                 return  # Stopped
 
             # Merge information dans database
-            self.__logger.info("__sequence_sync_secondaire merge_fichiers_reclamation (Progres: 2/4)")
+            self.__logger.info("__sequence_sync_secondaire merge_fichiers_reclamation (Progres: 3/5)")
             await self.merge_fichiers_reclamation()
 
             if self.__stop_event.is_set():
@@ -430,14 +445,14 @@ class SyncManager:
 
             # Ajouter manquants, marquer fichiers reclames
             # Marquer orphelins, determiner downloads et upload
-            self.__logger.info("__sequence_sync_secondaire creer_operations_sur_secondaire (Progres: 3/4)")
+            self.__logger.info("__sequence_sync_secondaire creer_operations_sur_secondaire (Progres: 4/5)")
             await self.creer_operations_sur_secondaire()
 
             if self.__stop_event.is_set():
                 return  # Stopped
 
             # Declencher sync des fichiers de backup avec le primaire
-            self.__logger.info("__sequence_sync_secondaire run_sync_backup (Progres: 4/4)")
+            self.__logger.info("__sequence_sync_secondaire run_sync_backup (Progres: 5/5)")
             await self.run_sync_backup()
         finally:
             self.__logger.info("__sequence_sync_secondaire Termine")
