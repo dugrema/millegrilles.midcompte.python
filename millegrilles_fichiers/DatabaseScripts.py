@@ -226,7 +226,7 @@ UPDATE_VERIFIER_FICHIER = """
 
 INSERT_PRESENCE_FICHIERS = """
     INSERT INTO FICHIERS(fuuid, etat_fichier, taille, bucket, bucket_visite, date_presence, date_verification, date_reclamation)
-    VALUES (:fuuid, :etat_fichier, :taille, :bucket, :bucket, :date_presence, :date_presence, :date_presence)
+    VALUES (:fuuid, :etat_fichier, :taille, :bucket, :bucket, :date_presence, :date_verification, :date_presence)
     ON CONFLICT(fuuid) DO UPDATE
     SET taille = :taille, 
         date_presence = :date_presence,
@@ -235,7 +235,7 @@ INSERT_PRESENCE_FICHIERS = """
 
 INSERT_RECLAMER_FICHIER = """
     INSERT INTO FICHIERS(fuuid, etat_fichier, bucket, date_presence, date_verification, date_reclamation)
-    VALUES (:fuuid, :etat_fichier, :bucket, :date_reclamation, :date_reclamation, :date_reclamation)
+    VALUES (:fuuid, :etat_fichier, :bucket, :date_reclamation, :date_verification, :date_reclamation)
     ON CONFLICT(fuuid) DO UPDATE
     SET bucket = :bucket,
         date_reclamation = :date_reclamation;
@@ -305,6 +305,15 @@ UPDATE_DATE_VERIFICATION = """
 UPDATE_DATE_ETATFICHIER = """
     UPDATE FICHIERS
     SET etat_fichier = :etat_fichier
+    WHERE fuuid = :fuuid;
+"""
+
+UPDATE_DATE_ETATFICHIER_PRESENCE = """
+    UPDATE FICHIERS
+    SET etat_fichier = :etat_fichier,
+        date_verification = :date_verification,
+        date_presence = :date_presence,
+        bucket_visite = NULL
     WHERE fuuid = :fuuid;
 """
 

@@ -587,6 +587,7 @@ class SQLiteBatchOperations(SQLiteCursor):
             'taille': taille,
             'bucket': bucket,
             'date_presence': datetime.datetime.now(tz=pytz.UTC),
+            'date_verification': datetime.datetime.fromtimestamp(0, tz=pytz.UTC),
         }
         self.ajouter_item_batch(row)
         return len(self.__batch)
@@ -634,7 +635,8 @@ class SQLiteBatchOperations(SQLiteCursor):
             'fuuid': fuuid,
             'etat_fichier': Constantes.DATABASE_ETAT_MANQUANT,
             'bucket': bucket,
-            'date_reclamation': datetime.datetime.now(tz=pytz.UTC)
+            'date_reclamation': datetime.datetime.now(tz=pytz.UTC),
+            'date_verification': datetime.datetime.fromtimestamp(0, tz=pytz.UTC)
         }
         self.ajouter_item_batch(row)
 
@@ -703,12 +705,14 @@ class SQLiteBatchOperations(SQLiteCursor):
                 }
                 await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_DATE_VERIFICATION, params)
             else:
-                # Erreur - mettre a jour l'etat seulement
+                # Erreur - mettre a jour l'etat et resetter la presence
                 params = {
                     'fuuid': fuuid,
-                    'etat_fichier': etat_fichier
+                    'etat_fichier': etat_fichier,
+                    'date_verification': datetime.datetime.now(tz=pytz.UTC),
+                    'date_presence': datetime.datetime.fromtimestamp(0, tz=pytz.UTC),
                 }
-                await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_DATE_ETATFICHIER, params)
+                await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_DATE_ETATFICHIER_PRESENCE, params)
 
             # Pas de batch, on commit chaque fichier (verification fuuid est intensive, grand delai entre operations)
             await asyncio.to_thread(self._connection.commit)
