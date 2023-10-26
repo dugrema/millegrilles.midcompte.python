@@ -242,8 +242,8 @@ class ConsignationHandler:
         if self.__timestamp_verification is None or now - self.__intervalle_verification > self.__timestamp_verification:
             try:
                 # Demarrer la job si le semaphore n'est pas deja bloque
-                self.__logger.info("__traiter_cedule_local Verifier fuuids")
                 if self.__sync_manager.sync_en_cours is False:
+                    self.__logger.info("__traiter_cedule_local Verifier fuuids")
                     self.__timestamp_verification = datetime.datetime.utcnow()
                     await self.__store_consignation.verifier_fuuids()
             except Exception:
