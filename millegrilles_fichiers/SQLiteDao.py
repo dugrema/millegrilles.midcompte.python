@@ -80,7 +80,11 @@ class SQLiteConnection:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
+        try:
+            self.close()
+        except sqlite3.OperationalError as e:
+            self.__logger.exception("Operational error sur close/commit : %s" % str(e))
+
         return False
 
     def cursor(self) -> sqlite3.Cursor:

@@ -311,41 +311,46 @@ class SyncManager:
     async def __sequence_sync_primaire(self, connection: SQLiteConnection, dao_batch: SQLiteBatchOperations, event_sync: asyncio.Event):
         try:
             # Date debut utilise pour trouver les fichiers orphelins (si reclamation est complete)
-            tasks_initiales = [
-                self.reclamer_fuuids(),
-            ]
+            debut_reclamation = datetime.datetime.utcnow()
+            self.__logger.info("__sequence_sync_primaire Debut reclamation (Progres 1/5)")
+            reclamation_complete = await self.reclamer_fuuids()
+            self.__logger.info("__sequence_sync_primaire Debut fin reclamation (complet? %s)" % reclamation_complete)
+            # tasks_initiales = [
+            #     self.reclamer_fuuids(),
+            # ]
             if self.__consignation.timestamp_visite is None:
                 # Debloquer les visites (pour prochaine visite)
                 self.__consignation.timestamp_visite = datetime.datetime.utcnow()
                 # Ajouter visiter_fuuids dans les taches de sync
-                tasks_initiales.append(asyncio.create_task(self.__consignation.visiter_fuuids(dao_batch)))
-                self.__logger.info("__sequence_sync_primaire reclamer_fuuids + visiter_fuuids (Progres: 1/4)")
+                # tasks_initiales.append(asyncio.create_task(self.__consignation.visiter_fuuids(dao_batch)))
+                self.__logger.info("__sequence_sync_primaire visiter_fuuids (Progres: 2/5)")
+                await self.__consignation.visiter_fuuids(dao_batch)
             else:
-                self.__logger.info("__sequence_sync_primaire reclamer_fuuids (Progres: 1/4)")
+                self.__logger.info("__sequence_sync_primaire reclamer_fuuids Skip visiter fuuids (Progres: 2/5)")
 
-            debut_reclamation = datetime.datetime.utcnow()
-            resultat_initial = await asyncio.gather(*tasks_initiales)
-            reclamation_complete = resultat_initial[0]
+            #debut_reclamation = datetime.datetime.utcnow()
+            #resultat_initial = await asyncio.gather(*tasks_initiales)
+            #reclamation_complete = resultat_initial[0]
 
             if self.__stop_event.is_set():
                 return  # Stopped
 
             # Process orphelins
-            self.__logger.info("__sequence_sync_primaire marquer_orphelins (Progres: 2/4)")
+            self.__logger.info("__sequence_sync_primaire marquer_orphelins (Progres: 3/5)")
             await self.__consignation.marquer_orphelins(dao_batch, debut_reclamation, reclamation_complete)
 
             if self.__stop_event.is_set():
                 return  # Stopped
 
             # Generer la liste des reclamations en .jsonl.gz pour les secondaires
-            self.__logger.info("__sequence_sync_primaire generer_reclamations_sync (Progres: 3/4)")
+            self.__logger.info("__sequence_sync_primaire generer_reclamations_sync (Progres: 4/5)")
             await self.__consignation.generer_reclamations_sync(connection)
 
             if self.__stop_event.is_set():
                 return  # Stopped
 
             # Generer la liste des fichiers de backup
-            self.__logger.info("__sequence_sync_primaire generer_backup_sync (Progres: 4/4)")
+            self.__logger.info("__sequence_sync_primaire generer_backup_sync (Progres: 5/5)")
             await self.__consignation.generer_backup_sync()
         finally:
             self.__logger.info("__sequence_sync_primaire termine")

@@ -634,8 +634,12 @@ class ConsignationStoreMillegrille(ConsignationStore):
                 # Ajouter visite, faire commit sur batch. Attendre 5 secondes entre batch (permettre acces a la DB).
                 taille_batch = dao.ajouter_visite(bucket, item.name, stat.st_size)
                 if taille_batch >= Constantes.CONST_BATCH_VISITES:
+                    self.__logger.info("visiter_bucket Commit batch visite (%d)" % taille_batch)
                     # batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
+                    debut_commit = datetime.datetime.utcnow()
                     batch, resultat = await dao.commit_batch()
+                    duree = datetime.datetime.utcnow() - debut_commit
+                    self.__logger.info("visiter_bucket Commit batch visite complete (duree : %s)" % duree)
                     await self.emettre_batch_visites(batch, False)
                     try:
                         await asyncio.wait_for(self._stop_store.wait(), timeout=Constantes.CONST_ATTENTE_ENTRE_BATCH_VISITES)
