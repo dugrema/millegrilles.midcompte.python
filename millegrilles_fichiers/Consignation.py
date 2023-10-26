@@ -29,6 +29,10 @@ from millegrilles_fichiers.Synchronisation import SyncManager
 from millegrilles_fichiers.SQLiteDao import SQLiteConnection, SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations
 
 
+class StoreNonInitialise(Exception):
+    pass
+
+
 class InformationFuuid:
 
     def __init__(self, fuuid: str):
@@ -398,7 +402,7 @@ class ConsignationHandler:
 
     async def consigner(self, path_source: pathlib.Path, fuuid: str):
         if self.__store_consignation is None:
-            raise Exception("Store non initialise")
+            raise StoreNonInitialise("Store non initialise")
         await self.__store_consignation.consigner(path_source, fuuid)
 
     async def emettre_evenement_consigne(self, fuuid: str):

@@ -15,7 +15,7 @@ from millegrilles_messages.jobs.Intake import IntakeHandler
 from millegrilles_messages.MilleGrillesConnecteur import EtatInstance
 
 from millegrilles_fichiers import Constantes
-from millegrilles_fichiers.Consignation import ConsignationHandler, InformationFuuid
+from millegrilles_fichiers.Consignation import ConsignationHandler, InformationFuuid, StoreNonInitialise
 
 LOGGER = logging.getLogger(__name__)
 
@@ -104,7 +104,12 @@ class IntakeFichiers(IntakeHandler):
         path_fichier = await asyncio.to_thread(reassembler_fichier, *args)
 
         # Consigner : deplacer fichier vers repertoire final
-        await self.__consignation_handler.consigner(path_fichier, job.fuuid)
+        try:
+            await self.__consignation_handler.consigner(path_fichier, job.fuuid)
+        except StoreNonInitialise:
+            self.__logger.info("Erreur store non initialise sur intake - attendre 10 secondes et reessayer")
+            await asyncio.sleep(10)
+            await self.__consignation_handler.consigner(path_fichier, job.fuuid)
 
         # Charger transactions, cles. Emettre.
         await self.emettre_transactions(job)
