@@ -121,8 +121,8 @@ class CommandHandler(CommandesAbstract):
             # Ignorer le trigger, backup ou restauration en cours
             return
 
-        if weekday == 0 and hour == 4:
-            # Declencher un backup complet
+        if weekday == 6 and hour == 8 and minute == 3:
+            # Backup complet le dimanche, 8:03AM UTC (3-4AM Eastern)
             await self.__intake_backups.trigger_traitement()
         elif minute % 20 == 0:
             await producer.emettre_evenement(
