@@ -275,13 +275,29 @@ class IntakeBackup(IntakeHandler):
 
         # Clear flag et emet commande de backup du domaine
         self.__event_attente_fichiers.clear()
-        await producer.executer_commande(
-            {'complet': True},
-            nom_domaine,
-            Constantes.COMMANDE_DECLENCHER_BACKUP,
-            exchange=ConstantesMillegrilles.SECURITE_PRIVE,
-            nowait=True
-        )
+
+        demarrage_ok = False
+        for i in range(1, 4):
+            try:
+                reponse = await producer.executer_commande(
+                    {'complet': True},
+                    nom_domaine,
+                    Constantes.COMMANDE_DECLENCHER_BACKUP,
+                    exchange=ConstantesMillegrilles.SECURITE_PRIVE,
+                    timeout=20
+                )
+                demarrage_ok = reponse.parsed.get('ok') or False
+                if demarrage_ok is True:
+                    break
+                elif demarrage_ok is False and reponse.parsed.get('code') == 2:
+                    # Le backup vient juste d'etre execute. On attend 30 secondes
+                    await asyncio.sleep(30)
+            except asyncio.TimeoutError:
+                self.__logger.exception("Erreur attente debut backup domaine %s (try %d de 3)" % (nom_domaine, i))
+
+        if demarrage_ok is False:
+            self.__logger.warning("Le domaine %s n'est pas disponible pour le backup" % nom_domaine)
+            raise Exception("Echec backup domaine %s, timeout demarrage" % nom_domaine)
 
         # Indique que le backup est commence
         domaine['transactions_traitees'] = 0
