@@ -118,13 +118,15 @@ class CommandHandler(CommandesAbstract):
         minute = date_cedule.minute
 
         if self.__intake_backups.en_cours or self.__etat_instance.backup_inhibe:
-            # Ignorer le trigger, backup ou restauration en cours
+            self.__logger.debug("traiter_cedule Backup en cours, ignorer trigger")
             return
 
         if weekday == 6 and hour == 8 and minute == 3:
             # Backup complet le dimanche, 8:03AM UTC (3-4AM Eastern)
+            self.__logger.info("traiter_cedule Declencher backup complet")
             await self.__intake_backups.trigger_traitement()
         elif minute % 20 == 0:
+            self.__logger.info("traiter_cedule Declencher backup incremental")
             await producer.emettre_evenement(
                 {'complet': False},
                 ConstantesMilleGrilles.DOMAINE_BACKUP,

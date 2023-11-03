@@ -40,7 +40,8 @@ class IntakeBackup(IntakeHandler):
         self.__dernier_evenement_domaine: Optional[datetime.datetime] = None
         self.__event_attente_fichiers: Optional[asyncio.Event] = None
         self.__notices: Optional[list] = None
-        self.__compteur_fichiers_domaine: Optional[int] = None
+        # self.__compteur_fichiers_domaine: Optional[int] = None
+        self.__cumulateurs_domaines: Optional[dict] = None
 
     async def trigger_backup_complete(self):
         if self.__triggers_completes is not None:
@@ -71,7 +72,8 @@ class IntakeBackup(IntakeHandler):
             self.__event_attente_fichiers = None
             self.__notices = None
             self.__dernier_evenement_domaine = None
-            self.__compteur_fichiers_domaine = None
+            # self.__compteur_fichiers_domaine = None
+            self.__dict_domaines = None
 
         return None
 
@@ -165,6 +167,9 @@ class IntakeBackup(IntakeHandler):
 
         self.__logger.debug("Reponse domaines : %s" % reponse)
         self.__domaines = reponse.parsed['resultats']
+        self.__dict_domaines = dict()
+        for domaine in self.__domaines:
+            self.__dict_domaines[domaine['domaine']] = domaine
 
         # Emettre liste domaines pour backup
         await self.emettre_evenement_maj(self.__domaines)
@@ -187,7 +192,7 @@ class IntakeBackup(IntakeHandler):
             path_destination = os.path.join(dir_backup, uuid_backup)
             os.rename(path_transactions, os.path.join(dir_backup, path_destination))
         except KeyError:
-            self.__logger.debug("Backup set %s invalide, on le supprime", path_transactions)
+            self.__logger.warning("Backup set %s invalide, on le supprime", path_transactions)
             shutil.rmtree(path_transactions)
         except FileNotFoundError:
             pass
@@ -224,6 +229,7 @@ class IntakeBackup(IntakeHandler):
 
             # Init flags
             domaine['backup_complete'] = False
+            domaine['compteur_fichiers'] = 0
 
             nom_domaine = domaine['domaine']
             self.__logger.info("Recuperer nombre transactions du domaine %s" % nom_domaine)
@@ -308,7 +314,7 @@ class IntakeBackup(IntakeHandler):
         # Demarrer le backup sur le domaine. Attendre tous les fichiers de backup ou timeout
         self.__nom_domaine_attente = nom_domaine
         self.__dernier_evenement_domaine = datetime.datetime.utcnow()
-        self.__compteur_fichiers_domaine = 0
+        # self.__compteur_fichiers_domaine = 0
 
         pending = [self.__event_attente_fichiers.wait()]
         while self.__event_attente_fichiers.is_set() is False:
@@ -326,7 +332,7 @@ class IntakeBackup(IntakeHandler):
 
         # Reset etat pour prochain domaine
         self.__event_attente_fichiers.clear()
-        self.__compteur_fichiers_domaine = None
+        # self.__compteur_fichiers_domaine = None
 
     async def run_backup(self):
         if self._etat_instance.backup_inhibe is True:
@@ -363,11 +369,11 @@ class IntakeBackup(IntakeHandler):
         nom_evenement = contenu['evenement']
         nom_domaine = contenu['domaine']
 
-        domaine_dict = None
-        for domaine_info in self.__domaines:
-            if domaine_info['domaine'] == nom_domaine:
-                domaine_dict = domaine_info
-                break
+        domaine_dict = self.__dict_domaines.get(nom_domaine)
+        # for domaine_info in self.__domaines:
+        #     if domaine_info['domaine'] == nom_domaine:
+        #         domaine_dict = domaine_info
+        #         break
 
         if nom_evenement == 'backupDemarre':
             pass
@@ -396,13 +402,19 @@ class IntakeBackup(IntakeHandler):
         date_transaction_debut = datetime.datetime.fromtimestamp(contenu['date_transactions_debut'])
         date_debut_format = date_transaction_debut.strftime("%Y%m%dT%H%M%SZ")
 
-        if self.__compteur_fichiers_domaine is not None:
-            # On est dans un backup complet, utiliser compteur de 8 chiffres (00000000, 00000001, ...)
-            id_fichier = "C{:0>8}".format(self.__compteur_fichiers_domaine)
-            self.__compteur_fichiers_domaine += 1  # Incrementer compteur
-        else:
+        dict_domaine = self.__dict_domaines.get(nom_domaine)
+        id_fichier = None
+        if dict_domaine is not None:
+            compteur_fichiers = dict_domaine.get('fichiers') or 0
+            if compteur_fichiers is not None:
+                # On est dans un backup complet, utiliser compteur de 8 chiffres (00000000, 00000001, ...)
+                id_fichier = "C{:0>8}".format(compteur_fichiers)
+                # dict_domaine['compteur_fichiers'] = compteur_fichiers + 1  # Incrementer compteur
+
+        if id_fichier is None:
             # Mode incremental, utiliser fin du hachage de contenu
             id_fichier = 'I%s' % hachage[-8:]
+
         nom_fichier = '_'.join([nom_domaine, date_debut_format, id_fichier])
 
         nom_fichier += '.json.gz'
@@ -414,7 +426,7 @@ class IntakeBackup(IntakeHandler):
         configuration = self._etat_instance.configuration
         dir_backup = configuration.dir_backup
 
-        if self.__domaines is None:
+        if dict_domaine is None:
             # Backup incremental, mettre sous repertoire transactions
             path_domaine = os.path.join(dir_backup, 'transactions', nom_domaine)
         else:
@@ -423,23 +435,20 @@ class IntakeBackup(IntakeHandler):
 
         os.makedirs(path_domaine, exist_ok=True)
         path_fichier = os.path.join(path_domaine, nom_fichier)
+        self.__logger.info("recevoir_fichier_transactions Sauvegarder fichier %s" % path_fichier)
         with gzip.open(path_fichier, 'wb') as fichier:
             fichier.write(original)
 
-        if self.__domaines is not None:
-            # Statistiques cumulatives pour le backup complet du domaine
-            for domaine in self.__domaines:
-                if domaine['domaine'] == nom_domaine:
-                    try:
-                        domaine['fichiers'] += 1
-                    except KeyError:
-                        domaine['fichiers'] = 1
-                    try:
-                        domaine['transactions_sauvegardees'] += nombre_transactions
-                    except KeyError:
-                        domaine['transactions_sauvegardees'] = nombre_transactions
-
-                    break
+        # Statistiques cumulatives pour le backup complet du domaine
+        if dict_domaine is not None:
+            try:
+                dict_domaine['fichiers'] += 1
+            except KeyError:
+                dict_domaine['fichiers'] = 1
+            try:
+                dict_domaine['transactions_sauvegardees'] += nombre_transactions
+            except KeyError:
+                dict_domaine['transactions_sauvegardees'] = nombre_transactions
 
             # Maj des stats via MQ
             await self.emettre_evenement_maj(None)
