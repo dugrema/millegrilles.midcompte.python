@@ -375,18 +375,21 @@ class IntakeBackup(IntakeHandler):
         #         domaine_dict = domaine_info
         #         break
 
+        if self.__nom_domaine_attente == nom_domaine:
+            self.__dernier_evenement_domaine = datetime.datetime.utcnow()
+
         if nom_evenement == 'backupDemarre':
             pass
         elif nom_evenement == 'cataloguePret':
             if domaine_dict is not None:
                 domaine_dict['transactions_traitees'] = contenu['transactions_traitees']
-            if self.__nom_domaine_attente == nom_domaine:
-                self.__dernier_evenement_domaine = datetime.datetime.utcnow()
         elif nom_evenement == 'backupTermine':
             if self.__nom_domaine_attente == nom_domaine:
                 # Debloquer attente des fichiers pour le domaine
                 self.__dernier_evenement_domaine = datetime.datetime.utcnow()
                 self.__event_attente_fichiers.set()
+        elif nom_evenement == 'keepAlive':
+            pass  # Rien a faire
 
         pass
 
