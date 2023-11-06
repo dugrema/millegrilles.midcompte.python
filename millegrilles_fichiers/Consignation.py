@@ -27,6 +27,7 @@ from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.ConsignationStore import ConsignationStore, map_type
 from millegrilles_fichiers.Synchronisation import SyncManager
 from millegrilles_fichiers.SQLiteDao import SQLiteConnection, SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations
+from millegrilles_fichiers.ConsignationBackup import ConsignationBackup
 
 
 class StoreNonInitialise(Exception):
@@ -60,6 +61,7 @@ class ConsignationHandler:
         self.__sync_manager = SyncManager(self)
 
         self.__store_consignation: Optional[ConsignationStore] = None
+        self.__store_backup = ConsignationBackup(stop_event, etat_instance)
 
         self.__url_consignation_primaire: Optional[str] = None
 
@@ -94,6 +96,7 @@ class ConsignationHandler:
             self.entretien_store(),
             self.thread_emettre_etat(),
             self.__sync_manager.run(),
+            self.__store_backup.run(),
             self.thread_traiter_cedule()
         )
 
@@ -325,6 +328,9 @@ class ConsignationHandler:
             instance_store = class_type(self.__etat_instance)
             self.__store_consignation = instance_store
             self.__store_consignation.initialiser()
+
+        # Appliquer le changement de configuration de backup au besoin
+        await self.__store_backup.changement_topologie()
 
         # La configuration du store est prete
         self.__store_pret_event.set()

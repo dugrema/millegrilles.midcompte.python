@@ -9,7 +9,8 @@ CONST_CREATE_FICHIERS = """
         bucket_visite VARCHAR,
         date_presence TIMESTAMP NOT NULL,
         date_verification TIMESTAMP NOT NULL,
-        date_reclamation TIMESTAMP NOT NULL     
+        date_reclamation TIMESTAMP NOT NULL,
+        date_backup TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS FICHIERS_PRIMAIRE(
@@ -82,6 +83,15 @@ SELECT_BACKUP_PRIMAIRE = """
     WHERE uuid_backup = :uuid_backup
       AND domaine = :domaine
       AND nom_fichier = :nom_fichier;
+"""
+
+SELECT_BACKUP_SECONDAIRE = """
+    SELECT fuuid, taille
+    FROM fichiers
+    WHERE etat_fichier = 'actif'
+      AND bucket_visite IS NOT NULL
+      AND date_backup IS NULL
+    LIMIT 100;
 """
 
 # INSERTs/UPDATEs
