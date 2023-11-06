@@ -61,7 +61,7 @@ class ConsignationHandler:
         self.__sync_manager = SyncManager(self)
 
         self.__store_consignation: Optional[ConsignationStore] = None
-        self.__store_backup = ConsignationBackup(stop_event, etat_instance)
+        self.__store_backup = ConsignationBackup(stop_event, etat_instance, self)
 
         self.__url_consignation_primaire: Optional[str] = None
 

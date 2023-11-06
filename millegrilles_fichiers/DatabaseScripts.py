@@ -85,8 +85,8 @@ SELECT_BACKUP_PRIMAIRE = """
       AND nom_fichier = :nom_fichier;
 """
 
-SELECT_BACKUP_SECONDAIRE = """
-    SELECT fuuid, taille
+SELECT_BACKUP_STORE_FICHIERS = """
+    SELECT fuuid, taille, bucket_visite
     FROM fichiers
     WHERE etat_fichier = 'actif'
       AND bucket_visite IS NOT NULL

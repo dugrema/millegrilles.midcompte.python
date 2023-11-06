@@ -293,6 +293,28 @@ class SQLiteReadOperations(SQLiteCursor):
         else:
             return None
 
+    def get_backup_batch(self) -> list:
+        self._cur.execute(scripts_database.SELECT_BACKUP_STORE_FICHIERS)
+
+        limite_taille = 500_000_000
+        taille_totale = 0
+        fuuids = list()
+        while True:
+            row = self._cur.fetchone()
+            if row is None:
+                break
+
+            fuuid, taille, bucket_visite = row
+            if isinstance(taille, int):
+                taille_totale += taille
+                if len(fuuids) > 0 and taille_totale > limite_taille:
+                    break  # On a atteint la limite en bytes
+                fuuids.append({'fuuid': fuuid, 'taille': taille, 'bucket': bucket_visite})
+            else:
+                self.__logger.warning('fuuid %s avec taille NULL, skip' % fuuid)
+
+        return fuuids
+
 
 class SQLiteWriteOperations(SQLiteCursor):
 
