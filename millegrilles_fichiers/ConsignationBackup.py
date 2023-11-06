@@ -144,20 +144,25 @@ class BackupStoreSftp(BackupStore):
         sftp = Sftp(hostname=hostname, port=port, username=username, private_key=private_key_path)
         await asyncio.to_thread(sftp.connect)
 
-        for fichier in batch_fuuids:
-            fuuid = fichier['fuuid']
-            bucket = fichier['bucket']
+        with self._etat_instance.sqlite_connection() as connection:
+            for fichier in batch_fuuids:
+                fuuid = fichier['fuuid']
+                bucket = fichier['bucket']
 
-            # Recuperer un fp a partir de la source
-            async with self._consignation_handler.get_fp_fuuid(fuuid) as fp:
-                self.__logger.debug("backup fichier %s" % fuuid)
-                subfolder = os.path.join(remote_path_sftp, fuuid[-2:])
-                try:
-                    await asyncio.to_thread(sftp.mkdir, subfolder)
-                except IOError:
-                    pass  # Repertoire existe deja
-                path_fichier = os.path.join(subfolder, fuuid)
-                await asyncio.to_thread(sftp.putfo, fp, remotepath=path_fichier)
+                # Recuperer un fp a partir de la source
+                async with self._consignation_handler.get_fp_fuuid(fuuid) as fp:
+                    self.__logger.debug("backup fichier %s" % fuuid)
+                    subfolder = os.path.join(remote_path_sftp, fuuid[-2:])
+                    try:
+                        await asyncio.to_thread(sftp.mkdir, subfolder)
+                    except IOError:
+                        pass  # Repertoire existe deja
+                    path_fichier = os.path.join(subfolder, fuuid)
+                    await asyncio.to_thread(sftp.putfo, fp, remotepath=path_fichier)
+
+                    # Marquer fichier comme traiter dans la DB
+                    async with SQLiteWriteOperations(connection) as dao_write:
+                        await asyncio.to_thread(dao_write.touch_backup_fichier, fuuid)
 
 
 class Sftp:

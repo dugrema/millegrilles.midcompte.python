@@ -443,6 +443,10 @@ class SQLiteWriteOperations(SQLiteCursor):
         params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
         self._cur.execute(scripts_database.UPDATE_TOUCH_UPLOAD, params)
 
+    def touch_backup_fichier(self, fuuid: str):
+        params = {'fuuid': fuuid, 'date_backup': datetime.datetime.now(tz=pytz.UTC)}
+        self._cur.execute(scripts_database.UPDATE_TOUCH_BACKUP_FICHIER, params)
+
     def ajouter_fichier_manquant(self, fuuid) -> bool:
         """ Ajoute un fichier qui devrait etre manquant (e.g. sur evenement consignationPrimaire)"""
         ajoute = False

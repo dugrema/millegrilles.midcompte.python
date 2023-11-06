@@ -209,6 +209,12 @@ UPDATE_TOUCH_UPLOAD = """
     WHERE fuuid = :fuuid;
 """
 
+UPDATE_TOUCH_BACKUP_FICHIER = """
+    UPDATE FICHIERS
+    SET date_backup = :date_backup
+    WHERE fuuid = :fuuid;
+"""
+
 DELETE_UPLOAD = """
     DELETE FROM UPLOADS
     WHERE fuuid = :fuuid;
