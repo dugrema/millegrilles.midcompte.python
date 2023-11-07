@@ -305,9 +305,9 @@ class SQLiteReadOperations(SQLiteCursor):
 
             fuuid, taille, bucket_visite = row
             if isinstance(taille, int):
+                if len(fuuids) > 0 and taille_totale + taille > limite_taille:
+                    continue  # On a atteint la limite en bytes, tenter de trouver des fichiers plus petits
                 taille_totale += taille
-                if len(fuuids) > 0 and taille_totale > limite_taille:
-                    break  # On a atteint la limite en bytes
                 fuuids.append({'fuuid': fuuid, 'taille': taille, 'bucket': bucket_visite})
             else:
                 self.__logger.warning('fuuid %s avec taille NULL, skip' % fuuid)
