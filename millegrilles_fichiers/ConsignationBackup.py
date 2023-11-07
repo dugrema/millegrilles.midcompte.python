@@ -45,15 +45,18 @@ class ConsignationBackup:
 
             # Verifier si la synchronisation doit etre faite
             if self.__backup_store is not None:
-                if self.__sync_completee.is_set():
-                    # Sync ok, on peut effectuer un backup
-                    await self.__backup_store.run_backup()
-                else:
-                    # Effectuer une synchronisation des fichiers de backup
-                    await self.__backup_store.run_sync()
+                try:
+                    if self.__sync_completee.is_set():
+                        # Sync ok, on peut effectuer un backup
+                        await self.__backup_store.run_backup()
+                    else:
+                        # Effectuer une synchronisation des fichiers de backup
+                        await self.__backup_store.run_sync()
 
-                    # Sync completee
-                    self.__sync_completee.set()
+                        # Sync completee
+                        self.__sync_completee.set()
+                except Exception:
+                    self.__logger.exception("__run_backup Erreur execution")
 
             # Attendre le prochain declencheur pour le backup
             self.__backup_pret.clear()
@@ -74,7 +77,7 @@ class ConsignationBackup:
                 self.__backup_pret.set()
 
             try:
-                await asyncio.wait_for(self.__stop_event.wait(), 1200)
+                await asyncio.wait_for(self.__stop_event.wait(), 300)
             except asyncio.TimeoutError:
                 pass
 
