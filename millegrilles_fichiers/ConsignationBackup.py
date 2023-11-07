@@ -73,16 +73,23 @@ class ConsignationBackup:
         self.__backup_pret.set()  # Debloquer thread run backup
 
     async def entretien(self):
+
+        dernier_run = None
+
         while self.__stop_event.is_set() is False:
 
             self.__logger.debug("Consignation backup run")
 
             if self.__consignation_handler.sync_en_cours is False:
-                # Declencher un backup
-                self.__backup_pret.set()
+                now = datetime.datetime.utcnow()
+                if dernier_run is None or now - datetime.timedelta(seconds=self.__intervalle_backup_secs) > dernier_run:
+                    # Declencher un backup
+                    dernier_run = now
+                    self.__backup_pret.set()
 
             try:
-                await asyncio.wait_for(self.__stop_event.wait(), self.__intervalle_backup_secs)
+                # Utiliser cette approche parce que l'intervalle de backup peut changer (config)
+                await asyncio.wait_for(self.__stop_event.wait(), 15)
             except asyncio.TimeoutError:
                 pass
 
