@@ -21,7 +21,7 @@ class Sftp:
 
         try:
             # Get the sftp connection object
-            cnopts = CnOpts()
+            cnopts = CnOpts(knownhosts='~')
             cnopts.hostkeys = None
             # cnopts.hostkeys.load('sftpserver.pub')
 

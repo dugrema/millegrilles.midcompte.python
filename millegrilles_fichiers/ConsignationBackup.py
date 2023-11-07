@@ -26,6 +26,10 @@ class ConsignationBackup:
         self.__backup_pret = asyncio.Event()
         self.__sync_completee = asyncio.Event()
 
+        # Limites
+        self.__intervalle_backup_secs = 1200
+        self.__limite_backup_bytes = 5_000_000_000
+
     async def run(self):
         await asyncio.gather(
             self.entretien(),
@@ -46,15 +50,15 @@ class ConsignationBackup:
             # Verifier si la synchronisation doit etre faite
             if self.__backup_store is not None:
                 try:
-                    if self.__sync_completee.is_set():
-                        # Sync ok, on peut effectuer un backup
-                        await self.__backup_store.run_backup()
-                    else:
+                    if self.__sync_completee.is_set() is False:
                         # Effectuer une synchronisation des fichiers de backup
                         await self.__backup_store.run_sync()
 
                         # Sync completee
                         self.__sync_completee.set()
+
+                    # Sync ok, on peut effectuer un backup
+                    await self.__backup_store.run_backup(self.__limite_backup_bytes)
                 except Exception:
                     self.__logger.exception("__run_backup Erreur execution")
 
@@ -77,7 +81,7 @@ class ConsignationBackup:
                 self.__backup_pret.set()
 
             try:
-                await asyncio.wait_for(self.__stop_event.wait(), 300)
+                await asyncio.wait_for(self.__stop_event.wait(), self.__intervalle_backup_secs)
             except asyncio.TimeoutError:
                 pass
 
@@ -87,10 +91,15 @@ class ConsignationBackup:
 
         self.__sync_completee.clear()
 
+        self.__intervalle_backup_secs = topologie.get('backup_intervalle_secs') or self.__intervalle_backup_secs
+        self.__limite_backup_bytes = topologie.get('backup_limit_bytes') or self.__limite_backup_bytes
+
         if type_backup == 'sftp':
             await self.configurer_sftp()
         else:
             await self.desactiver_backup()
+
+        self.declencher_backup()
 
     async def configurer_sftp(self):
         if isinstance(self.__backup_store, BackupStoreSftp):
@@ -107,12 +116,16 @@ class ConsignationBackup:
             await self.__backup_store.fermer()
         self.__backup_store = None
 
+    def declencher_backup(self):
+        self.__backup_pret.set()
+
 
 class BackupStore:
 
     def __init__(self, etat_instance: EtatFichiers, consignation_handler):
         self._etat_instance = etat_instance
         self._consignation_handler = consignation_handler
+        self._date_sync: Optional[datetime.datetime] = None
 
     async def configurer(self):
         raise NotImplementedError('not implemented')
@@ -120,7 +133,7 @@ class BackupStore:
     async def fermer(self):
         raise NotImplementedError('not implemented')
 
-    async def run_backup(self):
+    async def run_backup(self, limite_bytes=500_000_000):
         """ Copie les fichiers vers le systeme de backup distant """
         raise NotImplementedError('not implemented')
 
@@ -128,14 +141,15 @@ class BackupStore:
         """ Synchronise la base de donnees locale avec le systeme de backup distant """
         raise NotImplementedError('not implemented')
 
-    async def get_batch_fuuids(self):
+    async def get_batch_fuuids(self, limite_bytes: 500_000_000):
         """
         Recupere une batch de fuuids presents dans la consignation a transferer vers le backup sftp
         :return:
         """
+        params = {'date_sync': self._date_sync, 'limit': 1000}
         with self._etat_instance.sqlite_connection() as connection:
             async with SQLiteReadOperations(connection) as dao_read:
-                return await asyncio.to_thread(dao_read.get_backup_batch)
+                return await asyncio.to_thread(dao_read.get_backup_batch, params, limite_bytes)
 
 
 class BackupStoreSftp(BackupStore):
@@ -175,9 +189,13 @@ class BackupStoreSftp(BackupStore):
 
         return sftp
 
-    async def run_backup(self):
-        batch_fuuids = await self.get_batch_fuuids()
+    async def run_backup(self, limite_bytes=500_000_000):
+        batch_fuuids = await self.get_batch_fuuids(limite_bytes)
         self.__logger.debug("run_backup Backup fuuids %s" % batch_fuuids)
+
+        if len(batch_fuuids) == 0:
+            self.__logger.debug("run_backup Aucuns fichiers dans la batch - backup termine")
+            return  # Rien a faire
 
         configuration = self._etat_instance.topologie
         remote_path_sftp = configuration['remote_path_sftp_backup']
@@ -188,40 +206,59 @@ class BackupStoreSftp(BackupStore):
             for fichier in batch_fuuids:
                 fuuid = fichier['fuuid']
                 bucket = fichier['bucket']
+                taille = fichier['taille']
 
                 # Recuperer un fp a partir de la source
                 async with self._consignation_handler.get_fp_fuuid(fuuid) as fp:
                     self.__logger.debug("backup fichier %s" % fuuid)
 
                     # Creer un subfolder pour repartir les fichiers uniformement (2 derniers chars du fuuid)
-                    subfolder = os.path.join(remote_path_sftp, fuuid[-2:])
-                    try:
-                        await asyncio.to_thread(sftp.mkdir, subfolder)
-                    except IOError:
-                        pass  # Repertoire existe deja
-                    path_fichier = os.path.join(subfolder, fuuid)
-                    await asyncio.to_thread(sftp.putfo, fp, remotepath=path_fichier)
+                    subfolders = [
+                        os.path.join(remote_path_sftp, 'buckets'),
+                        os.path.join(remote_path_sftp, 'buckets', bucket),
+                        os.path.join(remote_path_sftp, 'buckets', bucket, fuuid[-2:]),
+                    ]
+                    for sub in subfolders:
+                        try:
+                            await asyncio.to_thread(sftp.mkdir, sub)
+                        except IOError:
+                            pass  # Repertoire existe deja
+
+                    path_fichier = os.path.join(subfolders[-1], fuuid)
+                    resultat = await asyncio.to_thread(sftp.putfo, fp, remotepath=path_fichier)
+                    if resultat.st_size != taille:
+                        raise Exception("Erreur upload fichier backup %s (taille mismatch), abort" % fuuid)
 
                     # Marquer fichier comme traiter dans la DB
                     async with SQLiteWriteOperations(connection) as dao_write:
-                        await asyncio.to_thread(dao_write.touch_backup_fichier, fuuid)
+                        await asyncio.to_thread(dao_write.touch_backup_fichier, fuuid, resultat.st_size)
 
     async def run_sync(self):
         sftp = await self.get_sftp_connection()
         configuration = self._etat_instance.topologie
         remote_path_sftp = configuration['remote_path_sftp_backup']
+        buckets_path = os.path.join(remote_path_sftp, 'buckets')
+
+        date_sync = datetime.datetime.now(tz=pytz.UTC)
 
         with self._etat_instance.sqlite_connection() as connection:
             async with SQLiteBatchOperations(connection) as dao_batch:
                 dao_batch.batch_script = scripts_database.UPDATE_TOUCH_BACKUP_FICHIER
 
-                for item in sftp.parcours_fichiers_recursif(remote_path_sftp):
-                    file = item['file']
-                    fuuid = file.filename
-                    size = file.st_size
+                try:
+                    for item in sftp.parcours_fichiers_recursif(buckets_path):
+                        file = item['file']
+                        fuuid = file.filename
+                        size = file.st_size
 
-                    # Marquer fichier comme traiter dans la DB
-                    dao_batch.ajouter_item_batch({'fuuid': fuuid, 'date_backup': datetime.datetime.now(tz=pytz.UTC)})
+                        # Marquer fichier comme traiter dans la DB
+                        # Note : on utilise la taille pour s'assurer que le contenu est transfere au complet
+                        dao_batch.ajouter_item_batch({'fuuid': fuuid, 'taille': size, 'date_backup': datetime.datetime.now(tz=pytz.UTC)})
+                except FileNotFoundError:
+                    self.__logger.info("Le sous-repertoire %s n'existe pas - c'est probablement un nouveau serveur de backup" % buckets_path)
+
+        # Conserver la date de sync - permet de trouver les fichiers qui sont absents
+        self._date_sync = date_sync
 
 
 class Sftp:
@@ -238,24 +275,21 @@ class Sftp:
     def connect(self):
         """Connects to the sftp server and returns the sftp connection object"""
 
-        try:
-            # Get the sftp connection object
-            cnopts = CnOpts()
-            cnopts.hostkeys = None
-            # cnopts.hostkeys.load('sftpserver.pub')
+        # Get the sftp connection object
+        # Note : on n'utilise pas knowhosts (~ utilise pour desactiver la liste, il n'y a pas de toggle off)
+        cnopts = CnOpts(knownhosts='~')
+        cnopts.hostkeys = None
+        # cnopts.hostkeys.load('sftpserver.pub')
 
-            self.connection = pysftp.Connection(
-                host=self.hostname,
-                username=self.username,
-                # password=self.password,
-                private_key=self.private_key,
-                port=self.port,
-                cnopts=cnopts,
-            )
-        except Exception as err:
-            raise Exception(err)
-        finally:
-            self.__logger.debug(f"Connected to {self.hostname} as {self.username}.")
+        self.connection = pysftp.Connection(
+            host=self.hostname,
+            username=self.username,
+            # password=self.password,
+            private_key=self.private_key,
+            port=self.port,
+            cnopts=cnopts,
+        )
+        self.__logger.debug(f"Connected to {self.hostname} as {self.username}.")
 
     def disconnect(self):
         """Closes the sftp connection"""

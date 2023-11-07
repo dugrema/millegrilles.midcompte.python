@@ -90,8 +90,8 @@ SELECT_BACKUP_STORE_FICHIERS = """
     FROM fichiers
     WHERE etat_fichier = 'actif'
       AND taille IS NOT NULL
-      AND date_backup IS NULL
-    LIMIT 1000;
+      AND (date_backup IS NULL OR date_backup < :date_sync) 
+    LIMIT :limit;
 """
 
 # INSERTs/UPDATEs
@@ -212,7 +212,8 @@ UPDATE_TOUCH_UPLOAD = """
 UPDATE_TOUCH_BACKUP_FICHIER = """
     UPDATE FICHIERS
     SET date_backup = :date_backup
-    WHERE fuuid = :fuuid;
+    WHERE fuuid = :fuuid
+      AND taille = :taille;
 """
 
 DELETE_UPLOAD = """

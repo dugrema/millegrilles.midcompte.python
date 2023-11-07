@@ -293,10 +293,9 @@ class SQLiteReadOperations(SQLiteCursor):
         else:
             return None
 
-    def get_backup_batch(self) -> list:
-        self._cur.execute(scripts_database.SELECT_BACKUP_STORE_FICHIERS)
+    def get_backup_batch(self, params: dict, limite_taille=500_000_000) -> list:
+        self._cur.execute(scripts_database.SELECT_BACKUP_STORE_FICHIERS, params)
 
-        limite_taille = 500_000_000
         taille_totale = 0
         fuuids = list()
         while True:
@@ -443,8 +442,9 @@ class SQLiteWriteOperations(SQLiteCursor):
         params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
         self._cur.execute(scripts_database.UPDATE_TOUCH_UPLOAD, params)
 
-    def touch_backup_fichier(self, fuuid: str):
-        params = {'fuuid': fuuid, 'date_backup': datetime.datetime.now(tz=pytz.UTC)}
+    def touch_backup_fichier(self, fuuid: str, taille: int):
+        # Note : la taille est utilisee pour s'assurer un match sur le contenu transfere
+        params = {'fuuid': fuuid, 'taille': taille, 'date_backup': datetime.datetime.now(tz=pytz.UTC)}
         self._cur.execute(scripts_database.UPDATE_TOUCH_BACKUP_FICHIER, params)
 
     def ajouter_fichier_manquant(self, fuuid) -> bool:
