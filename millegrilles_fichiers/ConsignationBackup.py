@@ -9,6 +9,7 @@ from typing import Optional
 from pysftp import CnOpts
 from stat import S_ISDIR
 
+from millegrilles_fichiers import Constantes as ConstantesFichiers
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.SQLiteDao import SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations
 from millegrilles_fichiers import DatabaseScripts as scripts_database
@@ -193,45 +194,98 @@ class BackupStoreSftp(BackupStore):
         batch_fuuids = await self.get_batch_fuuids(limite_bytes)
         self.__logger.debug("run_backup Backup fuuids %s" % batch_fuuids)
 
-        if len(batch_fuuids) == 0:
-            self.__logger.debug("run_backup Aucuns fichiers dans la batch - backup termine")
-            return  # Rien a faire
+        if len(batch_fuuids) > 0:
+            configuration = self._etat_instance.topologie
+            remote_path_sftp = configuration['remote_path_sftp_backup']
 
+            sftp = await self.get_sftp_connection()
+
+            with self._etat_instance.sqlite_connection() as connection:
+                for fichier in batch_fuuids:
+                    fuuid = fichier['fuuid']
+                    bucket = fichier['bucket']
+                    taille = fichier['taille']
+
+                    # Recuperer un fp a partir de la source
+                    async with self._consignation_handler.get_fp_fuuid(fuuid) as fp:
+                        self.__logger.debug("backup fichier %s" % fuuid)
+
+                        # Creer un subfolder pour repartir les fichiers uniformement (2 derniers chars du fuuid)
+                        subfolders = [
+                            os.path.join(remote_path_sftp, 'buckets'),
+                            os.path.join(remote_path_sftp, 'buckets', bucket),
+                            os.path.join(remote_path_sftp, 'buckets', bucket, fuuid[-2:]),
+                        ]
+                        for sub in subfolders:
+                            try:
+                                await asyncio.to_thread(sftp.mkdir, sub)
+                            except IOError:
+                                pass  # Repertoire existe deja
+
+                        path_fichier = os.path.join(subfolders[-1], fuuid)
+                        resultat = await asyncio.to_thread(sftp.putfo, fp, remotepath=path_fichier)
+                        if resultat.st_size != taille:
+                            raise Exception("Erreur upload fichier backup %s (taille mismatch), abort" % fuuid)
+
+                        # Marquer fichier comme traiter dans la DB
+                        async with SQLiteWriteOperations(connection) as dao_write:
+                            await asyncio.to_thread(dao_write.touch_backup_fichier, fuuid, resultat.st_size)
+        else:
+            self.__logger.debug("run_backup Aucuns fichiers dans la batch")
+
+        # Verifier backup des transactions
+        await self.backup_transactions()
+
+    async def backup_transactions(self):
+        sftp = await self.get_sftp_connection()
         configuration = self._etat_instance.topologie
         remote_path_sftp = configuration['remote_path_sftp_backup']
+        remote_path_transactions = os.path.join(remote_path_sftp, ConstantesFichiers.DIR_BACKUP)
 
-        sftp = await self.get_sftp_connection()
+        # S'assurer que le repertoire distant de backup des transactions existe
+        try:
+            await asyncio.to_thread(sftp.mkdir, remote_path_transactions)
+        except IOError:
+            pass  # Repertoire existe deja
 
-        with self._etat_instance.sqlite_connection() as connection:
-            for fichier in batch_fuuids:
-                fuuid = fichier['fuuid']
-                bucket = fichier['bucket']
-                taille = fichier['taille']
+        uuid_backup_set = set()
 
-                # Recuperer un fp a partir de la source
-                async with self._consignation_handler.get_fp_fuuid(fuuid) as fp:
-                    self.__logger.debug("backup fichier %s" % fuuid)
+        async for domaine_info in self._consignation_handler.get_domaines_backups():
+            self.__logger.debug("backup_transactions Domaine %s" % domaine_info)
+            uuid_backup = domaine_info['uuid_backup']
+            domaine = domaine_info['domaine']
+            fichiers = set(domaine_info['fichiers'])
+            del domaine_info['fichiers']  # Cleanup memoire
 
-                    # Creer un subfolder pour repartir les fichiers uniformement (2 derniers chars du fuuid)
-                    subfolders = [
-                        os.path.join(remote_path_sftp, 'buckets'),
-                        os.path.join(remote_path_sftp, 'buckets', bucket),
-                        os.path.join(remote_path_sftp, 'buckets', bucket, fuuid[-2:]),
-                    ]
-                    for sub in subfolders:
-                        try:
-                            await asyncio.to_thread(sftp.mkdir, sub)
-                        except IOError:
-                            pass  # Repertoire existe deja
+            path_backup_remote_uuid = os.path.join(remote_path_transactions, uuid_backup)
+            if uuid_backup not in uuid_backup_set:
+                # S'assurer que le repertoire distant de backup (uuid_backup)
+                try:
+                    await asyncio.to_thread(sftp.mkdir, path_backup_remote_uuid)
+                except IOError:
+                    pass  # Repertoire existe deja
 
-                    path_fichier = os.path.join(subfolders[-1], fuuid)
-                    resultat = await asyncio.to_thread(sftp.putfo, fp, remotepath=path_fichier)
-                    if resultat.st_size != taille:
-                        raise Exception("Erreur upload fichier backup %s (taille mismatch), abort" % fuuid)
+                # Conserver tous les uuid_backups connus pour cleanup a la fin
+                uuid_backup_set.add(uuid_backup)
 
-                    # Marquer fichier comme traiter dans la DB
-                    async with SQLiteWriteOperations(connection) as dao_write:
-                        await asyncio.to_thread(dao_write.touch_backup_fichier, fuuid, resultat.st_size)
+            # S'assurer que le repertoire remote existe pour le domaine
+            path_backup_remote_domaine = os.path.join(path_backup_remote_uuid, domaine)
+            try:
+                await asyncio.to_thread(sftp.mkdir, path_backup_remote_domaine)
+            except IOError:
+                pass  # Repertoire existe deja
+
+            # Parcourir le backup distant et uploader chaque fichier de transactions manquant
+            for fichier_remote in await asyncio.to_thread(sftp.parcours_fichiers_recursif, path_backup_remote_domaine):
+                # Retirer le fichier remote du set
+                fichiers.remove(fichier_remote['file'].filename)
+
+            self.__logger.debug("backup_transactions Backup %s domaine %s, %d fichiers manquants a uploader vers backup" % (uuid_backup, domaine, len(fichiers)))
+            for fichier_local in fichiers:
+                self.__logger.debug("backup_transactions Backup %s domaine %s fichier %s" % (uuid_backup, domaine, fichier_local))
+                path_remote_fichier = os.path.join(path_backup_remote_domaine, fichier_local)
+                async with self._consignation_handler.get_fp_backup(uuid_backup, domaine, fichier_local) as fp:
+                    resultat = await asyncio.to_thread(sftp.putfo, fp, remotepath=path_remote_fichier)
 
     async def run_sync(self):
         sftp = await self.get_sftp_connection()

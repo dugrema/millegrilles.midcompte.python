@@ -498,6 +498,20 @@ class ConsignationHandler:
             if fichier:
                 fichier.close()
 
+    @asynccontextmanager
+    async def get_fp_backup(self, uuid_backup: str, domaine: str, fichier_nom: str, start: Optional[int] = None):
+        fichier = None
+        try:
+            fichier = await self.__store_consignation.get_fp_backup(uuid_backup, domaine, fichier_nom, start)
+            yield fichier
+        finally:
+            if fichier:
+                fichier.close()
+
+    async def get_domaines_backups(self):
+        async for backup in self.__store_consignation.get_domaines_backups():
+            yield backup
+
     @property
     def stop_event(self) -> asyncio.Event:
         return self.__stop_event

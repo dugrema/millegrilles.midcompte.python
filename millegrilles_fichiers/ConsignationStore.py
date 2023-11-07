@@ -99,6 +99,10 @@ class ConsignationStore:
         """ Retourne un file pointer ou equivalent pour acceder a un fuuid. """
         raise NotImplementedError('must override')
 
+    async def get_fp_backup(self, uuid_backup: str, domaine: str, fichier_nom: str, start: Optional[int] = None):
+        """ Retourne un file pointer ou equivalent pour acceder a fichier de backup. """
+        raise NotImplementedError('must override')
+
     async def entretien(self):
         """ Declenche un entretien (visite, verification, purge, etc.) """
         raise NotImplementedError('must override')
@@ -496,6 +500,10 @@ class ConsignationStore:
                 session_response.release()
                 session_response.raise_for_status()
 
+    async def get_domaines_backups(self):
+        """ @:return Generateur par domaine des uuid de backups """
+        raise NotImplementedError('must implement')
+
 
 class ConsignationStoreMillegrille(ConsignationStore):
 
@@ -594,6 +602,20 @@ class ConsignationStoreMillegrille(ConsignationStore):
             if path_fichier.exists() is False:
                 raise FileNotFoundError('fichier inconnu %s' % fuuid)
 
+        input_file = path_fichier.open(mode='rb')
+        try:
+            if start is not None:
+                input_file.seek(start)
+        except Exception as e:
+            input_file.close()
+            raise e
+
+        return input_file
+
+    async def get_fp_backup(self, uuid_backup: str, domaine: str, fichier_nom: str, start: Optional[int] = None):
+        # Pour local FS, ignore la base de donnes. On verifie si le fichier existe dans actif ou archives
+        path_backups = self.get_path_backups()
+        path_fichier = pathlib.Path(path_backups, uuid_backup, domaine, fichier_nom)
         input_file = path_fichier.open(mode='rb')
         try:
             if start is not None:
@@ -729,6 +751,25 @@ class ConsignationStoreMillegrille(ConsignationStore):
 
     async def generer_backup_sync(self):
         await asyncio.to_thread(self.__generer_backup_sync)
+
+    async def get_domaines_backups(self):
+        path_backups = self.get_path_backups()
+        liste_uuids = [f for f in path_backups.iterdir() if f.is_dir()]
+
+        for uuid_backup in liste_uuids:
+            path_backup = pathlib.Path(path_backups, uuid_backup.name)
+            stat_backup = path_backup.stat()
+            date_creation = int(stat_backup.st_ctime)
+            for domaine in path_backup.iterdir():
+                path_domaine = pathlib.Path(path_backup, domaine.name)
+                fichiers = [f.name for f in path_domaine.iterdir() if f.is_file()]
+
+                yield {
+                    'uuid_backup': uuid_backup.name,
+                    'domaine': domaine.name,
+                    'date_creation': date_creation,
+                    'fichiers': fichiers,
+                }
 
     def __generer_backup_sync(self):
         path_data = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_DATA)
