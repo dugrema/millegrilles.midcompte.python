@@ -1,7 +1,9 @@
 import asyncio
+import datetime
 import logging
 import os
 import pysftp
+import pytz
 
 from typing import Optional
 from pysftp import CnOpts
@@ -9,6 +11,7 @@ from stat import S_ISDIR
 
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.SQLiteDao import SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations
+from millegrilles_fichiers import DatabaseScripts as scripts_database
 
 
 class ConsignationBackup:
@@ -21,6 +24,7 @@ class ConsignationBackup:
 
         self.__backup_store: Optional[BackupStore] = None
         self.__backup_pret = asyncio.Event()
+        self.__sync_completee = asyncio.Event()
 
     async def run(self):
         await asyncio.gather(
@@ -39,10 +43,19 @@ class ConsignationBackup:
             if self.__stop_event.is_set():
                 return  # Stopped
 
+            # Verifier si la synchronisation doit etre faite
             if self.__backup_store is not None:
-                await self.__backup_store.run_backup()
+                if self.__sync_completee.is_set():
+                    # Sync ok, on peut effectuer un backup
+                    await self.__backup_store.run_backup()
+                else:
+                    # Effectuer une synchronisation des fichiers de backup
+                    await self.__backup_store.run_sync()
 
-            # Empecher d'exuter le backup immediatement apres un arret
+                    # Sync completee
+                    self.__sync_completee.set()
+
+            # Attendre le prochain declencheur pour le backup
             self.__backup_pret.clear()
 
     async def __attendre_fermer(self):
@@ -56,8 +69,9 @@ class ConsignationBackup:
 
             self.__logger.debug("Consignation backup run")
 
-            # Declencher un backup
-            self.__backup_pret.set()
+            if self.__consignation_handler.sync_en_cours is False:
+                # Declencher un backup
+                self.__backup_pret.set()
 
             try:
                 await asyncio.wait_for(self.__stop_event.wait(), 30)
@@ -67,6 +81,8 @@ class ConsignationBackup:
     async def changement_topologie(self):
         topologie = self.__etat_instance.topologie
         type_backup = topologie.get('type_backup')
+
+        self.__sync_completee.clear()
 
         if type_backup == 'sftp':
             await self.configurer_sftp()
@@ -86,6 +102,7 @@ class ConsignationBackup:
     async def desactiver_backup(self):
         if self.__backup_store is not None:
             await self.__backup_store.fermer()
+        self.__backup_store = None
 
 
 class BackupStore:
@@ -101,6 +118,11 @@ class BackupStore:
         raise NotImplementedError('not implemented')
 
     async def run_backup(self):
+        """ Copie les fichiers vers le systeme de backup distant """
+        raise NotImplementedError('not implemented')
+
+    async def run_sync(self):
+        """ Synchronise la base de donnees locale avec le systeme de backup distant """
         raise NotImplementedError('not implemented')
 
     async def get_batch_fuuids(self):
@@ -128,21 +150,36 @@ class BackupStoreSftp(BackupStore):
     async def fermer(self):
         pass
 
+    async def get_sftp_connection(self):
+        topologie = self._etat_instance.topologie
+
+        hostname = topologie['hostname_sftp_backup']
+        username = topologie['username_sftp_backup']
+        port = topologie.get('port_sftp_backup') or 22
+
+        configuration = self._etat_instance.configuration
+
+        key_type = topologie['key_type_sftp_backup']
+        if key_type == 'ed25519':
+            private_key_path = configuration.path_key_ssh_ed25519
+        elif key_type == 'rsa':
+            private_key_path = configuration.path_key_rsa
+        else:
+            raise ValueError('Type de cle non supporte : %s' % key_type)
+
+        sftp = Sftp(hostname=hostname, port=port, username=username, private_key=private_key_path)
+        await asyncio.to_thread(sftp.connect)
+
+        return sftp
+
     async def run_backup(self):
         batch_fuuids = await self.get_batch_fuuids()
         self.__logger.debug("run_backup Backup fuuids %s" % batch_fuuids)
 
         configuration = self._etat_instance.topologie
-
-        hostname = configuration['hostname_sftp_backup']
-        username = configuration['username_sftp_backup']
-        port = configuration.get('port_sftp_backup') or 22
         remote_path_sftp = configuration['remote_path_sftp_backup']
 
-        private_key_path = '/var/opt/millegrilles/secrets/passwd.fichiers_ed25519.txt'
-
-        sftp = Sftp(hostname=hostname, port=port, username=username, private_key=private_key_path)
-        await asyncio.to_thread(sftp.connect)
+        sftp = await self.get_sftp_connection()
 
         with self._etat_instance.sqlite_connection() as connection:
             for fichier in batch_fuuids:
@@ -152,6 +189,8 @@ class BackupStoreSftp(BackupStore):
                 # Recuperer un fp a partir de la source
                 async with self._consignation_handler.get_fp_fuuid(fuuid) as fp:
                     self.__logger.debug("backup fichier %s" % fuuid)
+
+                    # Creer un subfolder pour repartir les fichiers uniformement (2 derniers chars du fuuid)
                     subfolder = os.path.join(remote_path_sftp, fuuid[-2:])
                     try:
                         await asyncio.to_thread(sftp.mkdir, subfolder)
@@ -164,10 +203,28 @@ class BackupStoreSftp(BackupStore):
                     async with SQLiteWriteOperations(connection) as dao_write:
                         await asyncio.to_thread(dao_write.touch_backup_fichier, fuuid)
 
+    async def run_sync(self):
+        sftp = await self.get_sftp_connection()
+        configuration = self._etat_instance.topologie
+        remote_path_sftp = configuration['remote_path_sftp_backup']
+
+        with self._etat_instance.sqlite_connection() as connection:
+            async with SQLiteBatchOperations(connection) as dao_batch:
+                dao_batch.batch_script = scripts_database.UPDATE_TOUCH_BACKUP_FICHIER
+
+                for item in sftp.parcours_fichiers_recursif(remote_path_sftp):
+                    file = item['file']
+                    fuuid = file.filename
+                    size = file.st_size
+
+                    # Marquer fichier comme traiter dans la DB
+                    dao_batch.ajouter_item_batch({'fuuid': fuuid, 'date_backup': datetime.datetime.now(tz=pytz.UTC)})
+
 
 class Sftp:
     def __init__(self, hostname, username, private_key, port=22):
         """Constructor Method"""
+        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         # Set connection object to None (initial value)
         self.connection = None
         self.hostname = hostname
@@ -195,12 +252,12 @@ class Sftp:
         except Exception as err:
             raise Exception(err)
         finally:
-            print(f"Connected to {self.hostname} as {self.username}.")
+            self.__logger.debug(f"Connected to {self.hostname} as {self.username}.")
 
     def disconnect(self):
         """Closes the sftp connection"""
         self.connection.close()
-        print(f"Disconnected from host {self.hostname}")
+        self.__logger.debug(f"Disconnected from host {self.hostname}")
 
     def listdir(self, remote_path):
         """lists all the files and directories in the specified path and returns them"""
@@ -221,13 +278,13 @@ class Sftp:
         """
 
         try:
-            print(
+            self.__logger.debug(
                 f"uploading to {self.hostname} as {self.username} [(remote path: {remote_path});(source local path: {source_local_path})]"
             )
 
             # Download file from SFTP
             self.connection.put(source_local_path, remote_path)
-            print("upload completed")
+            self.__logger.debug("upload completed")
 
         except Exception as err:
             raise Exception(err)
@@ -239,7 +296,7 @@ class Sftp:
         """
 
         try:
-            print(
+            self.__logger.debug(
                 f"downloading from {self.hostname} as {self.username} [(remote path : {remote_path});(local path: {target_local_path})]"
             )
 
@@ -253,7 +310,7 @@ class Sftp:
 
             # Download from remote sftp server to local
             self.connection.get(remote_path, target_local_path)
-            print("download completed")
+            self.__logger.debug("download completed")
 
         except Exception as err:
             raise Exception(err)

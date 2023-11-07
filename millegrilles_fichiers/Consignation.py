@@ -557,6 +557,10 @@ class ConsignationHandler:
         """ Ajoute conditionnelement un fuuid a uploader vers le primaire """
         await self.__sync_manager.ajouter_upload_secondaire(fuuid)
 
+    @property
+    def sync_en_cours(self):
+        return self.__sync_manager.sync_en_cours
+
 
     # async def download_fichier(self, fuuid, cle_chiffree, params_dechiffrage, path_destination):
     #     await self.ouvrir_sessions()  # S'assurer d'avoir une session ouverte

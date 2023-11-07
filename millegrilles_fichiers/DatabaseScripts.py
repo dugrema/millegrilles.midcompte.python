@@ -89,7 +89,7 @@ SELECT_BACKUP_STORE_FICHIERS = """
     SELECT fuuid, taille, bucket_visite
     FROM fichiers
     WHERE etat_fichier = 'actif'
-      AND bucket_visite IS NOT NULL
+      AND taille IS NOT NULL
       AND date_backup IS NULL
     LIMIT 100;
 """
