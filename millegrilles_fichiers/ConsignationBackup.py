@@ -287,6 +287,13 @@ class BackupStoreSftp(BackupStore):
                 async with self._consignation_handler.get_fp_backup(uuid_backup, domaine, fichier_local) as fp:
                     resultat = await asyncio.to_thread(sftp.putfo, fp, remotepath=path_remote_fichier)
 
+        # Supprimer les uuid_backup qui n'existent plus localement
+        for uuid_backup_remote in await asyncio.to_thread(sftp.listdir, remote_path_transactions):
+            if uuid_backup_remote not in uuid_backup_set:
+                path_uuid_remote = os.path.join(remote_path_transactions, uuid_backup_remote)
+                self.__logger.info("backup_transactions Remote uuid_backup %s n'existe pas localement, supprimer" % uuid_backup_remote)
+                await asyncio.to_thread(sftp.rmdirs, path_uuid_remote)
+
     async def run_sync(self):
         sftp = await self.get_sftp_connection()
         configuration = self._etat_instance.topologie
@@ -426,3 +433,27 @@ class Sftp:
 
     def mkdir(self, path, mode=750):
         return self.connection.mkdir(path, mode)
+
+    def rmdirs(self, path):
+
+        dir_paths = list()
+
+        def rmfile(filepath):
+            self.__logger.debug("rmdirs Remove filepath %s" % filepath)
+            self.connection.remove(filepath)
+
+        def rmdir(dirpath):
+            self.__logger.debug("rmdirs dirpath %s" % dirpath)
+            dir_paths.append(dirpath)
+
+        self.connection.walktree(path, rmfile, rmdir, rmfile)
+
+        # Inverser liste des repertoires pour suppression leaf en premier
+        dir_paths.reverse()
+
+        for dir_path in dir_paths:
+            self.__logger.debug("rmdirs Remove dirpath %s" % dir_path)
+            self.connection.rmdir(dir_path)
+
+        # Supprimer le repertoire top-level
+        self.connection.rmdir(path)
