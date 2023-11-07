@@ -74,7 +74,7 @@ class ConsignationBackup:
                 self.__backup_pret.set()
 
             try:
-                await asyncio.wait_for(self.__stop_event.wait(), 30)
+                await asyncio.wait_for(self.__stop_event.wait(), 1200)
             except asyncio.TimeoutError:
                 pass
 

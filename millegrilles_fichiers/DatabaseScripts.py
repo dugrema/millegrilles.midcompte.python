@@ -91,7 +91,7 @@ SELECT_BACKUP_STORE_FICHIERS = """
     WHERE etat_fichier = 'actif'
       AND taille IS NOT NULL
       AND date_backup IS NULL
-    LIMIT 100;
+    LIMIT 1000;
 """
 
 # INSERTs/UPDATEs
