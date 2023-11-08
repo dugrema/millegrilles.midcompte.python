@@ -311,7 +311,7 @@ class BackupStoreSftp(BackupStore):
 
         with self._etat_instance.sqlite_connection() as connection:
             async with SQLiteBatchOperations(connection) as dao_batch:
-                dao_batch.batch_script = scripts_database.UPDATE_TOUCH_BACKUP_FICHIER
+                # dao_batch.batch_script = scripts_database.UPDATE_TOUCH_BACKUP_FICHIER
 
                 try:
                     for item in sftp.parcours_fichiers_recursif(buckets_path):
@@ -321,7 +321,8 @@ class BackupStoreSftp(BackupStore):
 
                         # Marquer fichier comme traiter dans la DB
                         # Note : on utilise la taille pour s'assurer que le contenu est transfere au complet
-                        dao_batch.ajouter_item_batch({'fuuid': fuuid, 'taille': size, 'date_backup': datetime.datetime.now(tz=pytz.UTC)})
+                        # dao_batch.ajouter_item_batch({'fuuid': fuuid, 'taille': size, 'date_backup': datetime.datetime.now(tz=pytz.UTC)})
+                        await dao_batch.ajouter_backup_consignation(fuuid, size)
                 except FileNotFoundError:
                     self.__logger.info("Le sous-repertoire %s n'existe pas - c'est probablement un nouveau serveur de backup" % buckets_path)
 

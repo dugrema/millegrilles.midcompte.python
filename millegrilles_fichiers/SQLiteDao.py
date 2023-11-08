@@ -545,7 +545,7 @@ class SQLiteWriteOperations(SQLiteCursor):
 
 class SQLiteBatchOperations(SQLiteCursor):
 
-    def __init__(self, connection: SQLiteConnection, batch_size=250, nolock=False):
+    def __init__(self, connection: SQLiteConnection, batch_size=10000, nolock=False):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         super().__init__(connection)
         self.__nolock = nolock
@@ -572,11 +572,11 @@ class SQLiteBatchOperations(SQLiteCursor):
     async def __aenter__(self):
         if self.__nolock is False:
             await self.__batch_lock.acquire()
-        try:
-            self.open()
-        except Exception as e:
-            self.__batch_lock.release()
-            raise e
+        # try:
+        #     self.open()
+        # except Exception as e:
+        #     self.__batch_lock.release()
+        #     raise e
 
         return self
 
@@ -584,16 +584,19 @@ class SQLiteBatchOperations(SQLiteCursor):
         try:
             await self.commit_batch()
         finally:
-            try:
-                self.close()
-            finally:
-                if self.__nolock is False:
-                    self.__batch_lock.release()
+            # try:
+            #     self.close()
+            # finally:
+            #     if self.__nolock is False:
+            #         self.__batch_lock.release()
+            if self.__nolock is False:
+                self.__batch_lock.release()
         return False
 
     async def commit_batch(self):
         batch = self.__batch
         self.__batch = None
+        self.open()
         try:
             if batch is not None:
                 if self.__batch_script is None:
@@ -603,7 +606,12 @@ class SQLiteBatchOperations(SQLiteCursor):
             else:
                 resultat = None
         finally:
-            await asyncio.to_thread(self._connection.commit)
+            try:
+                await asyncio.to_thread(self._connection.commit)
+            finally:
+                self.close()
+
+        await asyncio.sleep(0.5)  # Intervalle, laisser le systeme effectuer autres operations
 
         return batch, resultat
 
@@ -631,6 +639,7 @@ class SQLiteBatchOperations(SQLiteCursor):
 
     def marquer_actifs_visites(self):
         """ Sert a marquer tous les fichiers "manquants" comme actifs si visites recemment. """
+        self.open()
         try:
             resultat = self._cur.execute(scripts_database.UPDATE_ACTIFS_VISITES, {'date_presence': self.__debut_job})
             self.__logger.info("marquer_actifs_visites Marquer manquants comme actifs si visite >= %s : %d rows" %
@@ -641,7 +650,10 @@ class SQLiteBatchOperations(SQLiteCursor):
             self.__logger.info("marquer_actifs_visites Marquer actifs,orphelins comme manquants si visite < %s : %d rows" %
                                (self.__debut_job, resultat.rowcount))
         finally:
-            self._connection.commit()
+            try:
+                self._connection.commit()
+            finally:
+                self.close()
 
     async def ajouter_fichier_primaire(self, fichier: dict) -> bool:
         """
@@ -684,75 +696,106 @@ class SQLiteBatchOperations(SQLiteCursor):
 
     async def marquer_secondaires_reclames(self):
         # Inserer secondaires manquants
+        self.open()
         async with self.__write_lock:
-            params = {'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
-            await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_SECONDAIRES_MANQUANTS, params)
-            # self.__con.commit()
+            try:
+                params = {'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
+                await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_SECONDAIRES_MANQUANTS, params)
+                # self.__con.commit()
 
-            # Convertir les secondaires orphelins en actifs
-            await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_ORPHELINS_VERS_ACTIF, params)
-            # self.__con.commit()
+                # Convertir les secondaires orphelins en actifs
+                await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_ORPHELINS_VERS_ACTIF, params)
+                # self.__con.commit()
 
-            # Marquer les secondaires deja presents comme reclames (peu importe l'etat)
-            params = {'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
-            await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_RECLAMES, params)
-            # self.__con.commit()
+                # Marquer les secondaires deja presents comme reclames (peu importe l'etat)
+                params = {'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
+                await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_RECLAMES, params)
+                # self.__con.commit()
 
-            params = {'date_reclamation': self.__debut_job}
-            await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_NON_RECLAMES_VERS_ORPHELINS, params)
+                params = {'date_reclamation': self.__debut_job}
+                await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_NON_RECLAMES_VERS_ORPHELINS, params)
 
-            await asyncio.to_thread(self._connection.commit)
+                await asyncio.to_thread(self._connection.commit)
+            finally:
+                self.close()
+
+    async def ajouter_backup_consignation(self, fuuid, taille):
+        self.batch_script = scripts_database.UPDATE_TOUCH_BACKUP_FICHIER
+
+        params = {'fuuid': fuuid, 'taille': taille, 'date_backup': datetime.datetime.now(tz=pytz.UTC)}
+        self.ajouter_item_batch(params)
+
+        if len(self.__batch) >= self.__limite_batch:
+            return await self.commit_batch()
+
+        return False
 
     async def generer_downloads(self):
         params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
+        self.open()
         async with self.__write_lock:
-            await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_DOWNLOADS, params)
-            await asyncio.to_thread(self._connection.commit)
+            try:
+                await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_DOWNLOADS, params)
+                await asyncio.to_thread(self._connection.commit)
+            finally:
+                self.close()
 
     async def generer_uploads(self):
         params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
+        self.open()
         async with self.__write_lock:
-            await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_UPLOADS, params)
-            await asyncio.to_thread(self._connection.commit)
+            try:
+                await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_UPLOADS, params)
+                await asyncio.to_thread(self._connection.commit)
+            finally:
+                self.close()
 
     async def entretien_transferts(self):
         """ Marque downloads ou uploads expires, permet nouvel essai. """
         now = datetime.datetime.now(tz=pytz.UTC)
 
+        self.open()
         async with self.__write_lock:
-            await asyncio.to_thread(self._cur.execute, scripts_database.DELETE_DOWNLOADS_ESSAIS_EXCESSIFS)
+            try:
+                await asyncio.to_thread(self._cur.execute, scripts_database.DELETE_DOWNLOADS_ESSAIS_EXCESSIFS)
 
-            expiration_downloads = now - datetime.timedelta(minutes=30)
-            params = {'date_activite': expiration_downloads}
-            await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_DOWNLOAD_EXPIRE, params)
+                expiration_downloads = now - datetime.timedelta(minutes=30)
+                params = {'date_activite': expiration_downloads}
+                await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_DOWNLOAD_EXPIRE, params)
 
-            expiration_uploads = now - datetime.timedelta(minutes=30)
-            params = {'date_activite': expiration_uploads}
-            await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_UPLOADS_EXPIRE, params)
+                expiration_uploads = now - datetime.timedelta(minutes=30)
+                params = {'date_activite': expiration_uploads}
+                await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_UPLOADS_EXPIRE, params)
 
-            await asyncio.to_thread(self._connection.commit)
+                await asyncio.to_thread(self._connection.commit)
+            finally:
+                self.close()
 
     async def marquer_verification(self, fuuid: str, etat_fichier: str):
+        self.open()
         async with self.__write_lock:
-            if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
-                # Mettre a jour la date de verification
-                params = {
-                    'fuuid': fuuid,
-                    'date_verification': datetime.datetime.now(tz=pytz.UTC)
-                }
-                await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_DATE_VERIFICATION, params)
-            else:
-                # Erreur - mettre a jour l'etat et resetter la presence
-                params = {
-                    'fuuid': fuuid,
-                    'etat_fichier': etat_fichier,
-                    'date_verification': datetime.datetime.now(tz=pytz.UTC),
-                    'date_presence': datetime.datetime.fromtimestamp(0, tz=pytz.UTC),
-                }
-                await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_DATE_ETATFICHIER_PRESENCE, params)
+            try:
+                if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
+                    # Mettre a jour la date de verification
+                    params = {
+                        'fuuid': fuuid,
+                        'date_verification': datetime.datetime.now(tz=pytz.UTC)
+                    }
+                    await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_DATE_VERIFICATION, params)
+                else:
+                    # Erreur - mettre a jour l'etat et resetter la presence
+                    params = {
+                        'fuuid': fuuid,
+                        'etat_fichier': etat_fichier,
+                        'date_verification': datetime.datetime.now(tz=pytz.UTC),
+                        'date_presence': datetime.datetime.fromtimestamp(0, tz=pytz.UTC),
+                    }
+                    await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_DATE_ETATFICHIER_PRESENCE, params)
 
-            # Pas de batch, on commit chaque fichier (verification fuuid est intensive, grand delai entre operations)
-            await asyncio.to_thread(self._connection.commit)
+                # Pas de batch, on commit chaque fichier (verification fuuid est intensive, grand delai entre operations)
+                await asyncio.to_thread(self._connection.commit)
+            finally:
+                self.close()
 
     async def supprimer(self, fuuid: str):
         self.batch_script = scripts_database.DELETE_SUPPRIMER_FUUIDS
@@ -762,9 +805,17 @@ class SQLiteBatchOperations(SQLiteCursor):
             await self.commit_batch()
 
     def marquer_orphelins(self, debut_reclamation: datetime.datetime):
-        resultat = self._cur.execute(scripts_database.UPDATE_MARQUER_ORPHELINS, {'date_reclamation': debut_reclamation})
-        return resultat
+        self.open()
+        try:
+            resultat = self._cur.execute(scripts_database.UPDATE_MARQUER_ORPHELINS, {'date_reclamation': debut_reclamation})
+            return resultat
+        finally:
+            self.close()
 
     def marquer_actifs(self, debut_reclamation: datetime.datetime):
-        resultat = self._cur.execute(scripts_database.UPDATE_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
-        return resultat
+        self.open()
+        try:
+            resultat = self._cur.execute(scripts_database.UPDATE_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
+            return resultat
+        finally:
+            self.close()
