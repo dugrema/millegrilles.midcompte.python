@@ -22,7 +22,8 @@ import millegrilles_fichiers.DatabaseScripts as scripts_database
 from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.UploadFichiersPrimaire import EtatUpload, feed_filepart2
-from millegrilles_fichiers.SQLiteDao import SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations
+from millegrilles_fichiers.SQLiteDao import (SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations,
+                                             SQLiteDetachedReclamationAppend, SQLiteDetachedVisiteAppend)
 
 
 class ConsignationStore:
@@ -33,7 +34,7 @@ class ConsignationStore:
 
         # Creer repertoire data, path database
         path_database = pathlib.Path(
-            self._etat.configuration.dir_consignation, Constantes.DIR_DATA, Constantes.FICHIER_DATABASE)
+            self._etat.configuration.dir_consignation, Constantes.DIR_DATA, Constantes.FICHIER_DATABASE_FICHIERS)
         self.__path_database = path_database
 
         self._stop_store: Optional[asyncio.Event] = None
@@ -107,7 +108,7 @@ class ConsignationStore:
         """ Declenche un entretien (visite, verification, purge, etc.) """
         raise NotImplementedError('must override')
 
-    async def visiter_fuuids(self, dao: SQLiteBatchOperations):
+    async def visiter_fuuids(self, dao: SQLiteDetachedVisiteAppend):
         dir_buckets = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BUCKETS)
         self.__logger.info("visiter_fuuids Debut avec path buckets %s" % dir_buckets)
 
@@ -116,17 +117,24 @@ class ConsignationStore:
             self.__logger.debug("Visiter bucket %s" % bucket.name)
             await self.visiter_bucket(bucket.name, bucket, dao)
 
-        # batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
+        # Commit de la derniere batch
         batch, resultat = await dao.commit_batch()
-        if batch is not None:
-            await self.emettre_batch_visites(batch, False)
+        if batch:
+            # Emettre dernier message de visite
+            liste_fuuids = [f['fuuid'] for f in batch]
+            await self.emettre_batch_visites(liste_fuuids, False)
 
-        # Marquer tous les fichiers 'manquants' qui viennent d'etre visites comme actifs (utilise date debut)
-        await asyncio.to_thread(dao.marquer_actifs_visites)
+        # # batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
+        # batch, resultat = await dao.commit_batch()
+        # if batch is not None:
+        #     await self.emettre_batch_visites(batch, False)
+        #
+        # # Marquer tous les fichiers 'manquants' qui viennent d'etre visites comme actifs (utilise date debut)
+        # await asyncio.to_thread(dao.marquer_actifs_visites)
 
         self.__logger.info("visiter_fuuids Fin")
 
-    async def visiter_bucket(self, bucket: str, path_repertoire: pathlib.Path, dao: SQLiteBatchOperations):
+    async def visiter_bucket(self, bucket: str, path_repertoire: pathlib.Path, dao: SQLiteDetachedVisiteAppend):
         """ Visiter tous les fichiers presents, s'assurer qu'ils sont dans la base de donnees. """
         raise NotImplementedError('must override')
 
@@ -416,25 +424,16 @@ class ConsignationStore:
 
     async def reclamer_fuuids_database(self, fuuids: list, bucket: str):
         with self._etat.sqlite_connection() as connection:
+            path_data = connection.path_data
+            path_db_sync = pathlib.Path(path_data, Constantes.FICHIER_DATABASE_SYNC)
+            async with SQLiteDetachedReclamationAppend(connection, path_db_sync) as detached_dao:
+                await detached_dao.reclamer_fuuids(fuuids, bucket)
+
             # Note : ouvrir batch sans lock - la reclamation se fait via message (callback) durant une sync
-            async with SQLiteBatchOperations(connection, nolock=True) as dao_write:
-                for fuuid in fuuids:
-                    await dao_write.ajouter_reclamer_fichier(fuuid, bucket)
-        # rows = list()
-        # for fuuid in fuuids:
-        #     rows.append({
-        #         'fuuid': fuuid,
-        #         'etat_fichier': Constantes.DATABASE_ETAT_MANQUANT,
-        #         'bucket': bucket,
-        #         'date_reclamation': datetime.datetime.now(tz=pytz.UTC)
-        #     })
-        #
-        # con = self.ouvrir_database()
-        # cur = con.cursor()
-        # cur.executemany(scripts_database.INSERT_RECLAMER_FICHIER, rows)
-        # con.commit()
-        # cur.close()
-        # con.close()
+            # async with SQLiteBatchOperations(connection, nolock=True) as dao_write:
+            #     for fuuid in fuuids:
+            #         await dao_write.ajouter_reclamer_fichier(fuuid, bucket)
+            pass
 
     async def marquer_orphelins(self, dao_batch: SQLiteBatchOperations, debut_reclamation: datetime.datetime, complet=False):
         if complet:
@@ -643,7 +642,11 @@ class ConsignationStoreMillegrille(ConsignationStore):
     #
     #     self.__logger.info("visiter_fuuids Fin")
 
-    async def visiter_bucket(self, bucket: str, path_repertoire: pathlib.Path, dao: SQLiteBatchOperations):
+    async def visiter_bucket(self, bucket: str, path_repertoire: pathlib.Path, dao: SQLiteDetachedVisiteAppend):
+
+        batch = list()
+        now = datetime.datetime.now(tz=pytz.UTC)
+
         for item in path_repertoire.iterdir():
             if self._stop_store.is_set():
                 raise Exception('stopping')  # Stopping
@@ -653,20 +656,40 @@ class ConsignationStoreMillegrille(ConsignationStore):
                 await self.visiter_bucket(bucket, item, dao)
             elif item.is_file():
                 stat = item.stat()
-                # Ajouter visite, faire commit sur batch. Attendre 5 secondes entre batch (permettre acces a la DB).
-                taille_batch = dao.ajouter_visite(bucket, item.name, stat.st_size)
-                if taille_batch >= Constantes.CONST_BATCH_VISITES:
-                    self.__logger.info("visiter_bucket Commit batch visite (%d)" % taille_batch)
-                    # batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
-                    debut_commit = datetime.datetime.utcnow()
-                    batch, resultat = await dao.commit_batch()
-                    duree = datetime.datetime.utcnow() - debut_commit
-                    self.__logger.info("visiter_bucket Commit batch visite complete (duree : %s)" % duree)
-                    await self.emettre_batch_visites(batch, False)
-                    try:
-                        await asyncio.wait_for(self._stop_store.wait(), timeout=Constantes.CONST_ATTENTE_ENTRE_BATCH_VISITES)
-                    except asyncio.TimeoutError:
-                        pass  # OK
+
+                # batch.append({'fuuid': item.name, 'taille': stat.st_size, 'bucket': bucket, 'date_presence': now})
+                batch = await dao.ajouter_visite(item.name, bucket, stat.st_size)
+                if batch:
+                    # On a complete une batch, emettre message
+                    liste_fuuids = [f['fuuid'] for f in batch]
+                    await self.emettre_batch_visites(liste_fuuids, False)
+
+                # if len(batch) >= Constantes.CONST_BATCH_VISITES:
+                #     batch = await dao.ajouter_visite(item.name, bucket, stat.st_size)
+                #     await self.traiter_batch_visites(dao, batch)
+                #     # # batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
+                #     # debut_commit = datetime.datetime.utcnow()
+                #     # # batch, resultat = await dao.commit_batch()
+                #     # resultat = await dao.ajouter_visites(batch)
+                #     # duree = datetime.datetime.utcnow() - debut_commit
+                #     # self.__logger.info("visiter_bucket Commit batch visite complete (duree : %s)" % duree)
+                #     # liste_fuuids = [f['fuuid'] for f in batch]
+                #     # await self.emettre_batch_visites(liste_fuuids, False)
+                #     # # try:
+                #     # #     await asyncio.wait_for(self._stop_store.wait(), timeout=Constantes.CONST_ATTENTE_ENTRE_BATCH_VISITES)
+                #     # # except asyncio.TimeoutError:
+                #     # #     pass  # OK
+
+    # async def traiter_batch_visites(self, dao: SQLiteDetachedVisiteAppend, batch: list):
+    #     self.__logger.info("visiter_bucket Commit batch visite (%d)" % len(batch))
+    #     # batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
+    #     debut_commit = datetime.datetime.utcnow()
+    #     # batch, resultat = await dao.commit_batch()
+    #     resultat = await dao.ajouter_visites(batch)
+    #     duree = datetime.datetime.utcnow() - debut_commit
+    #     self.__logger.info("visiter_bucket Commit batch visite complete (duree : %s)" % duree)
+    #     liste_fuuids = [f['fuuid'] for f in batch]
+    #     await self.emettre_batch_visites(liste_fuuids, False)
 
     async def conserver_backup(self, fichier_temp: tempfile.TemporaryFile, uuid_backup: str, domaine: str,
                                nom_fichier: str):

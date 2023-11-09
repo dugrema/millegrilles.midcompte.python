@@ -2,6 +2,8 @@ import asyncio
 import datetime
 import logging
 import os
+import pathlib
+
 import pysftp
 import pytz
 
@@ -11,7 +13,7 @@ from stat import S_ISDIR
 
 from millegrilles_fichiers import Constantes as ConstantesFichiers
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
-from millegrilles_fichiers.SQLiteDao import SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations
+from millegrilles_fichiers.SQLiteDao import SQLiteReadOperations, SQLiteWriteOperations, SQLiteDetachedBackup
 from millegrilles_fichiers import DatabaseScripts as scripts_database
 
 
@@ -310,7 +312,9 @@ class BackupStoreSftp(BackupStore):
         date_sync = datetime.datetime.now(tz=pytz.UTC)
 
         with self._etat_instance.sqlite_connection() as connection:
-            async with SQLiteBatchOperations(connection) as dao_batch:
+            path_data = connection.path_data
+            path_database = pathlib.Path(path_data, ConstantesFichiers.FICHIER_DATABASE_BACKUP)
+            async with SQLiteDetachedBackup(connection, path_database, delete_db=False) as backup_dao:
                 # dao_batch.batch_script = scripts_database.UPDATE_TOUCH_BACKUP_FICHIER
 
                 try:
@@ -322,9 +326,12 @@ class BackupStoreSftp(BackupStore):
                         # Marquer fichier comme traiter dans la DB
                         # Note : on utilise la taille pour s'assurer que le contenu est transfere au complet
                         # dao_batch.ajouter_item_batch({'fuuid': fuuid, 'taille': size, 'date_backup': datetime.datetime.now(tz=pytz.UTC)})
-                        await dao_batch.ajouter_backup_consignation(fuuid, size)
+                        await backup_dao.ajouter_backup_consignation(fuuid, size)
                 except FileNotFoundError:
                     self.__logger.info("Le sous-repertoire %s n'existe pas - c'est probablement un nouveau serveur de backup" % buckets_path)
+
+                # Derniere batch
+                await backup_dao.commit_batch()
 
         # Conserver la date de sync - permet de trouver les fichiers qui sont absents
         self._date_sync = date_sync

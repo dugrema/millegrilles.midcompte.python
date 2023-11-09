@@ -129,14 +129,19 @@ class EtatFichiers(EtatInstance):
     #     # return self.__lock_db_job
 
     def sqlite_connection(self, check_same_thread=False) -> SQLiteConnection:
-        if not self.__sqlite_connection:
-            path_data = pathlib.Path(self.configuration.dir_consignation, Constantes.DIR_DATA)
+        # if not self.__sqlite_connection:
+        #     path_data = pathlib.Path(self.configuration.dir_consignation, Constantes.DIR_DATA)
+        #
+        #     # Creer une connexion reutilisable (qui ne se ferme pas apres chaque utilisation)
+        #     self.__sqlite_connection = SQLiteConnection(
+        #         path_data, self.__sqlite_locks, check_same_thread=check_same_thread, reuse=True)
+        #
+        # return self.__sqlite_connection
+        path_database = pathlib.Path(self.configuration.dir_consignation, Constantes.DIR_DATA, Constantes.FICHIER_DATABASE_FICHIERS)
 
-            # Creer une connexion reutilisable (qui ne se ferme pas apres chaque utilisation)
-            self.__sqlite_connection = SQLiteConnection(
-                path_data, self.__sqlite_locks, check_same_thread=check_same_thread, reuse=True)
-
-        return self.__sqlite_connection
+        # Creer une connexion reutilisable (qui ne se ferme pas apres chaque utilisation)
+        return SQLiteConnection(
+            path_database, self.__sqlite_locks, check_same_thread=check_same_thread, reuse=False)
 
     def get_public_key_ssh(self) -> dict:
         return {'rsa': self.__public_key_ssh_rsa, 'ed25519': self.__public_key_ssh_ed25519}

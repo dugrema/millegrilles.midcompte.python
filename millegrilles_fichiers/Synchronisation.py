@@ -23,7 +23,9 @@ from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.SQLiteDao import SQLiteConnection
 from millegrilles_fichiers.UploadFichiersPrimaire import uploader_fichier, EtatUpload
-from millegrilles_fichiers.SQLiteDao import SQLiteConnection, SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations
+from millegrilles_fichiers.SQLiteDao import (SQLiteConnection, SQLiteReadOperations, SQLiteWriteOperations,
+                                             SQLiteBatchOperations,
+                                             SQLiteDetachedSyncCreate, SQLiteDetachedSyncTransfer)
 
 CONST_LIMITE_SAMPLES_DOWNLOAD = 50  # Utilise pour calcul taux de transfert
 
@@ -124,9 +126,7 @@ class SyncManager:
                 raise Exception('arrete indirectement (stop event gone)')
 
             try:
-                with self.__etat_instance.sqlite_connection() as connection:
-                    async with SQLiteBatchOperations(connection) as dao_batch:
-                        await self.run_sync_primaire(connection, dao_batch)
+                await self.run_sync_primaire()
             except Exception:
                 self.__logger.exception("Erreur synchronisation")
 
@@ -291,7 +291,7 @@ class SyncManager:
                 pass
         await asyncio.wait(pending, timeout=1)
 
-    async def run_sync_primaire(self, connection: SQLiteConnection, dao_batch: SQLiteBatchOperations):
+    async def run_sync_primaire(self):
         self.__logger.info("thread_sync_primaire Demarrer sync")
         try:
             await self.emettre_etat_sync_primaire()
@@ -301,7 +301,7 @@ class SyncManager:
         event_sync = asyncio.Event()
         tasks = [
             self.thread_emettre_evenement_primaire(event_sync),
-            self.__sequence_sync_primaire(connection, dao_batch, event_sync)
+            self.__sequence_sync_primaire(event_sync)
         ]
         await asyncio.gather(*tasks)
 
@@ -312,53 +312,64 @@ class SyncManager:
 
         self.__logger.info("thread_sync_primaire Fin sync")
 
-    async def __sequence_sync_primaire(self, connection: SQLiteConnection, dao_batch: SQLiteBatchOperations, event_sync: asyncio.Event):
-        try:
-            # Date debut utilise pour trouver les fichiers orphelins (si reclamation est complete)
-            debut_reclamation = datetime.datetime.utcnow()
-            self.__logger.info("__sequence_sync_primaire Debut reclamation (Progres 1/5)")
-            reclamation_complete = await self.reclamer_fuuids()
-            self.__logger.info("__sequence_sync_primaire Debut fin reclamation (complet? %s)" % reclamation_complete)
-            # tasks_initiales = [
-            #     self.reclamer_fuuids(),
-            # ]
-            if self.__consignation.timestamp_visite is None:
-                # Debloquer les visites (pour prochaine visite)
-                self.__consignation.timestamp_visite = datetime.datetime.utcnow()
-                # Ajouter visiter_fuuids dans les taches de sync
-                # tasks_initiales.append(asyncio.create_task(self.__consignation.visiter_fuuids(dao_batch)))
-                self.__logger.info("__sequence_sync_primaire visiter_fuuids (Progres: 2/5)")
-                await self.__consignation.visiter_fuuids(dao_batch)
-            else:
-                self.__logger.info("__sequence_sync_primaire reclamer_fuuids Skip visiter fuuids (Progres: 2/5)")
+    async def __sequence_sync_primaire(self, event_sync: asyncio.Event):
+        with self.__etat_instance.sqlite_connection(check_same_thread=False) as connection:
+            path_data = connection.path_data
+            path_database_sync = pathlib.Path(path_data, Constantes.FICHIER_DATABASE_SYNC)
+            try:
+                # Date debut utilise pour trouver les fichiers orphelins (si reclamation est complete)
+                debut_reclamation = datetime.datetime.utcnow()
 
-            #debut_reclamation = datetime.datetime.utcnow()
-            #resultat_initial = await asyncio.gather(*tasks_initiales)
-            #reclamation_complete = resultat_initial[0]
+                # Initialiser la base de donnees de synchronisation
+                async with SQLiteDetachedSyncCreate(connection, path_database_sync):
+                    # L'ouverture execute la creation de la db
+                    self.__logger.debug("Nouvelle base de donnes de sync cree (%s)" % path_database_sync)
 
-            if self.__stop_event.is_set():
-                return  # Stopped
+                self.__logger.info("__sequence_sync_primaire Debut reclamation (Progres 1/5)")
+                reclamation_complete = await self.reclamer_fuuids()
+                self.__logger.info("__sequence_sync_primaire Debut fin reclamation (complet? %s)" % reclamation_complete)
 
-            # Process orphelins
-            self.__logger.info("__sequence_sync_primaire marquer_orphelins (Progres: 3/5)")
-            await self.__consignation.marquer_orphelins(dao_batch, debut_reclamation, reclamation_complete)
+                if self.__consignation.timestamp_visite is None:
+                    # Debloquer les visites (pour prochaine visite)
+                    self.__consignation.timestamp_visite = datetime.datetime.utcnow()
+                    # Ajouter visiter_fuuids dans les taches de sync
+                    # tasks_initiales.append(asyncio.create_task(self.__consignation.visiter_fuuids(dao_batch)))
+                    self.__logger.info("__sequence_sync_primaire visiter_fuuids (Progres: 2/5)")
+                    await self.__consignation.visiter_fuuids()
+                else:
+                    self.__logger.info("__sequence_sync_primaire reclamer_fuuids Skip visiter fuuids (Progres: 2/5)")
 
-            if self.__stop_event.is_set():
-                return  # Stopped
+                #debut_reclamation = datetime.datetime.utcnow()
+                #resultat_initial = await asyncio.gather(*tasks_initiales)
+                #reclamation_complete = resultat_initial[0]
 
-            # Generer la liste des reclamations en .jsonl.gz pour les secondaires
-            self.__logger.info("__sequence_sync_primaire generer_reclamations_sync (Progres: 4/5)")
-            await self.__consignation.generer_reclamations_sync(connection)
+                if self.__stop_event.is_set():
+                    return  # Stopped
 
-            if self.__stop_event.is_set():
-                return  # Stopped
+                async with SQLiteDetachedSyncTransfer(connection, path_database_sync):
+                    self.__logger.debug("__sequence_sync_primaire Sync vers base de donnee de fichiers")
+                    pass  # Fermer, la sync s'execute automatiquement
 
-            # Generer la liste des fichiers de backup
-            self.__logger.info("__sequence_sync_primaire generer_backup_sync (Progres: 5/5)")
-            await self.__consignation.generer_backup_sync()
-        finally:
-            self.__logger.info("__sequence_sync_primaire termine")
-            event_sync.set()
+                # # Process orphelins
+                # self.__logger.info("__sequence_sync_primaire marquer_orphelins (Progres: 3/5)")
+                # await self.__consignation.marquer_orphelins(dao_batch, debut_reclamation, reclamation_complete)
+
+                if self.__stop_event.is_set():
+                    return  # Stopped
+
+                # Generer la liste des reclamations en .jsonl.gz pour les secondaires
+                self.__logger.info("__sequence_sync_primaire generer_reclamations_sync (Progres: 4/5)")
+                await self.__consignation.generer_reclamations_sync(connection)
+
+                if self.__stop_event.is_set():
+                    return  # Stopped
+
+                # Generer la liste des fichiers de backup
+                self.__logger.info("__sequence_sync_primaire generer_backup_sync (Progres: 5/5)")
+                await self.__consignation.generer_backup_sync()
+            finally:
+                self.__logger.info("__sequence_sync_primaire termine")
+                event_sync.set()
 
     async def run_sync_secondaire(self):
         self.__logger.info("run_sync_secondaire Demarrer sync")

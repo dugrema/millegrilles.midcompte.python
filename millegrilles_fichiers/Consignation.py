@@ -26,7 +26,7 @@ from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.ConsignationStore import ConsignationStore, map_type
 from millegrilles_fichiers.Synchronisation import SyncManager
-from millegrilles_fichiers.SQLiteDao import SQLiteConnection, SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations
+from millegrilles_fichiers.SQLiteDao import SQLiteConnection, SQLiteReadOperations, SQLiteBatchOperations, SQLiteDetachedVisiteAppend
 from millegrilles_fichiers.ConsignationBackup import ConsignationBackup
 
 
@@ -166,15 +166,12 @@ class ConsignationHandler:
             except asyncio.TimeoutError:
                 pass  # OK
 
-    async def visiter_fuuids(self, dao: Optional[SQLiteBatchOperations] = None):
-        # Note : le lock pour eviter run redondant est fait via SQLiteBatchOperations
-        if dao is not None:
-            await self.__store_consignation.visiter_fuuids(dao)
-        else:
-            # Besoin de faire un lock sur le DAO batch jobs
-            with self.__etat_instance.sqlite_connection() as connection:
-                async with SQLiteBatchOperations(connection) as dao:
-                    await self.__store_consignation.visiter_fuuids(dao)
+    async def visiter_fuuids(self):
+        with self.__etat_instance.sqlite_connection() as connection:
+            path_data = connection.path_data
+            path_db_sync = pathlib.Path(path_data, Constantes.FICHIER_DATABASE_SYNC)
+            async with SQLiteDetachedVisiteAppend(connection, path_db_sync) as detached_dao:
+                await self.__store_consignation.visiter_fuuids(detached_dao)
 
     async def traiter_cedule(self, producer: MessageProducerFormatteur, message: MessageWrapper):
         self.__traiter_cedule_event.set()

@@ -1,26 +1,67 @@
 # Structure de la base de donnees
 
 CONST_CREATE_FICHIERS = """
-    CREATE TABLE IF NOT EXISTS FICHIERS(
+
+    CREATE TABLE IF NOT EXISTS fichiers(
         fuuid VARCHAR PRIMARY KEY,
         etat_fichier VARCHAR NOT NULL,
         taille INTEGER,
         bucket VARCHAR,
-        bucket_visite VARCHAR,
-        date_presence TIMESTAMP NOT NULL,
-        date_verification TIMESTAMP NOT NULL,
-        date_reclamation TIMESTAMP NOT NULL,
+        date_presence TIMESTAMP,
+        date_reclamation TIMESTAMP,
+        date_verification TIMESTAMP,
         date_backup TIMESTAMP
     );
+    
+    CREATE INDEX IF NOT EXISTS fichiers_date_backup ON fichiers(date_backup ASC, etat_fichier);
+    CREATE INDEX IF NOT EXISTS fichiers_date_verification ON fichiers(date_verification ASC, etat_fichier);
+    CREATE INDEX IF NOT EXISTS fichiers_date_reclamation ON fichiers(date_reclamation ASC, etat_fichier);
+        
+"""
 
-    CREATE TABLE IF NOT EXISTS FICHIERS_PRIMAIRE(
+CONST_CREATE_SYNC = """
+    CREATE TABLE fichiers(
+        fuuid VARCHAR PRIMARY KEY,
+        taille INTEGER,
+        bucket_reclame VARCHAR,
+        date_reclamation TIMESTAMP,
+        bucket_visite VARCHAR,
+        date_presence TIMESTAMP
+    );
+
+    CREATE TABLE fichiers_backup(
+        fuuid VARCHAR PRIMARY KEY,
+        taille INTEGER,
+        bucket VARCHAR
+    );
+
+    CREATE TABLE fichiers_primaire(
         fuuid VARCHAR PRIMARY KEY,
         etat_fichier VARCHAR NOT NULL,
         taille INTEGER,
         bucket VARCHAR
     );
-    
-    CREATE TABLE IF NOT EXISTS DOWNLOADS(
+
+    CREATE TABLE backups_primaire(
+        uuid_backup VARCHAR NOT NULL,
+        domaine VARCHAR NOT NULL,
+        nom_fichier VARCHAR NOT NULL,
+        taille INTEGER NOT NULL,
+        flag_download INTEGER,
+        PRIMARY KEY (uuid_backup, domaine, nom_fichier)
+    );
+"""
+
+CONST_CREATE_BACKUP = """
+    CREATE TABLE IF NOT EXISTS fichiers(
+        fuuid VARCHAR PRIMARY KEY,
+        taille INTEGER,
+        date_backup TIMESTAMP
+    );
+"""
+
+CONST_CREATE_TRANSFERTS = """
+    CREATE TABLE IF NOT EXISTS downloads(
         fuuid VARCHAR PRIMARY KEY,
         taille INTEGER,
         date_creation TIMESTAMP NOT NULL,
@@ -29,7 +70,7 @@ CONST_CREATE_FICHIERS = """
         erreur INTEGER
     );
 
-    CREATE TABLE IF NOT EXISTS UPLOADS(
+    CREATE TABLE IF NOT EXISTS uploads(
         fuuid VARCHAR PRIMARY KEY,
         taille INTEGER NOT NULL,
         date_creation TIMESTAMP NOT NULL,
@@ -38,16 +79,6 @@ CONST_CREATE_FICHIERS = """
         essais INTEGER NOT NULL,
         erreur INTEGER
     );
-
-    CREATE TABLE IF NOT EXISTS BACKUPS_PRIMAIRE(
-        uuid_backup VARCHAR NOT NULL,
-        domaine VARCHAR NOT NULL,
-        nom_fichier VARCHAR NOT NULL,
-        taille INTEGER NOT NULL,
-        flag_download INTEGER,
-        PRIMARY KEY (uuid_backup, domaine, nom_fichier)
-    );
-        
 """
 
 # SELECTs
@@ -55,14 +86,14 @@ CONST_CREATE_FICHIERS = """
 
 SELECT_ETAT_DOWNLOADS = """
     SELECT count(fuuid), sum(taille)
-    FROM DOWNLOADS
-    WHERE erreur is null; 
+    FROM downloads
+    WHERE erreur IS NULL; 
 """
 
 SELECT_ETAT_UPLOADS = """
     SELECT count(fuuid), sum(taille)
-    FROM UPLOADS
-    WHERE erreur is null; 
+    FROM uploads
+    WHERE erreur IS NULL; 
 """
 
 SELECT_FICHIER_PAR_FUUID = """
@@ -86,7 +117,7 @@ SELECT_BACKUP_PRIMAIRE = """
 """
 
 SELECT_BACKUP_STORE_FICHIERS = """
-    SELECT fuuid, taille, bucket_visite
+    SELECT fuuid, taille, bucket
     FROM fichiers
     WHERE etat_fichier = 'actif'
       AND taille IS NOT NULL
@@ -209,6 +240,14 @@ UPDATE_TOUCH_UPLOAD = """
     WHERE fuuid = :fuuid;
 """
 
+INSERT_BACKUP_FICHIER = """
+    INSERT INTO fichiers(fuuid, taille, date_backup)
+    VALUES (:fuuid, :taille, :date_backup)
+    ON CONFLICT(fuuid) DO UPDATE SET
+       taille = :taille,
+       date_backup = :date_backup;
+"""
+
 UPDATE_TOUCH_BACKUP_FICHIER = """
     UPDATE FICHIERS
     SET date_backup = :date_backup
@@ -242,8 +281,8 @@ UPDATE_VERIFIER_FICHIER = """
 """
 
 INSERT_PRESENCE_FICHIERS = """
-    INSERT INTO FICHIERS(fuuid, etat_fichier, taille, bucket, bucket_visite, date_presence, date_verification, date_reclamation)
-    VALUES (:fuuid, :etat_fichier, :taille, :bucket, :bucket, :date_presence, :date_verification, :date_presence)
+    INSERT INTO FICHIERS(fuuid, taille, bucket_visite, date_presence)
+    VALUES (:fuuid, :taille, :bucket, :date_presence)
     ON CONFLICT(fuuid) DO UPDATE
     SET taille = :taille, 
         date_presence = :date_presence,
@@ -251,11 +290,8 @@ INSERT_PRESENCE_FICHIERS = """
 """
 
 INSERT_RECLAMER_FICHIER = """
-    INSERT INTO FICHIERS(fuuid, etat_fichier, bucket, date_presence, date_verification, date_reclamation)
-    VALUES (:fuuid, :etat_fichier, :bucket, :date_reclamation, :date_verification, :date_reclamation)
-    ON CONFLICT(fuuid) DO UPDATE
-    SET bucket = :bucket,
-        date_reclamation = :date_reclamation;
+    INSERT INTO FICHIERS(fuuid, bucket_reclame, date_reclamation)
+    VALUES (:fuuid, :bucket, :date_reclamation)
 """
 
 SELECT_STATS_FICHIERS = """
@@ -305,11 +341,12 @@ UPDATE_ACTIVER_SI_ORPHELIN = """
 """
 
 SELECT_BATCH_VERIFIER = """
-    SELECT fuuid, taille, bucket_visite
+    SELECT fuuid, taille, bucket
     FROM FICHIERS
     WHERE date_verification < :expiration_verification
       AND etat_fichier = 'actif'
       AND taille is NOT NULL
+      AND bucket is NOT NULL
     ORDER BY date_verification
     LIMIT :limit;
 """
@@ -350,10 +387,11 @@ UPDATE_MANQANTS_VISITES = """
 """
 
 SELECT_BATCH_ORPHELINS = """
-    SELECT fuuid, taille, bucket_visite
+    SELECT fuuid, taille, bucket
     FROM FICHIERS
     WHERE date_reclamation < :date_reclamation
       AND etat_fichier IN ('orphelin', 'manquant')
+      AND bucket is NOT NULL
     ORDER BY date_reclamation
     LIMIT :limit;
 """
@@ -395,4 +433,63 @@ DELETE_TRUNCATE_FICHIERS_PRIMAIRE = """
 
 DELETE_TRUNCATE_BACKUPS_PRIMAIRE = """
     DELETE FROM BACKUPS_PRIMAIRE;
+"""
+
+
+# Transferts
+
+#         fuuid VARCHAR PRIMARY KEY,
+#         etat_fichier VARCHAR NOT NULL,
+#         taille INTEGER,
+#         bucket VARCHAR NOT NULL,
+#         date_presence TIMESTAMP NOT NULL,
+#         date_reclamation TIMESTAMP,
+#         date_verification TIMESTAMP,
+#         date_backup TIMESTAMP
+
+TRANSFERT_INSERT_PRESENCE_FICHIERS = """
+    INSERT INTO destination.FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_reclamation)
+    SELECT fuuid, 'actif', taille, bucket_visite, date_presence, date_reclamation
+    FROM fichiers
+    WHERE bucket_visite IS NOT NULL
+    ON CONFLICT(fuuid) DO UPDATE SET 
+        etat_fichier = 'actif',
+        taille = excluded.taille,
+        bucket = excluded.bucket,
+        date_presence = excluded.date_presence,
+        date_reclamation = excluded.date_reclamation,
+        date_backup = excluded.date_backup
+    ;
+"""
+
+TRANSFERT_INSERT_MANQUANTS_FICHIERS = """
+    INSERT INTO destination.FICHIERS(fuuid, etat_fichier, date_reclamation)
+    SELECT fuuid, 'manquant', date_reclamation
+    FROM fichiers
+    WHERE bucket_visite IS NULL
+    ON CONFLICT(fuuid) DO UPDATE SET 
+        etat_fichier = 'manquant',
+        date_reclamation = excluded.date_reclamation
+    ;
+"""
+
+TRANSFERT_INSERT_ORPHELINS_FICHIERS = """
+    INSERT INTO destination.FICHIERS(fuuid, etat_fichier, date_presence)
+    SELECT fuuid, 'orphelin', date_presence
+    FROM fichiers
+    WHERE bucket_reclame IS NULL
+    ON CONFLICT(fuuid) DO UPDATE SET 
+        etat_fichier = 'orphelin',
+        date_presence = excluded.date_presence
+    ;
+"""
+
+TRANSFERT_UPDATE_BACKUPS = """
+    UPDATE destination.fichiers
+    SET date_backup = source.date_backup
+    FROM destination.fichiers as dest,
+         (SELECT fuuid, taille, date_backup FROM fichiers) as source
+    WHERE dest.fuuid = source.fuuid
+      AND dest.taille = source.taille
+    ;
 """
