@@ -101,7 +101,7 @@ SELECT_FICHIER_PAR_FUUID = """
 
 SELECT_PRIMAIRE_PAR_FUUID = """
     SELECT fuuid, etat_fichier, taille, bucket
-    FROM FICHIERS_PRIMAIRE
+    FROM fichiers
     WHERE fuuid = :fuuid;
 """
 

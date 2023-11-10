@@ -789,7 +789,7 @@ class SyncManager:
                         if self.__stop_event.is_set():
                             raise Exception('stopped')  # Stopped
                         row = json.loads(row_str)
-                        await reclamation_dao.ajouter_reclamation(row['fuuid'], row['bucket'])
+                        await reclamation_dao.ajouter_reclamation(row['fuuid'], row['bucket'], row['taille'], row['etat_fichier'])
             except OSError as e:
                 if e.errno == errno.ENOENT:
                     pass  # OK, fichier absent
@@ -1321,14 +1321,14 @@ class SyncManager:
         path_database_transferts = pathlib.Path(self.__etat_instance.get_path_data(),
                                                 Constantes.FICHIER_DATABASE_TRANSFERTS)
 
-        raise NotImplementedError('todo')
-        # with SQLiteConnection(path_database_transferts, check_same_thread=False) as connection_transferts:
-        #     # Verifier si le fichier est present dans FICHIERS_PRIMAIRE
-        #     async with SQLiteWriteOperations(connection_transferts) as dao_write:
-        #         ajoute = await asyncio.to_thread(dao_write.ajouter_upload_secondaire_conditionnel, fuuid)
-        # if ajoute:
-        #     self.__logger.debug("ajouter_upload_secondaire Declencher upload pour fuuid %s" % fuuid)
-        #     self.__upload_event.set()
+        with self.__etat_instance.sqlite_connection() as connection_fichiers:
+            with SQLiteConnection(path_database_transferts, check_same_thread=False) as connection_transferts:
+                # Verifier si le fichier est present dans FICHIERS_PRIMAIRE
+                async with SQLiteTransfertOperations(connection_transferts) as dao_write:
+                    ajoute = await dao_write.ajouter_upload_secondaire_conditionnel(fuuid, connection_fichiers)
+        if ajoute:
+            self.__logger.debug("ajouter_upload_secondaire Declencher upload pour fuuid %s" % fuuid)
+            self.__upload_event.set()
 
     async def run_sync_backup(self):
         if self.__etat_instance.est_primaire is False:

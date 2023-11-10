@@ -612,21 +612,19 @@ class SQLiteTransfertOperations(SQLiteCursor):
         except sqlite3.IntegrityError as e:
             pass  # OK, le fichier existe deja dans la liste de downloads
 
-    def ajouter_upload_secondaire_conditionnel(self, fuuid: str) -> bool:
+    async def ajouter_upload_secondaire_conditionnel(self, fuuid: str, connection_fichiers: SQLiteConnection) -> bool:
         """ Ajoute conditionnellement un upload vers le primaire """
-        self._cur.execute(scripts_database.SELECT_PRIMAIRE_PAR_FUUID, {'fuuid': fuuid})
-        row = self._cur.fetchone()
-        if row is not None:
-            _fuuid, etat_fichier, taille, bucket = row
-            if etat_fichier != 'manquant':
-                # Le fichier n'est pas manquant (il est deja sur le primaire). SKIP
-                return False
+        async with SQLiteReadOperations(connection_fichiers) as read_dao:
+            info = await asyncio.to_thread(read_dao.get_info_fichier, fuuid)
 
-        # Le fichier est inconnu ou manquant sur le primaire. On peut creer l'upload
-        self._cur.execute(scripts_database.SELECT_FICHIER_PAR_FUUID, {'fuuid': fuuid})
-        row = self._cur.fetchone()
-        if row is not None:
-            _fuuid, etat_fichier, taille, bucket = row
+        # if info is not None:
+        #     if info.get('etat_fichier') != 'manquant':
+        #         # Le fichier n'est pas manquant (il est deja sur le primaire). SKIP
+        #         return False
+
+        if info is not None:
+            etat_fichier = info['etat_fichier']
+            taille = info['taille']
             if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
                 # Creer la job d'upload
                 params = {
@@ -635,7 +633,7 @@ class SQLiteTransfertOperations(SQLiteCursor):
                     'date_creation': datetime.datetime.now(tz=pytz.UTC),
                 }
                 try:
-                    self._cur.execute(scripts_database.INSERT_UPLOAD, params)
+                    await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_UPLOAD, params)
                 except sqlite3.IntegrityError as e:
                     pass  # OK, le fichier existe deja dans la liste d'uploads
                 return True

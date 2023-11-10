@@ -116,7 +116,10 @@ class IntakeFichiers(IntakeHandler):
 
         if self._etat_instance.est_primaire is False:
             self.__logger.debug("traiter_job Fichier consigne sur secondaire - s'assurer que le fichier existe sur primaire")
-            await self.__consignation_handler.ajouter_upload_secondaire(job.fuuid)
+            try:
+                await self.__consignation_handler.ajouter_upload_secondaire(job.fuuid)
+            except:
+                self.__logger.exception("traiter_job Erreur ajout upload secondaire")
 
         # Supprimer le repertoire de la job
         shutil.rmtree(job.path_job)
