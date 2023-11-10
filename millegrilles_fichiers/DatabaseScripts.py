@@ -259,6 +259,19 @@ INSERT_FICHIER = """
     VALUES(:fuuid, :etat_fichier, :taille, :bucket, :date_presence, :date_verification, :date_reclamation);
 """
 
+INSERT_OR_UPDATE_FICHIER = """
+    INSERT INTO FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation)
+    VALUES(:fuuid, :etat_fichier, :taille, :bucket, :date_presence, :date_verification, :date_reclamation)
+    ON CONFLICT(fuuid) DO UPDATE SET 
+        etat_fichier = 'actif',
+        taille = :taille,
+        bucket = :bucket,
+        date_presence = :date_presence,
+        date_verification = :date_verification,
+        date_reclamation = :date_reclamation
+    ;
+"""
+
 UPDATE_ACTIVER_SI_MANQUANT = """
     UPDATE FICHIERS
     SET etat_fichier = :etat_fichier,
@@ -275,8 +288,8 @@ UPDATE_VERIFIER_FICHIER = """
 """
 
 INSERT_PRESENCE_FICHIERS = """
-    INSERT INTO FICHIERS(fuuid, taille, bucket_visite, date_presence)
-    VALUES (:fuuid, :taille, :bucket, :date_presence)
+    INSERT INTO FICHIERS(fuuid, etat_fichier, taille, bucket_visite, date_presence)
+    VALUES (:fuuid, 'actif', :taille, :bucket, :date_presence)
     ON CONFLICT(fuuid) DO UPDATE
     SET taille = :taille, 
         date_presence = :date_presence,
@@ -291,6 +304,10 @@ INSERT_RECLAMER_FICHIER = """
 INSERT_RECLAMER_FICHIER_SECONDAIRE = """
     INSERT INTO FICHIERS(fuuid, bucket_reclame, date_reclamation, taille, etat_fichier)
     VALUES (:fuuid, :bucket, :date_reclamation, :taille, :etat_fichier)
+    ON CONFLICT(fuuid) DO UPDATE SET
+        bucket_reclame = :bucket,
+        date_reclamation = :date_reclamation
+    ;
 """
 
 SELECT_STATS_FICHIERS = """
@@ -497,7 +514,8 @@ TRANSFERT_INSERT_DOWNLOADS = """
     INSERT OR IGNORE INTO transferts.downloads(fuuid, taille, date_creation, essais)
     SELECT fuuid, taille, :date_creation, 0
     FROM fichiers
-    WHERE date_presence IS NULL
+    WHERE etat_fichier = 'actif'
+      AND date_presence IS NULL
       AND date_reclamation IS NOT NULL
     ;
 """

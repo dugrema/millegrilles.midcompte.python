@@ -179,24 +179,6 @@ class SQLiteReadOperations(SQLiteCursor):
 
         self.reset_intermediaires()
 
-    # def get_etat_uploads(self):
-    #     self._cur.execute(scripts_database.SELECT_ETAT_UPLOADS)
-    #     row = self._cur.fetchone()
-    #     if row:
-    #         nombre, taille = row
-    #         return {'nombre': nombre, 'taille': taille}
-    #
-    #     return None
-    #
-    # def get_etat_downloads(self):
-    #     self._cur.execute(scripts_database.SELECT_ETAT_DOWNLOADS)
-    #     row = self._cur.fetchone()
-    #     if row:
-    #         nombre, taille = row
-    #         return {'nombre': nombre, 'taille': taille}
-    #
-    #     return None
-
     def get_info_backup_primaire(self, uuid_backup: str, domaine: str, nom_fichier: str) -> Optional[dict]:
         params = {'uuid_backup': uuid_backup, 'domaine': domaine, 'nom_fichier': nom_fichier}
 
@@ -358,7 +340,7 @@ class SQLiteWriteOperations(SQLiteCursor):
             self._cur.execute(scripts_database.INSERT_FICHIER, data)
             nouveau = True
         except sqlite3.IntegrityError as e:
-            if 'FICHIERS.fuuid' in e.args[0]:
+            if 'fichiers.fuuid' in e.args[0]:
                 self.__logger.debug("ConsignationStore.consigner fuuid %s existe deja - OK" % fuuid)
                 resultat_update_manquant = self._cur.execute(scripts_database.UPDATE_ACTIVER_SI_MANQUANT, data)
                 if resultat_update_manquant.rowcount > 0:
@@ -382,62 +364,6 @@ class SQLiteWriteOperations(SQLiteCursor):
                     fichier.write('\n')
             except Exception:
                 self.__logger.exception("Erreur sauvegarde fuuid dans liste intermediaire")
-
-    # def get_next_download(self):
-    #     params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}
-    #     row = None
-    #     try:
-    #         self._cur.execute(scripts_database.UPDATE_GET_NEXT_DOWNLOAD, params)
-    #         row = self._cur.fetchone()
-    #     finally:
-    #         self._cur.close()
-    #
-    #     if row is not None:
-    #         fuuid, taille = row
-    #         return {'fuuid': fuuid, 'taille': taille}
-    #
-    #     return None
-    #
-    # def get_next_upload(self):
-    #     params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}
-    #     row = None
-    #     try:
-    #         self._cur.execute(scripts_database.UPDATE_GET_NEXT_UPLOAD, params)
-    #         row = self._cur.fetchone()
-    #     finally:
-    #         self._cur.close()
-    #
-    #     if row is not None:
-    #         fuuid, taille = row
-    #         return {'fuuid': fuuid, 'taille': taille}
-    #
-    #     return None
-    #
-    # def touch_download(self, fuuid: str, erreur: Optional[int] = None):
-    #     params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
-    #     self._cur.execute(scripts_database.UPDATE_TOUCH_DOWNLOAD, params)
-
-    # def get_batch_backups_primaire(self) -> list[dict]:
-    #     self._cur.execute(scripts_database.UPDATE_FETCH_BACKUP_PRIMAIRE)
-    #     rows = self._cur.fetchall()
-    #     tasks = list()
-    #     if rows is not None and len(rows) > 0:
-    #         for row in rows:
-    #             uuid_backup, domaine, nom_fichier, taille = row
-    #             tasks.append({'uuid_backup': uuid_backup, 'domaine': domaine, 'nom_fichier': nom_fichier, 'taille': taille})
-    #     return tasks
-    #
-    # def supprimer_job_download(self, fuuid: str):
-    #     params = {'fuuid': fuuid}
-    #     self._cur.execute(scripts_database.DELETE_DOWNLOAD, params)
-    #
-    # def supprimer_job_upload(self, fuuid: str):
-    #     params = {'fuuid': fuuid}
-    #     self._cur.execute(scripts_database.DELETE_UPLOAD, params)
-    #
-    # def touch_upload(self, fuuid: str, erreur: Optional[int] = None):
-    #     params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
-    #     self._cur.execute(scripts_database.UPDATE_TOUCH_UPLOAD, params)
 
     def touch_backup_fichier(self, fuuid: str, taille: int):
         # Note : la taille est utilisee pour s'assurer un match sur le contenu transfere
@@ -464,48 +390,6 @@ class SQLiteWriteOperations(SQLiteCursor):
             pass  # OK, le fichier existe deja
 
         return ajoute
-
-    # def ajouter_download_primaire(self, fuuid: str, taille: int):
-    #     params = {
-    #         'fuuid': fuuid,
-    #         'taille': taille,
-    #         'date_creation': datetime.datetime.now(tz=pytz.UTC),
-    #     }
-    #     try:
-    #         self._cur.execute(scripts_database.INSERT_DOWNLOAD, params)
-    #     except sqlite3.IntegrityError as e:
-    #         pass  # OK, le fichier existe deja dans la liste de downloads
-
-    # def ajouter_upload_secondaire_conditionnel(self, fuuid: str) -> bool:
-    #     """ Ajoute conditionnellement un upload vers le primaire """
-    #     self._cur.execute(scripts_database.SELECT_PRIMAIRE_PAR_FUUID, {'fuuid': fuuid})
-    #     row = self._cur.fetchone()
-    #     if row is not None:
-    #         _fuuid, etat_fichier, taille, bucket = row
-    #         if etat_fichier != 'manquant':
-    #             # Le fichier n'est pas manquant (il est deja sur le primaire). SKIP
-    #             return False
-    #
-    #     # Le fichier est inconnu ou manquant sur le primaire. On peut creer l'upload
-    #     self._cur.execute(scripts_database.SELECT_FICHIER_PAR_FUUID, {'fuuid': fuuid})
-    #     row = self._cur.fetchone()
-    #     if row is not None:
-    #         _fuuid, etat_fichier, taille, bucket = row
-    #         if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
-    #             # Creer la job d'upload
-    #             params = {
-    #                 'fuuid': fuuid,
-    #                 'taille': taille,
-    #                 'date_creation': datetime.datetime.now(tz=pytz.UTC),
-    #             }
-    #             try:
-    #                 self._cur.execute(scripts_database.INSERT_UPLOAD, params)
-    #             except sqlite3.IntegrityError as e:
-    #                 pass  # OK, le fichier existe deja dans la liste d'uploads
-    #             return True
-    #
-    #     # Le fichier est inconnu localement ou inactif
-    #     return False
 
     def activer_si_orphelin(self, fuuids: list[str], date_reclamation: datetime.datetime) -> list[str]:
         dict_fuuids = dict()
@@ -568,133 +452,9 @@ class SQLiteBatchOperations(SQLiteCursor):
             self.__batch_lock.release()
         return False
 
-    # async def commit_batch(self):
-    #     batch = self.__batch
-    #     self.__batch = None
-    #     self.open()
-    #     try:
-    #         if batch is not None:
-    #             if self.__batch_script is None:
-    #                 raise Exception('batch script is None')
-    #             async with self.__write_lock:
-    #                 resultat = await asyncio.to_thread(self._cur.executemany, self.__batch_script, batch)
-    #         else:
-    #             resultat = None
-    #     finally:
-    #         try:
-    #             await asyncio.to_thread(self._connection.commit)
-    #         finally:
-    #             self.close()
-    #
-    #     await asyncio.sleep(0.5)  # Intervalle, laisser le systeme effectuer autres operations
-    #
-    #     return batch, resultat
-
     def close(self):
         self._cur.close()
         self._cur = None
-
-    # def ajouter_item_batch(self, item: dict):
-    #     if self.__batch is None:
-    #         self.__batch = list()
-    #     self.__batch.append(item)
-
-    # def ajouter_visite(self, bucket: str, fuuid: str, taille: int) -> int:
-    #     self.batch_script = scripts_database.INSERT_PRESENCE_FICHIERS
-    #     row = {
-    #         'fuuid': fuuid,
-    #         'etat_fichier': Constantes.DATABASE_ETAT_ACTIF,
-    #         'taille': taille,
-    #         'bucket': bucket,
-    #         'date_presence': datetime.datetime.now(tz=pytz.UTC),
-    #         'date_verification': datetime.datetime.fromtimestamp(0, tz=pytz.UTC),
-    #     }
-    #     self.ajouter_item_batch(row)
-    #     return len(self.__batch)
-
-    # def marquer_actifs_visites(self):
-    #     """ Sert a marquer tous les fichiers "manquants" comme actifs si visites recemment. """
-    #     self.open()
-    #     try:
-    #         resultat = self._cur.execute(scripts_database.UPDATE_ACTIFS_VISITES, {'date_presence': self.__debut_job})
-    #         self.__logger.info("marquer_actifs_visites Marquer manquants comme actifs si visite >= %s : %d rows" %
-    #                            (self.__debut_job, resultat.rowcount))
-    #         self._connection.commit()
-    #
-    #         resultat = self._cur.execute(scripts_database.UPDATE_MANQANTS_VISITES, {'date_presence': self.__debut_job})
-    #         self.__logger.info("marquer_actifs_visites Marquer actifs,orphelins comme manquants si visite < %s : %d rows" %
-    #                            (self.__debut_job, resultat.rowcount))
-    #     finally:
-    #         try:
-    #             self._connection.commit()
-    #         finally:
-    #             self.close()
-
-    # async def marquer_secondaires_reclames(self):
-    #     # Inserer secondaires manquants
-    #     self.open()
-    #     async with self.__write_lock:
-    #         try:
-    #             params = {'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
-    #             await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_SECONDAIRES_MANQUANTS, params)
-    #             # self.__con.commit()
-    #
-    #             # Convertir les secondaires orphelins en actifs
-    #             await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_ORPHELINS_VERS_ACTIF, params)
-    #             # self.__con.commit()
-    #
-    #             # Marquer les secondaires deja presents comme reclames (peu importe l'etat)
-    #             params = {'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
-    #             await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_RECLAMES, params)
-    #             # self.__con.commit()
-    #
-    #             params = {'date_reclamation': self.__debut_job}
-    #             await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_NON_RECLAMES_VERS_ORPHELINS, params)
-    #
-    #             await asyncio.to_thread(self._connection.commit)
-    #         finally:
-    #             self.close()
-
-    # async def generer_downloads(self):
-    #     params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
-    #     self.open()
-    #     async with self.__write_lock:
-    #         try:
-    #             await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_DOWNLOADS, params)
-    #             await asyncio.to_thread(self._connection.commit)
-    #         finally:
-    #             self.close()
-    #
-    # async def generer_uploads(self):
-    #     params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
-    #     self.open()
-    #     async with self.__write_lock:
-    #         try:
-    #             await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_UPLOADS, params)
-    #             await asyncio.to_thread(self._connection.commit)
-    #         finally:
-    #             self.close()
-    #
-    # async def entretien_transferts(self):
-    #     """ Marque downloads ou uploads expires, permet nouvel essai. """
-    #     now = datetime.datetime.now(tz=pytz.UTC)
-    #
-    #     self.open()
-    #     async with self.__write_lock:
-    #         try:
-    #             await asyncio.to_thread(self._cur.execute, scripts_database.DELETE_DOWNLOADS_ESSAIS_EXCESSIFS)
-    #
-    #             expiration_downloads = now - datetime.timedelta(minutes=30)
-    #             params = {'date_activite': expiration_downloads}
-    #             await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_DOWNLOAD_EXPIRE, params)
-    #
-    #             expiration_uploads = now - datetime.timedelta(minutes=30)
-    #             params = {'date_activite': expiration_uploads}
-    #             await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_UPLOADS_EXPIRE, params)
-    #
-    #             await asyncio.to_thread(self._connection.commit)
-    #         finally:
-    #             self.close()
 
     async def marquer_verification(self, fuuid: str, etat_fichier: str):
         self.open()
@@ -730,22 +490,6 @@ class SQLiteBatchOperations(SQLiteCursor):
         # if len(self.__batch) >= self.__limite_batch:
         #     await self.commit_batch()
 
-    def marquer_orphelins(self, debut_reclamation: datetime.datetime):
-        self.open()
-        try:
-            resultat = self._cur.execute(scripts_database.UPDATE_MARQUER_ORPHELINS, {'date_reclamation': debut_reclamation})
-            return resultat
-        finally:
-            self.close()
-
-    # def marquer_actifs(self, debut_reclamation: datetime.datetime):
-    #     self.open()
-    #     try:
-    #         resultat = self._cur.execute(scripts_database.UPDATE_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
-    #         return resultat
-    #     finally:
-    #         self.close()
-
 
 class SQLiteTransfertOperations(SQLiteCursor):
 
@@ -760,6 +504,160 @@ class SQLiteTransfertOperations(SQLiteCursor):
         finally:
             cur.close()
             await asyncio.to_thread(self._connection.commit)
+
+    # async def generer_downloads(self):
+    #     params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
+    #     self.open()
+    #     try:
+    #         await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_DOWNLOADS, params)
+    #         await asyncio.to_thread(self._connection.commit)
+    #     finally:
+    #         self.close()
+
+    # async def generer_uploads(self):
+    #     params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
+    #     self.open()
+    #     try:
+    #         await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_UPLOADS, params)
+    #         await asyncio.to_thread(self._connection.commit)
+    #     finally:
+    #         self.close()
+
+    def get_etat_uploads(self):
+        self._cur.execute(scripts_database.SELECT_ETAT_UPLOADS)
+        row = self._cur.fetchone()
+        if row:
+            nombre, taille = row
+            return {'nombre': nombre, 'taille': taille}
+
+        return None
+
+    def get_etat_downloads(self):
+        self._cur.execute(scripts_database.SELECT_ETAT_DOWNLOADS)
+        row = self._cur.fetchone()
+        if row:
+            nombre, taille = row
+            return {'nombre': nombre, 'taille': taille}
+
+        return None
+
+    async def entretien_transferts(self):
+        """ Marque downloads ou uploads expires, permet nouvel essai. """
+        now = datetime.datetime.now(tz=pytz.UTC)
+
+        self.open()
+        try:
+            await asyncio.to_thread(self._cur.execute, scripts_database.DELETE_DOWNLOADS_ESSAIS_EXCESSIFS)
+
+            expiration_downloads = now - datetime.timedelta(minutes=30)
+            params = {'date_activite': expiration_downloads}
+            await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_DOWNLOAD_EXPIRE, params)
+
+            expiration_uploads = now - datetime.timedelta(minutes=30)
+            params = {'date_activite': expiration_uploads}
+            await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_UPLOADS_EXPIRE, params)
+
+            await asyncio.to_thread(self._connection.commit)
+        finally:
+            self.close()
+
+    def get_next_download(self):
+        params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}
+        row = None
+        try:
+            self._cur.execute(scripts_database.UPDATE_GET_NEXT_DOWNLOAD, params)
+            row = self._cur.fetchone()
+        finally:
+            self._cur.close()
+
+        if row is not None:
+            fuuid, taille = row
+            return {'fuuid': fuuid, 'taille': taille}
+
+        return None
+
+    def get_next_upload(self):
+        params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}
+        row = None
+        try:
+            self._cur.execute(scripts_database.UPDATE_GET_NEXT_UPLOAD, params)
+            row = self._cur.fetchone()
+        finally:
+            self._cur.close()
+
+        if row is not None:
+            fuuid, taille = row
+            return {'fuuid': fuuid, 'taille': taille}
+
+        return None
+
+    def touch_download(self, fuuid: str, erreur: Optional[int] = None):
+        params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
+        self._cur.execute(scripts_database.UPDATE_TOUCH_DOWNLOAD, params)
+
+    def get_batch_backups_primaire(self) -> list[dict]:
+        self._cur.execute(scripts_database.UPDATE_FETCH_BACKUP_PRIMAIRE)
+        rows = self._cur.fetchall()
+        tasks = list()
+        if rows is not None and len(rows) > 0:
+            for row in rows:
+                uuid_backup, domaine, nom_fichier, taille = row
+                tasks.append({'uuid_backup': uuid_backup, 'domaine': domaine, 'nom_fichier': nom_fichier, 'taille': taille})
+        return tasks
+
+    def supprimer_job_download(self, fuuid: str):
+        params = {'fuuid': fuuid}
+        self._cur.execute(scripts_database.DELETE_DOWNLOAD, params)
+
+    def supprimer_job_upload(self, fuuid: str):
+        params = {'fuuid': fuuid}
+        self._cur.execute(scripts_database.DELETE_UPLOAD, params)
+
+    def touch_upload(self, fuuid: str, erreur: Optional[int] = None):
+        params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
+        self._cur.execute(scripts_database.UPDATE_TOUCH_UPLOAD, params)
+
+    def ajouter_download_primaire(self, fuuid: str, taille: int):
+        params = {
+            'fuuid': fuuid,
+            'taille': taille,
+            'date_creation': datetime.datetime.now(tz=pytz.UTC),
+        }
+        try:
+            self._cur.execute(scripts_database.INSERT_DOWNLOAD, params)
+        except sqlite3.IntegrityError as e:
+            pass  # OK, le fichier existe deja dans la liste de downloads
+
+    def ajouter_upload_secondaire_conditionnel(self, fuuid: str) -> bool:
+        """ Ajoute conditionnellement un upload vers le primaire """
+        self._cur.execute(scripts_database.SELECT_PRIMAIRE_PAR_FUUID, {'fuuid': fuuid})
+        row = self._cur.fetchone()
+        if row is not None:
+            _fuuid, etat_fichier, taille, bucket = row
+            if etat_fichier != 'manquant':
+                # Le fichier n'est pas manquant (il est deja sur le primaire). SKIP
+                return False
+
+        # Le fichier est inconnu ou manquant sur le primaire. On peut creer l'upload
+        self._cur.execute(scripts_database.SELECT_FICHIER_PAR_FUUID, {'fuuid': fuuid})
+        row = self._cur.fetchone()
+        if row is not None:
+            _fuuid, etat_fichier, taille, bucket = row
+            if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
+                # Creer la job d'upload
+                params = {
+                    'fuuid': fuuid,
+                    'taille': taille,
+                    'date_creation': datetime.datetime.now(tz=pytz.UTC),
+                }
+                try:
+                    self._cur.execute(scripts_database.INSERT_UPLOAD, params)
+                except sqlite3.IntegrityError as e:
+                    pass  # OK, le fichier existe deja dans la liste d'uploads
+                return True
+
+        # Le fichier est inconnu localement ou inactif
+        return False
 
 
 class SQLiteDetachedOperations(SQLiteCursor):
@@ -1038,7 +936,6 @@ class SQLiteDetachedTransfertSecondaire(SQLiteDetachedOperations):
 
     async def _transfer_data(self):
         pass  # Rien a faire
-
 
 
 class SQLiteDetachedBackupAppend(SQLiteDetachedOperations):

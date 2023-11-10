@@ -27,7 +27,8 @@ from millegrilles_fichiers.SQLiteDao import (SQLiteConnection, SQLiteReadOperati
                                              SQLiteBatchOperations,
                                              SQLiteDetachedSyncCreate, SQLiteDetachedSyncApply,
                                              SQLiteDetachedReclamationAppend, SQLiteDetachedBackupAppend,
-                                             SQLiteDetachedTransferApply, SQLiteTransfertOperations, SQLiteDetachedReclamationFichierAppend)
+                                             SQLiteDetachedTransferApply, SQLiteTransfertOperations,
+                                             SQLiteDetachedReclamationFichierAppend, SQLiteTransfertOperations)
 
 CONST_LIMITE_SAMPLES_DOWNLOAD = 50  # Utilise pour calcul taux de transfert
 
@@ -488,6 +489,14 @@ class SyncManager:
                         self.__logger.exception("__sequence_sync_secondaire Erreur preparation SQLiteDetachedTransferApply")
                         raise e
 
+                # Declencher les threads d'upload et de download (aucun effect si threads deja actives)
+                self.__upload_event.set()
+                self.__download_event.set()
+
+                # # Declencher sync des fichiers de backup avec le primaire
+                # self.__logger.info("__sequence_sync_secondaire run_sync_backup (Progres: 5/5)")
+                # await self.run_sync_backup()
+
                 pass
 
         finally:
@@ -904,30 +913,31 @@ class SyncManager:
         #         # Commit derniere batch
         #         await dao.commit_batch()
 
-    async def creer_operations_sur_secondaire(self):
-        with self.__etat_instance.sqlite_connection() as connection:
-            async with SQLiteBatchOperations(connection) as dao:
-                await dao.marquer_secondaires_reclames()
-                await asyncio.sleep(2)
-
-                await dao.generer_uploads()
-                await asyncio.sleep(2)
-
-                await dao.generer_downloads()
-
-        # Declencher les threads d'upload et de download (aucun effect si threads deja actives)
-        self.__upload_event.set()
-        self.__download_event.set()
+    # async def creer_operations_sur_secondaire(self):
+    #     with self.__etat_instance.sqlite_connection() as connection:
+    #         async with SQLiteBatchOperations(connection) as dao:
+    #             await dao.marquer_secondaires_reclames()
+    #             await asyncio.sleep(2)
+    #
+    #             await dao.generer_uploads()
+    #             await asyncio.sleep(2)
+    #
+    #             await dao.generer_downloads()
+    #
+    #     # Declencher les threads d'upload et de download (aucun effect si threads deja actives)
+    #     self.__upload_event.set()
+    #     self.__download_event.set()
 
     async def run_upload(self):
-        with self.__etat_instance.sqlite_connection() as connection:
-            self.__samples_upload = list()  # Reset samples download
+        path_database_transferts = pathlib.Path(self.__etat_instance.get_path_data(), Constantes.FICHIER_DATABASE_TRANSFERTS)
+        self.__samples_upload = list()  # Reset samples download
 
+        with SQLiteConnection(path_database_transferts, check_same_thread=False) as connection_transfert:
             timeout = aiohttp.ClientTimeout(connect=20)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 while True:
-                    async with SQLiteWriteOperations(connection) as dao_write:
-                        job_upload = await asyncio.to_thread(dao_write.get_next_upload)
+                    async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
+                        job_upload = await asyncio.to_thread(transfert_dao.get_next_upload)
                     if job_upload is None:
                         break
                     if self.__stop_event.is_set():
@@ -935,7 +945,7 @@ class SyncManager:
                         return
                     self.__logger.debug("run_upload Uploader fichier %s" % job_upload)
                     try:
-                        await self.upload_fichier_primaire(session, connection, job_upload)
+                        await self.upload_fichier_primaire(session, connection_transfert, job_upload)
                     except Exception:
                         self.__logger.exception("run_upload Erreur upload fichier du primaire : %s" % job_upload['fuuid'])
 
@@ -945,14 +955,15 @@ class SyncManager:
         self.__logger.debug("run_upload Aucunes jobs d'upload restantes - uploads courants termines")
 
     async def run_download(self):
-        with self.__etat_instance.sqlite_connection() as connection:
+        path_database = pathlib.Path(self.__etat_instance.get_path_data(), Constantes.FICHIER_DATABASE_TRANSFERTS)
+        with SQLiteConnection(path_database, check_same_thread=False) as connection_transfert:
             self.__samples_download = list()  # Reset samples download
 
             timeout = aiohttp.ClientTimeout(connect=20)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 while True:
-                    async with SQLiteWriteOperations(connection) as dao_write:
-                        job_download = await asyncio.to_thread(dao_write.get_next_download)
+                    async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
+                        job_download = await asyncio.to_thread(transfert_dao.get_next_download)
                     if job_download is None:
                         break
                     if self.__stop_event.is_set():
@@ -960,7 +971,7 @@ class SyncManager:
                         return
                     self.__logger.debug("run_download Downloader fichier %s" % job_download)
                     try:
-                        await self.download_fichier_primaire(session, connection, job_download)
+                        await self.download_fichier_primaire(session, connection_transfert, job_download)
                     except Exception:
                         self.__logger.exception("Erreur download fichier du primaire : %s" % job_download['fuuid'])
 
@@ -969,7 +980,7 @@ class SyncManager:
         self.__samples_download = list()  # Reset samples download
         self.__logger.debug("run_download Aucunes jobs de download restant - downloads courants termines")
 
-    async def download_fichier_primaire(self, session: aiohttp.ClientSession, connection: SQLiteConnection, fichier: dict):
+    async def download_fichier_primaire(self, session: aiohttp.ClientSession, connection_transfert: SQLiteConnection, fichier: dict):
         self.__download_en_cours = fichier
         self.__download_en_cours['position'] = 0
         fuuid = fichier['fuuid']
@@ -984,8 +995,8 @@ class SyncManager:
             if info_fichier['etat_fichier'] != 'manquant':
                 # Le fichier n'est pas manquant - annuler le download.
                 self.__download_en_cours = None
-                async with SQLiteWriteOperations(connection) as dao:
-                    await asyncio.to_thread(dao.supprimer_job_download, fuuid)
+                async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
+                    await asyncio.to_thread(transfert_dao.supprimer_job_download, fuuid)
                 return
         except TypeError:
             pass  # OK, le fichier n'existe pas
@@ -1005,18 +1016,17 @@ class SyncManager:
             async with session.get(url_primaire_reclamations.url, ssl=self.__etat_instance.ssl_context) as resp:
                 if resp.status != 200:
                     self.__logger.warning("Erreur download fichier %s (status %d)" % (fuuid, resp.status))
-                    async with SQLiteWriteOperations(connection) as dao:
+                    async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
                         if resp.status == 404:
                             self.__logger.warning(
                                 "Erreur download fichier %s - supprimer le download" % fuuid)
-                            await asyncio.to_thread(dao.supprimer_job_download, fuuid)
-                        await asyncio.to_thread(dao.touch_download, fuuid, resp.status)
+                            await asyncio.to_thread(transfert_dao.supprimer_job_download, fuuid)
+                        await asyncio.to_thread(transfert_dao.touch_download, fuuid, resp.status)
                     path_fichier_work.unlink()
                     return
 
-                async with SQLiteReadOperations(connection) as dao_read:
-                    async with SQLiteWriteOperations(connection) as dao_write:
-                        await self.emettre_etat_download(fuuid, dao_read, dao_write, producer)
+                async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
+                    await self.emettre_etat_download(fuuid, transfert_dao, producer)
                 date_download_maj = datetime.datetime.utcnow()
 
                 debut_chunk = datetime.datetime.utcnow()
@@ -1037,20 +1047,24 @@ class SyncManager:
 
                     if now - intervalle_download_maj > date_download_maj:
                         date_download_maj = now
-                        async with SQLiteReadOperations(connection) as dao_read:
-                            async with SQLiteWriteOperations(connection) as dao_write:
-                                await self.emettre_etat_download(fuuid, dao_read, dao_write, producer)
+                        async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
+                            await self.emettre_etat_download(fuuid, transfert_dao, producer)
 
                     # Debut compter pour prochain chunk
                     debut_chunk = now
 
+        async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
+            await self.emettre_etat_download(fuuid, transfert_dao, producer)
+
         # Consigner le fichier recu
         await self.__consignation.consigner(path_fichier_work, fuuid)
-        async with SQLiteWriteOperations(connection) as dao_write:
-            await asyncio.to_thread(dao_write.supprimer_job_download, fuuid)
+
+        async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
+            await asyncio.to_thread(transfert_dao.supprimer_job_download, fuuid)
+
         self.__download_en_cours = None
 
-    async def emettre_etat_download(self, fuuid, dao_read: SQLiteReadOperations, dao_write: SQLiteWriteOperations, producer):
+    async def emettre_etat_download(self, fuuid, transfert_dao: SQLiteTransfertOperations, producer):
         samples = self.__samples_download.copy()
         # Calculer vitesse de transfert
         duree = datetime.timedelta(seconds=0)
@@ -1065,9 +1079,9 @@ class SyncManager:
         else:
             taux = None
 
-        await asyncio.to_thread(dao_write.touch_download, fuuid, None)
+        await asyncio.to_thread(transfert_dao.touch_download, fuuid, None)
         try:
-            etat = await asyncio.to_thread(dao_read.get_etat_downloads)
+            etat = await asyncio.to_thread(transfert_dao.get_etat_downloads)
             nombre = etat['nombre']
             taille = etat['taille']
         except TypeError:
@@ -1109,8 +1123,10 @@ class SyncManager:
         )
 
     async def run_entretien_transferts(self):
-        with self.__etat_instance.sqlite_connection() as connection:
-            async with SQLiteBatchOperations(connection) as dao:
+        path_database = pathlib.Path(self.__etat_instance.get_path_data(), Constantes.FICHIER_DATABASE_TRANSFERTS)
+        with SQLiteConnection(path_database, check_same_thread=False) as connection:
+            async with SQLiteTransfertOperations(connection) as dao:
+                await dao.init_database()  # Aucun effet si existe deja
                 await dao.entretien_transferts()
 
         # Entretien repertoire staging/sync/download - supprimer fichiers inactifs
@@ -1135,7 +1151,7 @@ class SyncManager:
             self.__upload_event.set()
             self.__download_event.set()
 
-    async def upload_fichier_primaire(self, session: aiohttp.ClientSession, connection: SQLiteConnection, fichier: dict):
+    async def upload_fichier_primaire(self, session: aiohttp.ClientSession, connection_transfert: SQLiteConnection, fichier: dict):
         fuuid = fichier['fuuid']
 
         producer = self.__etat_instance.producer
@@ -1159,9 +1175,8 @@ class SyncManager:
                     now = datetime.datetime.utcnow()
                     if now - intervalle_update > dernier_update:
                         dernier_update = now
-                        with self.__etat_instance.sqlite_connection() as connection2:
-                            async with SQLiteWriteOperations(connection2) as dao_write:
-                                await asyncio.to_thread(dao_write.touch_upload, fuuid, None)
+                        async with SQLiteTransfertOperations(connection_transfert) as dao_write:
+                            await asyncio.to_thread(dao_write.touch_upload, fuuid, None)
 
                 etat_upload.cb_activite = cb_upload
 
@@ -1179,21 +1194,21 @@ class SyncManager:
                 self.__samples_upload = etat_upload.samples
 
             # Transfert termine. Supprimer job d'upload
-            async with SQLiteWriteOperations(connection) as dao_write:
+            async with SQLiteTransfertOperations(connection_transfert) as dao_write:
                 await asyncio.to_thread(dao_write.supprimer_job_upload, fuuid)
         except ClientResponseError as e:
             if e.status == 409:
                 self.__logger.info("upload_fichier_primaire Le fichier %s existe deja sur le serveur - OK, terminer job immediatement" % fuuid)
-                async with SQLiteWriteOperations(connection) as dao_write:
+                async with SQLiteTransfertOperations(connection_transfert) as dao_write:
                     await asyncio.to_thread(dao_write.supprimer_job_upload, fuuid)
         except FileNotFoundError as e:
             self.__logger.info(
                 "upload_fichier_primaire Le fichier %s n'existe pas localement : %s" % (fuuid, e))
-            async with SQLiteWriteOperations(connection) as dao_write:
+            async with SQLiteTransfertOperations(connection_transfert) as dao_write:
                 await asyncio.to_thread(dao_write.supprimer_job_upload, fuuid)
         except Exception:
             self.__logger.exception('upload_fichier_primaire Erreur upload fichier vers primaire')
-            async with SQLiteWriteOperations(connection) as dao_write:
+            async with SQLiteTransfertOperations(connection_transfert) as dao_write:
                 await asyncio.to_thread(dao_write.touch_upload, fuuid, -1)
 
         self.__upload_en_cours = None
@@ -1210,6 +1225,9 @@ class SyncManager:
                     return  # Stopped
 
     async def emettre_etat_upload(self, fuuid, connection: SQLiteConnection, producer):
+
+        path_database_transferts = pathlib.Path(self.__etat_instance.get_path_data(),
+                                                Constantes.FICHIER_DATABASE_TRANSFERTS)
 
         upload_en_cours = self.__upload_en_cours
         if upload_en_cours is not None:
@@ -1235,18 +1253,19 @@ class SyncManager:
             else:
                 taux = None
 
-        async with SQLiteWriteOperations(connection) as dao_write:
-            await asyncio.to_thread(dao_write.touch_upload, fuuid, None)
+        with SQLiteConnection(path_database_transferts, check_same_thread=False) as connection_transferts:
+            async with SQLiteTransfertOperations(connection_transferts) as transferts_dao:
+                await asyncio.to_thread(transferts_dao.touch_upload, fuuid, None)
 
-        async with SQLiteReadOperations(connection) as dao_read:
-            try:
-                etat = await asyncio.to_thread(dao_read.get_etat_uploads)
-                nombre = etat['nombre']
-                taille = etat['taille']
-            except TypeError:
-                # Aucuns downloads
-                nombre = None
-                taille = None
+            async with SQLiteTransfertOperations(connection_transferts) as transferts_dao:
+                try:
+                    etat = await asyncio.to_thread(transferts_dao.get_etat_uploads)
+                    nombre = etat['nombre']
+                    taille = etat['taille']
+                except TypeError:
+                    # Aucuns downloads
+                    nombre = None
+                    taille = None
 
         self.__logger.debug("emettre_etat_upload %s fichiers, %s bytes transfere a %s KB/sec (courant: %s/%s)" %
                             (nombre, taille, taux, position_en_cours, taille_en_cours))
@@ -1279,6 +1298,9 @@ class SyncManager:
         fuuid = commande['fuuid']
         self.__logger.debug("ajouter_fichier_primaire Conserver nouveau fichier consigne su primaire %s" % fuuid)
 
+        path_database_transferts = pathlib.Path(self.__etat_instance.get_path_data(),
+                                                Constantes.FICHIER_DATABASE_TRANSFERTS)
+
         with self.__etat_instance.sqlite_connection() as connection:
 
             async with SQLiteWriteOperations(connection) as dao:
@@ -1303,9 +1325,10 @@ class SyncManager:
                 if taille_str is not None:
                     self.__logger.debug("ajouter_fichier_primaire Fichier %s accessible pour download, taille %s" % (fuuid, taille_str))
 
-                taille_int = int(taille_str)
-                async with SQLiteWriteOperations(connection) as dao:
-                    await asyncio.to_thread(dao.ajouter_download_primaire, fuuid, taille_int)
+                with SQLiteConnection(path_database_transferts, check_same_thread=False) as connection_transferts:
+                    taille_int = int(taille_str)
+                    async with SQLiteTransfertOperations(connection_transferts) as transferts_dao:
+                        await asyncio.to_thread(transferts_dao.ajouter_download_primaire, fuuid, taille_int)
 
                 # Declencher thread download au besoin
                 self.__download_event.set()
@@ -1314,13 +1337,18 @@ class SyncManager:
 
     async def ajouter_upload_secondaire(self, fuuid: str):
         """ Ajouter conditionnellement un upload vers le primaire """
-        with self.__etat_instance.sqlite_connection() as connection:
-            # Verifier si le fichier est present dans FICHIERS_PRIMAIRE
-            async with SQLiteWriteOperations(connection) as dao_write:
-                ajoute = await asyncio.to_thread(dao_write.ajouter_upload_secondaire_conditionnel, fuuid)
-        if ajoute:
-            self.__logger.debug("ajouter_upload_secondaire Declencher upload pour fuuid %s" % fuuid)
-            self.__upload_event.set()
+
+        path_database_transferts = pathlib.Path(self.__etat_instance.get_path_data(),
+                                                Constantes.FICHIER_DATABASE_TRANSFERTS)
+
+        raise NotImplementedError('todo')
+        # with SQLiteConnection(path_database_transferts, check_same_thread=False) as connection_transferts:
+        #     # Verifier si le fichier est present dans FICHIERS_PRIMAIRE
+        #     async with SQLiteWriteOperations(connection_transferts) as dao_write:
+        #         ajoute = await asyncio.to_thread(dao_write.ajouter_upload_secondaire_conditionnel, fuuid)
+        # if ajoute:
+        #     self.__logger.debug("ajouter_upload_secondaire Declencher upload pour fuuid %s" % fuuid)
+        #     self.__upload_event.set()
 
     async def run_sync_backup(self):
         if self.__etat_instance.est_primaire is False:

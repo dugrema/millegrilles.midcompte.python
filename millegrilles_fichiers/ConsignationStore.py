@@ -6,7 +6,6 @@ import json
 import logging
 import pathlib
 import shutil
-import sqlite3
 import tempfile
 
 from aiohttp import web, ClientSession
@@ -18,7 +17,6 @@ from millegrilles_fichiers.SQLiteDao import SQLiteConnection
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
 from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
 
-import millegrilles_fichiers.DatabaseScripts as scripts_database
 from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.UploadFichiersPrimaire import EtatUpload, feed_filepart2
@@ -123,14 +121,6 @@ class ConsignationStore:
             # Emettre dernier message de visite
             liste_fuuids = [f['fuuid'] for f in batch]
             await self.emettre_batch_visites(liste_fuuids, False)
-
-        # # batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
-        # batch, resultat = await dao.commit_batch()
-        # if batch is not None:
-        #     await self.emettre_batch_visites(batch, False)
-        #
-        # # Marquer tous les fichiers 'manquants' qui viennent d'etre visites comme actifs (utilise date debut)
-        # await asyncio.to_thread(dao.marquer_actifs_visites)
 
         self.__logger.info("visiter_fuuids Fin")
 
@@ -266,24 +256,7 @@ class ConsignationStore:
         return reponse
 
     async def __reactiver_fuuids(self, fuuids: list) -> list[str]:
-        # con = self.ouvrir_database()
-        # cur = con.cursor()
-
-        # dict_fuuids = dict()
-        # idx = 0
-        # for fuuid in fuuids:
-        #     dict_fuuids['f%d' % idx] = fuuid
-        #     idx += 1
-
         date_reclamation = datetime.datetime.now(tz=pytz.UTC)
-        # params = {
-        #     'date_reclamation': datetime.datetime.now(tz=pytz.UTC)
-        # }
-        # params.update(dict_fuuids)
-
-        # requete = scripts_database.UPDATE_ACTIVER_SI_ORPHELIN.replace('$fuuids', ','.join([':%s' % f for f in dict_fuuids.keys()]))
-        # cur.execute(requete, params)
-        # con.commit()
 
         with self._etat.sqlite_connection() as connection:
             async with SQLiteWriteOperations(connection) as dao_write:
@@ -292,93 +265,17 @@ class ConsignationStore:
             async with SQLiteReadOperations(connection) as dao_read:
                 liste_fichiers_actifs = await asyncio.to_thread(dao_read.get_info_fichiers_actif, fuuid_keys)
 
-        # liste_fichiers_actifs = list()
-        # requete = scripts_database.SELECT_INFO_FICHIERS_ACTIFS.replace('$fuuids', ','.join([':%s' % f for f in dict_fuuids.keys()]))
-        # cur.execute(requete, dict_fuuids)
-
-        # while True:
-        #     row = cur.fetchone()
-        #     if row is None:
-        #         break
-        #     fuuid = row[0]
-        #     liste_fichiers_actifs.append(fuuid)
-        #
-        # cur.close()
-        # con.close()
-
         return liste_fichiers_actifs
-
-    # def ouvrir_database(self, ro=False) -> sqlite3.Connection:
-    #     # return sqlite3.connect(self.__path_database, check_same_thread=True)
-    #     raise NotImplementedError('obsolete')
 
     async def get_stats(self):
         with self._etat.sqlite_connection() as connection:
             async with SQLiteReadOperations(connection) as dao_read:
                 return await asyncio.to_thread(dao_read.get_stats_fichiers)
 
-        # con = self.ouvrir_database()
-        # cur = con.cursor()
-        # cur.execute(scripts_database.SELECT_STATS_FICHIERS)
-        #
-        # resultats_dict = dict()
-        # nombre_orphelins = 0
-        # taille_orphelins = 0
-        # nombre_manquants = 0
-        #
-        # while True:
-        #     row = cur.fetchone()
-        #     if row is None:
-        #         break
-        #
-        #     etat_fichier, bucket, nombre, taille = row
-        #     if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
-        #         resultats_dict[bucket] = {
-        #             'nombre': nombre,
-        #             'taille': taille
-        #         }
-        #     elif etat_fichier == Constantes.DATABASE_ETAT_ORPHELIN:
-        #         nombre_orphelins += nombre
-        #         taille_orphelins += taille
-        #     elif etat_fichier == Constantes.DATABASE_ETAT_MANQUANT:
-        #         nombre_manquants += nombre
-        #
-        # cur.close()
-        # con.close()
-        #
-        # resultats_dict[Constantes.DATABASE_ETAT_ORPHELIN] = {
-        #     'nombre': nombre_orphelins,
-        #     'taille': taille_orphelins
-        # }
-        #
-        # resultats_dict[Constantes.DATABASE_ETAT_MANQUANT] = {
-        #     'nombre': nombre_manquants,
-        # }
-        #
-        # return resultats_dict
-
     async def get_info_fichier(self, fuuid: str) -> Optional[dict]:
         with self._etat.sqlite_connection() as connection:
             async with SQLiteReadOperations(connection) as dao_read:
                 return await asyncio.to_thread(dao_read.get_info_fichier, fuuid)
-
-        # cur.execute(scripts_database.SELECT_INFO_FICHIER, {'fuuid': fuuid})
-        # row = cur.fetchone()
-        # if row is not None:
-        #     _fuuid, etat_fichier, taille, bucket, date_presence, date_verification, date_reclamation = row
-        #     cur.close()
-        #     con.close()
-        #
-        #     return {
-        #         'fuuid': fuuid,
-        #         'taille': taille,
-        #         'etat_fichier': etat_fichier,
-        #         'date_presence': date_presence,
-        #         'date_verification': date_verification,
-        #         'date_reclamation': date_reclamation
-        #     }
-        # else:
-        #     return None
 
     async def emettre_batch_visites(self, fuuids: list[Union[str, dict]], verification=False):
         fuuids_parsed = list()
@@ -427,21 +324,6 @@ class ConsignationStore:
         with SQLiteConnection(path_db_sync, check_same_thread=False) as connection:
             async with SQLiteDetachedReclamationAppend(connection) as detached_dao:
                 await detached_dao.reclamer_fuuids(fuuids, bucket)
-
-    # async def marquer_orphelins(self, dao_batch: SQLiteBatchOperations, debut_reclamation: datetime.datetime, complet=False):
-    #     if complet:
-    #         # Marquer les fichiers avec vieille date de reclamation comme non reclames (orphelins)
-    #         resultat = await asyncio.to_thread(dao_batch.marquer_orphelins, debut_reclamation)
-    #         await dao_batch.commit_batch()
-    #         self.__logger.info("__marquer_orphelins Marquer actif -> orphelins : %d rows" % resultat.rowcount)
-    #     else:
-    #         self.__logger.info("__marquer_orphelins Skip, reclamation est incomplete")
-    #
-    #     # Marquer fichiers orphelins qui viennent d'etre reclames comme actif
-    #     # resultat = cur.execute(scripts_database.UPDATE_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
-    #     resultat = await asyncio.to_thread(dao_batch.marquer_actifs, debut_reclamation)
-    #     await dao_batch.commit_batch()
-    #     self.__logger.info("__marquer_orphelins Marquer orphelins -> actif : %d rows" % resultat.rowcount)
 
     async def generer_reclamations_sync(self, connection: SQLiteConnection):
         dir_data = pathlib.Path(self._etat.configuration.dir_consignation)
@@ -618,28 +500,7 @@ class ConsignationStoreMillegrille(ConsignationStore):
 
         return input_file
 
-    # async def visiter_fuuids(self):
-    #     dir_buckets = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BUCKETS)
-    #     self.__logger.info("visiter_fuuids Debut avec path buckets %s" % dir_buckets)
-    #     with EntretienDatabase(self._etat, check_same_thread=False) as entretien_db:
-    #         # Parcourir tous les buckets recursivement (depth-first)
-    #         for bucket in dir_buckets.iterdir():
-    #             self.__logger.debug("Visiter bucket %s" % bucket.name)
-    #             await self.visiter_bucket(bucket.name, bucket, entretien_db)
-    #
-    #         batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
-    #         await self.emettre_batch_visites(batch, False)
-    #
-    #         # Marquer tous les fichiers 'manquants' qui viennent d'etre visites comme actifs (utilise date debut)
-    #         await asyncio.to_thread(entretien_db.marquer_actifs_visites)
-    #
-    #     self.__logger.info("visiter_fuuids Fin")
-
     async def visiter_bucket(self, bucket: str, path_repertoire: pathlib.Path, dao: SQLiteDetachedVisiteAppend):
-
-        batch = list()
-        now = datetime.datetime.now(tz=pytz.UTC)
-
         for item in path_repertoire.iterdir():
             if self._stop_store.is_set():
                 raise Exception('stopping')  # Stopping
@@ -656,33 +517,6 @@ class ConsignationStoreMillegrille(ConsignationStore):
                     # On a complete une batch, emettre message
                     liste_fuuids = [f['fuuid'] for f in batch]
                     await self.emettre_batch_visites(liste_fuuids, False)
-
-                # if len(batch) >= Constantes.CONST_BATCH_VISITES:
-                #     batch = await dao.ajouter_visite(item.name, bucket, stat.st_size)
-                #     await self.traiter_batch_visites(dao, batch)
-                #     # # batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
-                #     # debut_commit = datetime.datetime.utcnow()
-                #     # # batch, resultat = await dao.commit_batch()
-                #     # resultat = await dao.ajouter_visites(batch)
-                #     # duree = datetime.datetime.utcnow() - debut_commit
-                #     # self.__logger.info("visiter_bucket Commit batch visite complete (duree : %s)" % duree)
-                #     # liste_fuuids = [f['fuuid'] for f in batch]
-                #     # await self.emettre_batch_visites(liste_fuuids, False)
-                #     # # try:
-                #     # #     await asyncio.wait_for(self._stop_store.wait(), timeout=Constantes.CONST_ATTENTE_ENTRE_BATCH_VISITES)
-                #     # # except asyncio.TimeoutError:
-                #     # #     pass  # OK
-
-    # async def traiter_batch_visites(self, dao: SQLiteDetachedVisiteAppend, batch: list):
-    #     self.__logger.info("visiter_bucket Commit batch visite (%d)" % len(batch))
-    #     # batch, resultat = await asyncio.to_thread(entretien_db.commit_visites)
-    #     debut_commit = datetime.datetime.utcnow()
-    #     # batch, resultat = await dao.commit_batch()
-    #     resultat = await dao.ajouter_visites(batch)
-    #     duree = datetime.datetime.utcnow() - debut_commit
-    #     self.__logger.info("visiter_bucket Commit batch visite complete (duree : %s)" % duree)
-    #     liste_fuuids = [f['fuuid'] for f in batch]
-    #     await self.emettre_batch_visites(liste_fuuids, False)
 
     async def conserver_backup(self, fichier_temp: tempfile.TemporaryFile, uuid_backup: str, domaine: str,
                                nom_fichier: str):
@@ -827,21 +661,22 @@ class ConsignationStoreMillegrille(ConsignationStore):
         }
 
     async def upload_backups_primaire(self, session: ClientSession, dao: SQLiteReadOperations):
-        path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
-        for path_uuid_backup in path_backup.iterdir():
-            uuid_backup = path_uuid_backup.name
-            for path_domaine in path_uuid_backup.iterdir():
-                domaine = path_domaine.name
-                for path_fichier in path_domaine.iterdir():
-                    nom_fichier = path_fichier.name
-
-                    info = await asyncio.to_thread(
-                        dao.get_info_backup_primaire, uuid_backup, domaine, nom_fichier)
-
-                    if info is None:
-                        self.__logger.info("Fichier backup %s/%s/%s absent du primaire, on upload" % (uuid_backup, domaine, nom_fichier))
-                        with path_fichier.open('rb') as fichier:
-                            await self.upload_backup_primaire(session, uuid_backup, domaine, nom_fichier, fichier)
+        raise NotImplementedError('todo')
+        # path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
+        # for path_uuid_backup in path_backup.iterdir():
+        #     uuid_backup = path_uuid_backup.name
+        #     for path_domaine in path_uuid_backup.iterdir():
+        #         domaine = path_domaine.name
+        #         for path_fichier in path_domaine.iterdir():
+        #             nom_fichier = path_fichier.name
+        #
+        #             info = await asyncio.to_thread(
+        #                 dao.get_info_backup_primaire, uuid_backup, domaine, nom_fichier)
+        #
+        #             if info is None:
+        #                 self.__logger.info("Fichier backup %s/%s/%s absent du primaire, on upload" % (uuid_backup, domaine, nom_fichier))
+        #                 with path_fichier.open('rb') as fichier:
+        #                     await self.upload_backup_primaire(session, uuid_backup, domaine, nom_fichier, fichier)
 
 
 def map_type(type_store: str) -> Type[ConsignationStore]:
