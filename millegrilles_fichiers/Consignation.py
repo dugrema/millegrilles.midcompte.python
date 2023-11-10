@@ -103,6 +103,9 @@ class ConsignationHandler:
         self.__logger.info("Fin run")
 
     async def entretien(self):
+
+        await asyncio.wait_for(self.__etat_instance.producer_wait(), timeout=20)
+
         while self.__stop_event.is_set() is False:
             try:
                 await self.charger_topologie()
@@ -264,6 +267,9 @@ class ConsignationHandler:
         self.__logger.debug("__traiter_cedule_local Fin")
 
     async def thread_emettre_etat(self):
+
+        await asyncio.wait_for(self.__etat_instance.producer_wait(), timeout=20)
+
         while self.__stop_event.is_set() is False:
             try:
                 await self.emettre_etat()

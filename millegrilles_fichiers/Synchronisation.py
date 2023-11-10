@@ -299,6 +299,9 @@ class SyncManager:
 
     async def run_sync_primaire(self):
         self.__logger.info("thread_sync_primaire Demarrer sync")
+
+        await asyncio.wait_for(self.__etat_instance.producer_wait(), timeout=20)
+
         try:
             await self.emettre_etat_sync_primaire()
         except asyncio.TimeoutError:
@@ -386,6 +389,9 @@ class SyncManager:
 
     async def run_sync_secondaire(self):
         self.__logger.info("run_sync_secondaire Demarrer sync")
+
+        await asyncio.wait_for(self.__etat_instance.producer_wait(), timeout=20)
+
         try:
             await self.emettre_etat_sync_secondaire()
         except asyncio.TimeoutError:
@@ -458,6 +464,7 @@ class SyncManager:
                 # Transferer data vers consignation.sqlite
                 self.__logger.info("__sequence_sync_secondaire merge reclamations+visites avec main db (Progres: 4/5)")
                 async with SQLiteDetachedSyncApply(connection, debut_reclamation) as sync_dao:
+                    debut_transfert_data = datetime.datetime.utcnow()
                     self.__logger.debug("__sequence_sync_primaire Sync vers base de donnee de fichiers")
                     await sync_dao.attach_destination(path_database_fichiers, 'fichiers')
                     pass  # Fermer, la sync s'execute automatiquement
@@ -472,11 +479,9 @@ class SyncManager:
                         self.__logger.exception("__sequence_sync_secondaire Erreur preparation SQLiteDetachedTransferApply")
                         raise e
 
-                    debut_transfert_data = datetime.datetime.utcnow()
-
                     pass  # Fermer, le transfert s'execute automatiquement a la fermeture
 
-                self.__logger.info("__sequence_sync_secondaire Duree transfert data vers consignation.sqlite : %s" % (
+                self.__logger.info("__sequence_sync_secondaire Duree transfert data vers consignation.sqlite (steps 4, 5) : %s" % (
                         datetime.datetime.utcnow()-debut_transfert_data))
 
                 # Declencher les threads d'upload et de download (aucun effect si threads deja actives)
