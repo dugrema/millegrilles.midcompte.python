@@ -291,7 +291,7 @@ INSERT_PRESENCE_FICHIERS = """
 """
 
 INSERT_RECLAMER_FICHIER = """
-    INSERT INTO FICHIERS(fuuid, bucket_reclame, date_reclamation)
+    INSERT OR IGNORE INTO FICHIERS(fuuid, bucket_reclame, date_reclamation)
     VALUES (:fuuid, :bucket, :date_reclamation)
 """
 
