@@ -296,8 +296,8 @@ INSERT_RECLAMER_FICHIER = """
 """
 
 INSERT_RECLAMER_FICHIER_SECONDAIRE = """
-    INSERT INTO FICHIERS(fuuid, bucket_reclame, date_reclamation, taille, etat_fichier_primaire)
-    VALUES (:fuuid, :bucket, :date_reclamation, :taille, :etat_fichier)
+    INSERT INTO FICHIERS(fuuid, bucket_reclame, date_reclamation, taille, etat_fichier, etat_fichier_primaire)
+    VALUES (:fuuid, :bucket, :date_reclamation, :taille, 'manquant', :etat_fichier)
     ON CONFLICT(fuuid) DO UPDATE SET
         bucket_reclame = :bucket,
         date_reclamation = :date_reclamation,
@@ -509,7 +509,8 @@ TRANSFERT_INSERT_DOWNLOADS = """
     INSERT OR IGNORE INTO transferts.downloads(fuuid, taille, date_creation, essais)
     SELECT fuuid, taille, :date_creation, 0
     FROM fichiers
-    WHERE etat_fichier = 'actif'
+    WHERE etat_fichier = 'manquant'
+      AND etat_fichier_primaire = 'actif'
       AND date_presence IS NULL
       AND date_reclamation IS NOT NULL
     ;
