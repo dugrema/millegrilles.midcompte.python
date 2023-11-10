@@ -485,10 +485,9 @@ TRANSFERT_INSERT_ORPHELINS_FICHIERS = """
 """
 
 TRANSFERT_UPDATE_BACKUPS = """
-    UPDATE destination.fichiers
+    UPDATE destination.fichiers as dest
     SET date_backup = source.date_backup
-    FROM destination.fichiers as dest,
-         (SELECT fuuid, taille, date_backup FROM fichiers) as source
+    FROM (SELECT fuuid, taille, date_backup FROM fichiers) as source
     WHERE dest.fuuid = source.fuuid
       AND dest.taille = source.taille
     ;
@@ -518,4 +517,10 @@ INSERT OR IGNORE INTO transferts.backups_primaire(uuid_backup, domaine, nom_fich
 SELECT uuid_backup, domaine, nom_fichier, taille
 FROM backups_primaire
 ;
+"""
+
+TRANSFERT_UPDATE_MARQUER_ORPHELINS = """
+    UPDATE fichiers.fichiers
+    SET etat_fichier = 'orphelin'
+    WHERE date_reclamation < :date_reclamation
 """

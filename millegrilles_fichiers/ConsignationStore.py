@@ -423,32 +423,25 @@ class ConsignationStore:
             )
 
     async def reclamer_fuuids_database(self, fuuids: list, bucket: str):
-        with self._etat.sqlite_connection() as connection:
-            path_data = connection.path_data
-            path_db_sync = pathlib.Path(path_data, Constantes.FICHIER_DATABASE_SYNC)
-            async with SQLiteDetachedReclamationAppend(connection, path_db_sync) as detached_dao:
+        path_db_sync = pathlib.Path(self._etat.get_path_data(), Constantes.FICHIER_DATABASE_SYNC)
+        with SQLiteConnection(path_db_sync, check_same_thread=False) as connection:
+            async with SQLiteDetachedReclamationAppend(connection) as detached_dao:
                 await detached_dao.reclamer_fuuids(fuuids, bucket)
 
-            # Note : ouvrir batch sans lock - la reclamation se fait via message (callback) durant une sync
-            # async with SQLiteBatchOperations(connection, nolock=True) as dao_write:
-            #     for fuuid in fuuids:
-            #         await dao_write.ajouter_reclamer_fichier(fuuid, bucket)
-            pass
-
-    async def marquer_orphelins(self, dao_batch: SQLiteBatchOperations, debut_reclamation: datetime.datetime, complet=False):
-        if complet:
-            # Marquer les fichiers avec vieille date de reclamation comme non reclames (orphelins)
-            resultat = await asyncio.to_thread(dao_batch.marquer_orphelins, debut_reclamation)
-            await dao_batch.commit_batch()
-            self.__logger.info("__marquer_orphelins Marquer actif -> orphelins : %d rows" % resultat.rowcount)
-        else:
-            self.__logger.info("__marquer_orphelins Skip, reclamation est incomplete")
-
-        # Marquer fichiers orphelins qui viennent d'etre reclames comme actif
-        # resultat = cur.execute(scripts_database.UPDATE_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
-        resultat = await asyncio.to_thread(dao_batch.marquer_actifs, debut_reclamation)
-        await dao_batch.commit_batch()
-        self.__logger.info("__marquer_orphelins Marquer orphelins -> actif : %d rows" % resultat.rowcount)
+    # async def marquer_orphelins(self, dao_batch: SQLiteBatchOperations, debut_reclamation: datetime.datetime, complet=False):
+    #     if complet:
+    #         # Marquer les fichiers avec vieille date de reclamation comme non reclames (orphelins)
+    #         resultat = await asyncio.to_thread(dao_batch.marquer_orphelins, debut_reclamation)
+    #         await dao_batch.commit_batch()
+    #         self.__logger.info("__marquer_orphelins Marquer actif -> orphelins : %d rows" % resultat.rowcount)
+    #     else:
+    #         self.__logger.info("__marquer_orphelins Skip, reclamation est incomplete")
+    #
+    #     # Marquer fichiers orphelins qui viennent d'etre reclames comme actif
+    #     # resultat = cur.execute(scripts_database.UPDATE_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
+    #     resultat = await asyncio.to_thread(dao_batch.marquer_actifs, debut_reclamation)
+    #     await dao_batch.commit_batch()
+    #     self.__logger.info("__marquer_orphelins Marquer orphelins -> actif : %d rows" % resultat.rowcount)
 
     async def generer_reclamations_sync(self, connection: SQLiteConnection):
         dir_data = pathlib.Path(self._etat.configuration.dir_consignation)

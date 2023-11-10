@@ -66,10 +66,10 @@ class SQLiteConnection:
             self.__con.close()
             self.__con = None
 
-    def init_database(self):
+    def init_database(self, script_create=scripts_database.CONST_CREATE_FICHIERS):
         cur = self.__con.cursor()
         try:
-            self.__con.executescript(scripts_database.CONST_CREATE_FICHIERS)
+            self.__con.executescript(script_create)
         finally:
             cur.close()
             self.__con.commit()
@@ -438,11 +438,11 @@ class SQLiteWriteOperations(SQLiteCursor):
     # def touch_upload(self, fuuid: str, erreur: Optional[int] = None):
     #     params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
     #     self._cur.execute(scripts_database.UPDATE_TOUCH_UPLOAD, params)
-    #
-    # def touch_backup_fichier(self, fuuid: str, taille: int):
-    #     # Note : la taille est utilisee pour s'assurer un match sur le contenu transfere
-    #     params = {'fuuid': fuuid, 'taille': taille, 'date_backup': datetime.datetime.now(tz=pytz.UTC)}
-    #     self._cur.execute(scripts_database.UPDATE_TOUCH_BACKUP_FICHIER, params)
+
+    def touch_backup_fichier(self, fuuid: str, taille: int):
+        # Note : la taille est utilisee pour s'assurer un match sur le contenu transfere
+        params = {'fuuid': fuuid, 'taille': taille, 'date_backup': datetime.datetime.now(tz=pytz.UTC)}
+        self._cur.execute(scripts_database.UPDATE_TOUCH_BACKUP_FICHIER, params)
 
     def ajouter_fichier_manquant(self, fuuid) -> bool:
         """ Ajoute un fichier qui devrait etre manquant (e.g. sur evenement consignationPrimaire)"""
@@ -937,8 +937,14 @@ class SQLiteDetachedVisiteAppend(SQLiteDetachedOperations):
 
 class SQLiteDetachedSyncApply(SQLiteDetachedOperations):
 
-    def __init__(self, connection_source: SQLiteConnection):
+    def __init__(self, connection_source: SQLiteConnection, date_reclamation: datetime.datetime):
+        """
+
+        :param connection_source:
+        :param date_reclamation: Sert a marquer les orphelins, doit etre la date de debut de reclamation
+        """
         super().__init__(connection_source)
+        self.__date_reclamation = date_reclamation
 
     async def _create(self):
         pass  # Rien a faire
@@ -967,6 +973,10 @@ class SQLiteDetachedSyncApply(SQLiteDetachedOperations):
         """ Process fichiers orphelins (presence sans reclamation) - upsert dans table fichiers """
         await asyncio.to_thread(self._cur.execute, scripts_database.TRANSFERT_INSERT_ORPHELINS_FICHIERS)
 
+        # Marquer les fichiers qui n'ont pas ete mis a jour comme orphelins
+        params = {'date_reclamation': self.__date_reclamation}
+        await asyncio.to_thread(self._cur.execute, scripts_database.TRANSFERT_UPDATE_MARQUER_ORPHELINS, params)
+
     async def __transfer_supprimes(self):
         """ Process fichiers a supprimer (absents du sync) """
         pass
@@ -984,7 +994,6 @@ class SQLiteDetachedBackup(SQLiteDetachedOperations):
         await asyncio.to_thread(self._cur.executescript, scripts_database.CONST_CREATE_BACKUP)
 
     async def _transfer_data(self):
-        await self.attach_destination()
         await asyncio.to_thread(self._cur.execute, scripts_database.TRANSFERT_UPDATE_BACKUPS)
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -1008,6 +1017,28 @@ class SQLiteDetachedBackup(SQLiteDetachedOperations):
             resultat = list()
         self.__batch = list()  # Nouvelle liste
         return batch, resultat
+
+
+class SQLiteTransfertSecondaireOperations(SQLiteCursor):
+
+    def __init__(self, connection: SQLiteConnection):
+        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+        super().__init__(connection)
+
+    def init_database(self):
+        self._connection.init_database(scripts_database.CONST_CREATE_TRANSFERTS)
+
+class SQLiteDetachedTransfertSecondaire(SQLiteDetachedOperations):
+
+    def __init__(self, connection_destination: SQLiteConnection, database_work):
+        super().__init__(connection_destination, database_work, True)
+
+    async def _create(self):
+        await asyncio.to_thread(self._cur.executescript, scripts_database.CONST_CREATE_SYNC)
+
+    async def _transfer_data(self):
+        pass  # Rien a faire
+
 
 
 class SQLiteDetachedBackupAppend(SQLiteDetachedOperations):

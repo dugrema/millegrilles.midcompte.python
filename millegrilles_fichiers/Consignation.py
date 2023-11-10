@@ -542,12 +542,6 @@ class ConsignationHandler:
         else:
             self.__logger.warning("reclamer_fuuids_database Reception message avant initialisation store")
 
-    async def marquer_orphelins(self, dao_batch: SQLiteBatchOperations, debut_reclamation: datetime.datetime, complet=False):
-        if self.__store_consignation is not None:
-            await self.__store_consignation.marquer_orphelins(dao_batch, debut_reclamation, complet)
-        else:
-            self.__logger.warning("marquer_orphelins Reception message avant initialisation store")
-
     async def generer_reclamations_sync(self, connection: SQLiteConnection):
         if self.__store_consignation is not None:
             await self.__store_consignation.generer_reclamations_sync(connection)

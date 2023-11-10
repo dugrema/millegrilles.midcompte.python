@@ -8,7 +8,7 @@ import gzip
 import json
 import logging
 import pathlib
-import time
+import pytz
 
 from cryptography.exceptions import InvalidSignature
 from certvalidator.errors import PathValidationError
@@ -319,6 +319,11 @@ class SyncManager:
 
     async def __sequence_sync_primaire(self, event_sync: asyncio.Event):
         try:
+            path_database_sync = self.get_path_database_sync()
+
+            # Supprimer base de donnees de sync
+            path_database_sync.unlink(missing_ok=True)
+
             with SQLiteConnection(self.get_path_database_sync(), None, check_same_thread=False, reuse=False) as connection:
                 # Date debut utilise pour trouver les fichiers orphelins (si reclamation est complete)
                 debut_reclamation = datetime.datetime.utcnow()
@@ -352,17 +357,14 @@ class SyncManager:
                 with self.__etat_instance.sqlite_connection() as connection_fichiers:
                     path_database_fichiers = connection_fichiers.path_database
 
-                async with SQLiteDetachedSyncApply(connection) as sync_dao:
+                # Transferer contenu de la base de donnes sync.sqlite version consignation.sqlite
+                async with SQLiteDetachedSyncApply(connection, debut_reclamation) as sync_dao:
                     self.__logger.debug("__sequence_sync_primaire Sync vers base de donnee de fichiers")
 
                     # Attacher la database de fichiers (destination)
-                    await sync_dao.attach_destination(path_database_fichiers)
+                    await sync_dao.attach_destination(path_database_fichiers, 'fichiers')
 
                     pass  # Fermer, le transfert s'execute automatiquement a la fermeture
-
-                # # Process orphelins
-                # self.__logger.info("__sequence_sync_primaire marquer_orphelins (Progres: 3/5)")
-                # await self.__consignation.marquer_orphelins(dao_batch, debut_reclamation, reclamation_complete)
 
             if self.__stop_event.is_set():
                 return  # Stopped
@@ -464,13 +466,14 @@ class SyncManager:
 
                 # Merge information dans database
                 self.__logger.info("__sequence_sync_secondaire merge_fichiers_reclamation (Progres: 3/5)")
+                debut_reclamation = datetime.datetime.now(tz=pytz.UTC)
                 await self.merge_fichiers_reclamation(connection)
 
                 if self.__stop_event.is_set():
                     return  # Stopped
 
                 self.__logger.info("__sequence_sync_secondaire merge reclamations+visites avec main db (Progres: 4/5)")
-                async with SQLiteDetachedSyncApply(connection) as sync_dao:
+                async with SQLiteDetachedSyncApply(connection, debut_reclamation) as sync_dao:
                     self.__logger.debug("__sequence_sync_primaire Sync vers base de donnee de fichiers")
                     await sync_dao.attach_destination(path_database_fichiers, 'fichiers')
                     pass  # Fermer, la sync s'execute automatiquement
