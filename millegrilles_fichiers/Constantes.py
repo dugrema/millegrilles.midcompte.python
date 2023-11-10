@@ -22,6 +22,8 @@ DIR_BACKUP = 'backup_transactions'
 FICHIER_DATABASE_FICHIERS = 'consignation.sqlite'
 FICHIER_DATABASE_SYNC = 'sync.sqlite'
 FICHIER_DATABASE_BACKUP = 'backup.sqlite'
+FICHIER_DATABASE_TRANSFERTS = 'transferts.sqlite'
+
 FICHIER_RECLAMATIONS_PRIMAIRES = 'reclamations.jsonl.gz'
 FICHIER_RECLAMATIONS_INTERMEDIAIRES = 'reclamations.jsonl'
 FICHIER_BACKUP = 'backup.jsonl.gz'

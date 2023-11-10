@@ -179,23 +179,23 @@ class SQLiteReadOperations(SQLiteCursor):
 
         self.reset_intermediaires()
 
-    def get_etat_uploads(self):
-        self._cur.execute(scripts_database.SELECT_ETAT_UPLOADS)
-        row = self._cur.fetchone()
-        if row:
-            nombre, taille = row
-            return {'nombre': nombre, 'taille': taille}
-
-        return None
-
-    def get_etat_downloads(self):
-        self._cur.execute(scripts_database.SELECT_ETAT_DOWNLOADS)
-        row = self._cur.fetchone()
-        if row:
-            nombre, taille = row
-            return {'nombre': nombre, 'taille': taille}
-
-        return None
+    # def get_etat_uploads(self):
+    #     self._cur.execute(scripts_database.SELECT_ETAT_UPLOADS)
+    #     row = self._cur.fetchone()
+    #     if row:
+    #         nombre, taille = row
+    #         return {'nombre': nombre, 'taille': taille}
+    #
+    #     return None
+    #
+    # def get_etat_downloads(self):
+    #     self._cur.execute(scripts_database.SELECT_ETAT_DOWNLOADS)
+    #     row = self._cur.fetchone()
+    #     if row:
+    #         nombre, taille = row
+    #         return {'nombre': nombre, 'taille': taille}
+    #
+    #     return None
 
     def get_info_backup_primaire(self, uuid_backup: str, domaine: str, nom_fichier: str) -> Optional[dict]:
         params = {'uuid_backup': uuid_backup, 'domaine': domaine, 'nom_fichier': nom_fichier}
@@ -383,72 +383,66 @@ class SQLiteWriteOperations(SQLiteCursor):
             except Exception:
                 self.__logger.exception("Erreur sauvegarde fuuid dans liste intermediaire")
 
-    def truncate_fichiers_primaire(self):
-        self._cur.execute(scripts_database.DELETE_TRUNCATE_FICHIERS_PRIMAIRE)
+    # def get_next_download(self):
+    #     params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}
+    #     row = None
+    #     try:
+    #         self._cur.execute(scripts_database.UPDATE_GET_NEXT_DOWNLOAD, params)
+    #         row = self._cur.fetchone()
+    #     finally:
+    #         self._cur.close()
+    #
+    #     if row is not None:
+    #         fuuid, taille = row
+    #         return {'fuuid': fuuid, 'taille': taille}
+    #
+    #     return None
+    #
+    # def get_next_upload(self):
+    #     params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}
+    #     row = None
+    #     try:
+    #         self._cur.execute(scripts_database.UPDATE_GET_NEXT_UPLOAD, params)
+    #         row = self._cur.fetchone()
+    #     finally:
+    #         self._cur.close()
+    #
+    #     if row is not None:
+    #         fuuid, taille = row
+    #         return {'fuuid': fuuid, 'taille': taille}
+    #
+    #     return None
+    #
+    # def touch_download(self, fuuid: str, erreur: Optional[int] = None):
+    #     params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
+    #     self._cur.execute(scripts_database.UPDATE_TOUCH_DOWNLOAD, params)
 
-    def truncate_backup_primaire(self):
-        self._cur.execute(scripts_database.DELETE_TRUNCATE_BACKUPS_PRIMAIRE)
-
-    def get_next_download(self):
-        params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}
-        row = None
-        try:
-            self._cur.execute(scripts_database.UPDATE_GET_NEXT_DOWNLOAD, params)
-            row = self._cur.fetchone()
-        finally:
-            self._cur.close()
-
-        if row is not None:
-            fuuid, taille = row
-            return {'fuuid': fuuid, 'taille': taille}
-
-        return None
-
-    def get_next_upload(self):
-        params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}
-        row = None
-        try:
-            self._cur.execute(scripts_database.UPDATE_GET_NEXT_UPLOAD, params)
-            row = self._cur.fetchone()
-        finally:
-            self._cur.close()
-
-        if row is not None:
-            fuuid, taille = row
-            return {'fuuid': fuuid, 'taille': taille}
-
-        return None
-
-    def touch_download(self, fuuid: str, erreur: Optional[int] = None):
-        params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
-        self._cur.execute(scripts_database.UPDATE_TOUCH_DOWNLOAD, params)
-
-    def get_batch_backups_primaire(self) -> list[dict]:
-        self._cur.execute(scripts_database.UPDATE_FETCH_BACKUP_PRIMAIRE)
-        rows = self._cur.fetchall()
-        tasks = list()
-        if rows is not None and len(rows) > 0:
-            for row in rows:
-                uuid_backup, domaine, nom_fichier, taille = row
-                tasks.append({'uuid_backup': uuid_backup, 'domaine': domaine, 'nom_fichier': nom_fichier, 'taille': taille})
-        return tasks
-
-    def supprimer_job_download(self, fuuid: str):
-        params = {'fuuid': fuuid}
-        self._cur.execute(scripts_database.DELETE_DOWNLOAD, params)
-
-    def supprimer_job_upload(self, fuuid: str):
-        params = {'fuuid': fuuid}
-        self._cur.execute(scripts_database.DELETE_UPLOAD, params)
-
-    def touch_upload(self, fuuid: str, erreur: Optional[int] = None):
-        params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
-        self._cur.execute(scripts_database.UPDATE_TOUCH_UPLOAD, params)
-
-    def touch_backup_fichier(self, fuuid: str, taille: int):
-        # Note : la taille est utilisee pour s'assurer un match sur le contenu transfere
-        params = {'fuuid': fuuid, 'taille': taille, 'date_backup': datetime.datetime.now(tz=pytz.UTC)}
-        self._cur.execute(scripts_database.UPDATE_TOUCH_BACKUP_FICHIER, params)
+    # def get_batch_backups_primaire(self) -> list[dict]:
+    #     self._cur.execute(scripts_database.UPDATE_FETCH_BACKUP_PRIMAIRE)
+    #     rows = self._cur.fetchall()
+    #     tasks = list()
+    #     if rows is not None and len(rows) > 0:
+    #         for row in rows:
+    #             uuid_backup, domaine, nom_fichier, taille = row
+    #             tasks.append({'uuid_backup': uuid_backup, 'domaine': domaine, 'nom_fichier': nom_fichier, 'taille': taille})
+    #     return tasks
+    #
+    # def supprimer_job_download(self, fuuid: str):
+    #     params = {'fuuid': fuuid}
+    #     self._cur.execute(scripts_database.DELETE_DOWNLOAD, params)
+    #
+    # def supprimer_job_upload(self, fuuid: str):
+    #     params = {'fuuid': fuuid}
+    #     self._cur.execute(scripts_database.DELETE_UPLOAD, params)
+    #
+    # def touch_upload(self, fuuid: str, erreur: Optional[int] = None):
+    #     params = {'fuuid': fuuid, 'date_activite': datetime.datetime.now(tz=pytz.UTC), 'erreur': erreur}
+    #     self._cur.execute(scripts_database.UPDATE_TOUCH_UPLOAD, params)
+    #
+    # def touch_backup_fichier(self, fuuid: str, taille: int):
+    #     # Note : la taille est utilisee pour s'assurer un match sur le contenu transfere
+    #     params = {'fuuid': fuuid, 'taille': taille, 'date_backup': datetime.datetime.now(tz=pytz.UTC)}
+    #     self._cur.execute(scripts_database.UPDATE_TOUCH_BACKUP_FICHIER, params)
 
     def ajouter_fichier_manquant(self, fuuid) -> bool:
         """ Ajoute un fichier qui devrait etre manquant (e.g. sur evenement consignationPrimaire)"""
@@ -471,47 +465,47 @@ class SQLiteWriteOperations(SQLiteCursor):
 
         return ajoute
 
-    def ajouter_download_primaire(self, fuuid: str, taille: int):
-        params = {
-            'fuuid': fuuid,
-            'taille': taille,
-            'date_creation': datetime.datetime.now(tz=pytz.UTC),
-        }
-        try:
-            self._cur.execute(scripts_database.INSERT_DOWNLOAD, params)
-        except sqlite3.IntegrityError as e:
-            pass  # OK, le fichier existe deja dans la liste de downloads
+    # def ajouter_download_primaire(self, fuuid: str, taille: int):
+    #     params = {
+    #         'fuuid': fuuid,
+    #         'taille': taille,
+    #         'date_creation': datetime.datetime.now(tz=pytz.UTC),
+    #     }
+    #     try:
+    #         self._cur.execute(scripts_database.INSERT_DOWNLOAD, params)
+    #     except sqlite3.IntegrityError as e:
+    #         pass  # OK, le fichier existe deja dans la liste de downloads
 
-    def ajouter_upload_secondaire_conditionnel(self, fuuid: str) -> bool:
-        """ Ajoute conditionnellement un upload vers le primaire """
-        self._cur.execute(scripts_database.SELECT_PRIMAIRE_PAR_FUUID, {'fuuid': fuuid})
-        row = self._cur.fetchone()
-        if row is not None:
-            _fuuid, etat_fichier, taille, bucket = row
-            if etat_fichier != 'manquant':
-                # Le fichier n'est pas manquant (il est deja sur le primaire). SKIP
-                return False
-
-        # Le fichier est inconnu ou manquant sur le primaire. On peut creer l'upload
-        self._cur.execute(scripts_database.SELECT_FICHIER_PAR_FUUID, {'fuuid': fuuid})
-        row = self._cur.fetchone()
-        if row is not None:
-            _fuuid, etat_fichier, taille, bucket = row
-            if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
-                # Creer la job d'upload
-                params = {
-                    'fuuid': fuuid,
-                    'taille': taille,
-                    'date_creation': datetime.datetime.now(tz=pytz.UTC),
-                }
-                try:
-                    self._cur.execute(scripts_database.INSERT_UPLOAD, params)
-                except sqlite3.IntegrityError as e:
-                    pass  # OK, le fichier existe deja dans la liste d'uploads
-                return True
-
-        # Le fichier est inconnu localement ou inactif
-        return False
+    # def ajouter_upload_secondaire_conditionnel(self, fuuid: str) -> bool:
+    #     """ Ajoute conditionnellement un upload vers le primaire """
+    #     self._cur.execute(scripts_database.SELECT_PRIMAIRE_PAR_FUUID, {'fuuid': fuuid})
+    #     row = self._cur.fetchone()
+    #     if row is not None:
+    #         _fuuid, etat_fichier, taille, bucket = row
+    #         if etat_fichier != 'manquant':
+    #             # Le fichier n'est pas manquant (il est deja sur le primaire). SKIP
+    #             return False
+    #
+    #     # Le fichier est inconnu ou manquant sur le primaire. On peut creer l'upload
+    #     self._cur.execute(scripts_database.SELECT_FICHIER_PAR_FUUID, {'fuuid': fuuid})
+    #     row = self._cur.fetchone()
+    #     if row is not None:
+    #         _fuuid, etat_fichier, taille, bucket = row
+    #         if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
+    #             # Creer la job d'upload
+    #             params = {
+    #                 'fuuid': fuuid,
+    #                 'taille': taille,
+    #                 'date_creation': datetime.datetime.now(tz=pytz.UTC),
+    #             }
+    #             try:
+    #                 self._cur.execute(scripts_database.INSERT_UPLOAD, params)
+    #             except sqlite3.IntegrityError as e:
+    #                 pass  # OK, le fichier existe deja dans la liste d'uploads
+    #             return True
+    #
+    #     # Le fichier est inconnu localement ou inactif
+    #     return False
 
     def activer_si_orphelin(self, fuuids: list[str], date_reclamation: datetime.datetime) -> list[str]:
         dict_fuuids = dict()
@@ -556,15 +550,6 @@ class SQLiteBatchOperations(SQLiteCursor):
 
         self.__write_lock = connection.locks.write
         self.__batch_lock = connection.locks.batch_job
-
-    def attach(self, db_path: pathlib.Path, alias='attached'):
-        sql = "ATTACH DATABASE :db AS %s" % alias
-        params = {'db': str(db_path)}
-        return self._cur.execute(sql, params)
-
-    def detach(self, alias='attached'):
-        sql = "DETACH DATABASE %s" % alias
-        return self._cur.execute(sql)
 
     async def __aenter__(self):
         await self.__batch_lock.acquire()
@@ -627,89 +612,89 @@ class SQLiteBatchOperations(SQLiteCursor):
     #     self.ajouter_item_batch(row)
     #     return len(self.__batch)
 
-    def marquer_actifs_visites(self):
-        """ Sert a marquer tous les fichiers "manquants" comme actifs si visites recemment. """
-        self.open()
-        try:
-            resultat = self._cur.execute(scripts_database.UPDATE_ACTIFS_VISITES, {'date_presence': self.__debut_job})
-            self.__logger.info("marquer_actifs_visites Marquer manquants comme actifs si visite >= %s : %d rows" %
-                               (self.__debut_job, resultat.rowcount))
-            self._connection.commit()
+    # def marquer_actifs_visites(self):
+    #     """ Sert a marquer tous les fichiers "manquants" comme actifs si visites recemment. """
+    #     self.open()
+    #     try:
+    #         resultat = self._cur.execute(scripts_database.UPDATE_ACTIFS_VISITES, {'date_presence': self.__debut_job})
+    #         self.__logger.info("marquer_actifs_visites Marquer manquants comme actifs si visite >= %s : %d rows" %
+    #                            (self.__debut_job, resultat.rowcount))
+    #         self._connection.commit()
+    #
+    #         resultat = self._cur.execute(scripts_database.UPDATE_MANQANTS_VISITES, {'date_presence': self.__debut_job})
+    #         self.__logger.info("marquer_actifs_visites Marquer actifs,orphelins comme manquants si visite < %s : %d rows" %
+    #                            (self.__debut_job, resultat.rowcount))
+    #     finally:
+    #         try:
+    #             self._connection.commit()
+    #         finally:
+    #             self.close()
 
-            resultat = self._cur.execute(scripts_database.UPDATE_MANQANTS_VISITES, {'date_presence': self.__debut_job})
-            self.__logger.info("marquer_actifs_visites Marquer actifs,orphelins comme manquants si visite < %s : %d rows" %
-                               (self.__debut_job, resultat.rowcount))
-        finally:
-            try:
-                self._connection.commit()
-            finally:
-                self.close()
+    # async def marquer_secondaires_reclames(self):
+    #     # Inserer secondaires manquants
+    #     self.open()
+    #     async with self.__write_lock:
+    #         try:
+    #             params = {'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
+    #             await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_SECONDAIRES_MANQUANTS, params)
+    #             # self.__con.commit()
+    #
+    #             # Convertir les secondaires orphelins en actifs
+    #             await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_ORPHELINS_VERS_ACTIF, params)
+    #             # self.__con.commit()
+    #
+    #             # Marquer les secondaires deja presents comme reclames (peu importe l'etat)
+    #             params = {'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
+    #             await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_RECLAMES, params)
+    #             # self.__con.commit()
+    #
+    #             params = {'date_reclamation': self.__debut_job}
+    #             await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_NON_RECLAMES_VERS_ORPHELINS, params)
+    #
+    #             await asyncio.to_thread(self._connection.commit)
+    #         finally:
+    #             self.close()
 
-    async def marquer_secondaires_reclames(self):
-        # Inserer secondaires manquants
-        self.open()
-        async with self.__write_lock:
-            try:
-                params = {'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
-                await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_SECONDAIRES_MANQUANTS, params)
-                # self.__con.commit()
-
-                # Convertir les secondaires orphelins en actifs
-                await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_ORPHELINS_VERS_ACTIF, params)
-                # self.__con.commit()
-
-                # Marquer les secondaires deja presents comme reclames (peu importe l'etat)
-                params = {'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
-                await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_RECLAMES, params)
-                # self.__con.commit()
-
-                params = {'date_reclamation': self.__debut_job}
-                await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_SECONDAIRES_NON_RECLAMES_VERS_ORPHELINS, params)
-
-                await asyncio.to_thread(self._connection.commit)
-            finally:
-                self.close()
-
-    async def generer_downloads(self):
-        params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
-        self.open()
-        async with self.__write_lock:
-            try:
-                await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_DOWNLOADS, params)
-                await asyncio.to_thread(self._connection.commit)
-            finally:
-                self.close()
-
-    async def generer_uploads(self):
-        params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
-        self.open()
-        async with self.__write_lock:
-            try:
-                await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_UPLOADS, params)
-                await asyncio.to_thread(self._connection.commit)
-            finally:
-                self.close()
-
-    async def entretien_transferts(self):
-        """ Marque downloads ou uploads expires, permet nouvel essai. """
-        now = datetime.datetime.now(tz=pytz.UTC)
-
-        self.open()
-        async with self.__write_lock:
-            try:
-                await asyncio.to_thread(self._cur.execute, scripts_database.DELETE_DOWNLOADS_ESSAIS_EXCESSIFS)
-
-                expiration_downloads = now - datetime.timedelta(minutes=30)
-                params = {'date_activite': expiration_downloads}
-                await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_DOWNLOAD_EXPIRE, params)
-
-                expiration_uploads = now - datetime.timedelta(minutes=30)
-                params = {'date_activite': expiration_uploads}
-                await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_UPLOADS_EXPIRE, params)
-
-                await asyncio.to_thread(self._connection.commit)
-            finally:
-                self.close()
+    # async def generer_downloads(self):
+    #     params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
+    #     self.open()
+    #     async with self.__write_lock:
+    #         try:
+    #             await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_DOWNLOADS, params)
+    #             await asyncio.to_thread(self._connection.commit)
+    #         finally:
+    #             self.close()
+    #
+    # async def generer_uploads(self):
+    #     params = {'date_creation': datetime.datetime.now(tz=pytz.UTC)}
+    #     self.open()
+    #     async with self.__write_lock:
+    #         try:
+    #             await asyncio.to_thread(self._cur.execute, scripts_database.INSERT_UPLOADS, params)
+    #             await asyncio.to_thread(self._connection.commit)
+    #         finally:
+    #             self.close()
+    #
+    # async def entretien_transferts(self):
+    #     """ Marque downloads ou uploads expires, permet nouvel essai. """
+    #     now = datetime.datetime.now(tz=pytz.UTC)
+    #
+    #     self.open()
+    #     async with self.__write_lock:
+    #         try:
+    #             await asyncio.to_thread(self._cur.execute, scripts_database.DELETE_DOWNLOADS_ESSAIS_EXCESSIFS)
+    #
+    #             expiration_downloads = now - datetime.timedelta(minutes=30)
+    #             params = {'date_activite': expiration_downloads}
+    #             await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_DOWNLOAD_EXPIRE, params)
+    #
+    #             expiration_uploads = now - datetime.timedelta(minutes=30)
+    #             params = {'date_activite': expiration_uploads}
+    #             await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_UPLOADS_EXPIRE, params)
+    #
+    #             await asyncio.to_thread(self._connection.commit)
+    #         finally:
+    #             self.close()
 
     async def marquer_verification(self, fuuid: str, etat_fichier: str):
         self.open()
@@ -738,11 +723,12 @@ class SQLiteBatchOperations(SQLiteCursor):
                 self.close()
 
     async def supprimer(self, fuuid: str):
-        self.batch_script = scripts_database.DELETE_SUPPRIMER_FUUIDS
-        self.ajouter_item_batch({'fuuid': fuuid})
-
-        if len(self.__batch) >= self.__limite_batch:
-            await self.commit_batch()
+        raise NotImplementedError('fix me')
+        # self.batch_script = scripts_database.DELETE_SUPPRIMER_FUUIDS
+        # self.ajouter_item_batch({'fuuid': fuuid})
+        #
+        # if len(self.__batch) >= self.__limite_batch:
+        #     await self.commit_batch()
 
     def marquer_orphelins(self, debut_reclamation: datetime.datetime):
         self.open()
@@ -752,42 +738,44 @@ class SQLiteBatchOperations(SQLiteCursor):
         finally:
             self.close()
 
-    def marquer_actifs(self, debut_reclamation: datetime.datetime):
-        self.open()
+    # def marquer_actifs(self, debut_reclamation: datetime.datetime):
+    #     self.open()
+    #     try:
+    #         resultat = self._cur.execute(scripts_database.UPDATE_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
+    #         return resultat
+    #     finally:
+    #         self.close()
+
+
+class SQLiteTransfertOperations(SQLiteCursor):
+
+    def __init__(self, connection: SQLiteConnection):
+        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+        super().__init__(connection)
+
+    async def init_database(self):
+        cur = self._connection.cursor()
         try:
-            resultat = self._cur.execute(scripts_database.UPDATE_MARQUER_ACTIF, {'date_reclamation': debut_reclamation})
-            return resultat
+            await asyncio.to_thread(cur.executescript, scripts_database.CONST_CREATE_TRANSFERTS)
         finally:
-            self.close()
+            cur.close()
+            await asyncio.to_thread(self._connection.commit)
 
 
 class SQLiteDetachedOperations(SQLiteCursor):
 
-    def __init__(self, connection_destination: SQLiteConnection, database_work, delete_db=False):
+    def __init__(self, connection_source: SQLiteConnection):
+        super().__init__(connection_source)
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-
-        self._connection_destination = connection_destination
-        self.__path_database_detached = pathlib.Path(database_work)
-        self.__delete_db = delete_db
-
         self.__debut_job = datetime.datetime.now(tz=pytz.UTC)
 
-        self.__conn_detached = SQLiteConnection(
-            self.__path_database_detached, locks=None, check_same_thread=False, timeout=1.0, reuse=False)
-
-        super().__init__(self.__conn_detached)
-
-    def get_path_database_destination(self):
-        return self._connection_destination.path_database
-
-    async def attach_destination(self):
-        db_path = self.get_path_database_destination()
-        sql = "ATTACH DATABASE :db AS destination"
-        params = {'db': str(db_path)}
+    async def attach_destination(self, path_database: pathlib.Path, alias='destination'):
+        sql = "ATTACH DATABASE :db AS %s" % alias
+        params = {'db': str(path_database)}
         return await asyncio.to_thread(self._cur.execute, sql, params)
 
-    async def detach_destination(self):
-        sql = "DETACH DATABASE destination"
+    async def detach_destination(self, alias='destination'):
+        sql = "DETACH DATABASE %s" % alias
         return await asyncio.to_thread(self._cur.execute, sql)
 
     async def _create(self):
@@ -799,18 +787,15 @@ class SQLiteDetachedOperations(SQLiteCursor):
         raise NotImplementedError('must implement')
 
     async def __aenter__(self):
-        if self.__delete_db:
-            self.__path_database_detached.unlink(missing_ok=True)
+        path_database = self._connection.path_database
 
         # Initialiser la base de donnees
-        self.__conn_detached.open()
         try:
-            self.open()
-
+            await super().__aenter__()
             await self._create()
         except:
-            self.__logger.exception("__aenter__ Erreur oouverture db %s" % self.__path_database_detached)
-            self.__conn_detached.close()
+            self.__logger.exception("__aenter__ Erreur oouverture db %s" % path_database)
+            self._connection.close()
 
         return self
 
@@ -818,85 +803,15 @@ class SQLiteDetachedOperations(SQLiteCursor):
         try:
             await self._transfer_data()
         finally:
-            try:
-                self.close()
-            finally:
-                self.__conn_detached.close()
+            await super().__aexit__(exc_type, exc_val, exc_tb)
         return False
-
-    def close(self):
-        self._cur.close()
-        self._cur = None
-
-    # def ajouter_visite(self, bucket: str, fuuid: str, taille: int) -> int:
-    #     self.batch_script = scripts_database.INSERT_PRESENCE_FICHIERS
-    #     row = {
-    #         'fuuid': fuuid,
-    #         'etat_fichier': Constantes.DATABASE_ETAT_ACTIF,
-    #         'taille': taille,
-    #         'bucket': bucket,
-    #         'date_presence': datetime.datetime.now(tz=pytz.UTC),
-    #         'date_verification': datetime.datetime.fromtimestamp(0, tz=pytz.UTC),
-    #     }
-    #     self.ajouter_item_batch(row)
-    #     return len(self.__batch)
-    #
-    # async def ajouter_fichier_primaire(self, fichier: dict) -> bool:
-    #     """
-    #
-    #     :param fichier:
-    #     :return: True si commit complete
-    #     """
-    #     self.batch_script = scripts_database.INSERT_FICHIER_PRIMAIRE
-    #     self.ajouter_item_batch(fichier)
-    #
-    #     if len(self.__batch) >= self.__limite_batch:
-    #         await self.commit_batch()
-    #         return True
-    #
-    #     return False
-    #
-    # async def ajouter_backup_primaire(self, fichier: dict):
-    #     self.batch_script = scripts_database.INSERT_BACKUP_PRIMAIRE
-    #     self.ajouter_item_batch(fichier)
-    #
-    #     if len(self.__batch) >= self.__limite_batch:
-    #         await self.commit_batch()
-    #
-    # async def ajouter_reclamer_fichier(self, fuuid: str, bucket: str):
-    #     self.batch_script = scripts_database.INSERT_RECLAMER_FICHIER
-    #
-    #     row = {
-    #         'fuuid': fuuid,
-    #         'etat_fichier': Constantes.DATABASE_ETAT_MANQUANT,
-    #         'bucket': bucket,
-    #         'date_reclamation': datetime.datetime.now(tz=pytz.UTC),
-    #         'date_verification': datetime.datetime.fromtimestamp(0, tz=pytz.UTC)
-    #     }
-    #     self.ajouter_item_batch(row)
-    #
-    #     if len(self.__batch) >= self.__limite_batch:
-    #         return await self.commit_batch()
-    #
-    #     return False
-    #
-    # async def ajouter_backup_consignation(self, fuuid, taille):
-    #     self.batch_script = scripts_database.UPDATE_TOUCH_BACKUP_FICHIER
-    #
-    #     params = {'fuuid': fuuid, 'taille': taille, 'date_backup': datetime.datetime.now(tz=pytz.UTC)}
-    #     self.ajouter_item_batch(params)
-    #
-    #     if len(self.__batch) >= self.__limite_batch:
-    #         return await self.commit_batch()
-    #
-    #     return False
 
 
 class SQLiteDetachedSyncCreate(SQLiteDetachedOperations):
     """ Initialisation (reset) de la base de donnees de sync pour commencer une nouvelle synchronisation """
 
-    def __init__(self, connection_destination: SQLiteConnection, database_work):
-        super().__init__(connection_destination, database_work, True)
+    def __init__(self, connection_source: SQLiteConnection):
+        super().__init__(connection_source)
 
     async def _create(self):
         await asyncio.to_thread(self._cur.executescript, scripts_database.CONST_CREATE_SYNC)
@@ -908,8 +823,15 @@ class SQLiteDetachedSyncCreate(SQLiteDetachedOperations):
 class SQLiteDetachedReclamationAppend(SQLiteDetachedOperations):
     """ Appende de donnes de reclamations """
 
-    def __init__(self, connection_destination: SQLiteConnection, database_work):
-        super().__init__(connection_destination, database_work, False)
+    def __init__(self, connection_source: SQLiteConnection):
+        super().__init__(connection_source)
+        self.__batch = list()
+        self.__batch_size = 10_000
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if len(self.__batch) > 0:
+            raise Exception('traitement batch incomplet - utiliser commit_batch')
+        return await super().__aexit__(exc_type, exc_val, exc_tb)
 
     async def _create(self):
         # self._cur.execute(scripts_database.CONST_CREATE_SYNC)
@@ -926,12 +848,64 @@ class SQLiteDetachedReclamationAppend(SQLiteDetachedOperations):
 
         return await asyncio.to_thread(self._cur.executemany, scripts_database.INSERT_RECLAMER_FICHIER, batch)
 
+    async def ajouter_reclamation(self, fuuid: str, bucket: str) -> Optional[list]:
+        param = {'fuuid': fuuid, 'bucket': bucket, 'date_reclamation': datetime.datetime.now(tz=pytz.UTC)}
+        self.__batch.append(param)
+
+        if len(self.__batch) >= self.__batch_size:
+            batch, resultat = await self.commit_batch()
+            return batch
+
+    async def commit_batch(self):
+        batch = self.__batch
+        resultat = await asyncio.to_thread(self._cur.executemany, scripts_database.INSERT_RECLAMER_FICHIER, batch)
+        self.__batch = list()  # Nouvelle liste
+        return batch, resultat
+
+
+class SQLiteDetachedReclamationFichierAppend(SQLiteDetachedOperations):
+    """ Appende de donnes de reclamations """
+
+    def __init__(self, connection_source: SQLiteConnection):
+        super().__init__(connection_source)
+        self.__batch = list()
+        self.__batch_size = 10_000
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if len(self.__batch) > 0:
+            raise Exception('traitement batch incomplet - utiliser commit_batch')
+        return await super().__aexit__(exc_type, exc_val, exc_tb)
+
+    async def _create(self):
+        # self._cur.execute(scripts_database.CONST_CREATE_SYNC)
+        pass  # Rien a faire
+
+    async def _transfer_data(self):
+        pass  # Rien a faire, reclamation en cours
+
+    async def ajouter_reclamation(self, fuuid: str, bucket: str, taille: str, etat_fichier: str) -> Optional[list]:
+        param = {
+            'fuuid': fuuid, 'bucket': bucket, 'taille': taille, 'etat_fichier': etat_fichier,
+            'date_reclamation': datetime.datetime.now(tz=pytz.UTC)
+        }
+        self.__batch.append(param)
+
+        if len(self.__batch) >= self.__batch_size:
+            batch, resultat = await self.commit_batch()
+            return batch
+
+    async def commit_batch(self):
+        batch = self.__batch
+        resultat = await asyncio.to_thread(self._cur.executemany, scripts_database.INSERT_RECLAMER_FICHIER_SECONDAIRE, batch)
+        self.__batch = list()  # Nouvelle liste
+        return batch, resultat
+
 
 class SQLiteDetachedVisiteAppend(SQLiteDetachedOperations):
     """ Appende de donnes de reclamations """
 
-    def __init__(self, connection_destination: SQLiteConnection, database_work):
-        super().__init__(connection_destination, database_work, False)
+    def __init__(self, connection_source: SQLiteConnection):
+        super().__init__(connection_source)
         self.__batch = list()
         self.__batch_size = 10_000
 
@@ -961,17 +935,15 @@ class SQLiteDetachedVisiteAppend(SQLiteDetachedOperations):
         return batch, resultat
 
 
-class SQLiteDetachedSyncTransfer(SQLiteDetachedOperations):
+class SQLiteDetachedSyncApply(SQLiteDetachedOperations):
 
-    def __init__(self, connection_destination: SQLiteConnection, database_work):
-        super().__init__(connection_destination, database_work, False)
+    def __init__(self, connection_source: SQLiteConnection):
+        super().__init__(connection_source)
 
     async def _create(self):
         pass  # Rien a faire
 
     async def _transfer_data(self):
-        await self.attach_destination()
-
         await self.__transfert_actifs()
         await asyncio.to_thread(self._connection.commit)
         await asyncio.sleep(1)
@@ -1003,8 +975,8 @@ class SQLiteDetachedSyncTransfer(SQLiteDetachedOperations):
 class SQLiteDetachedBackup(SQLiteDetachedOperations):
     """ Append des donnees de backup """
 
-    def __init__(self, connection_destination: SQLiteConnection, database_work, delete_db=True):
-        super().__init__(connection_destination, database_work, delete_db)
+    def __init__(self, connection_source: SQLiteConnection):
+        super().__init__(connection_source)
         self.__batch = list()
         self.__batch_size = 10_000
 
@@ -1036,3 +1008,62 @@ class SQLiteDetachedBackup(SQLiteDetachedOperations):
             resultat = list()
         self.__batch = list()  # Nouvelle liste
         return batch, resultat
+
+
+class SQLiteDetachedBackupAppend(SQLiteDetachedOperations):
+    """ Appende de donnes de reclamations """
+
+    def __init__(self, connection_destination: SQLiteConnection):
+        super().__init__(connection_destination)
+        self.__batch = list()
+        self.__batch_size = 10_000
+
+    async def _create(self):
+        pass  # Rien a faire
+
+    async def _transfer_data(self):
+        pass  # Rien a faire, reclamation en cours
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if len(self.__batch) > 0:
+            raise Exception('traitement batch incomplet - utiliser commit_batch')
+        return await super().__aexit__(exc_type, exc_val, exc_tb)
+
+    async def ajouter_backup_primaire(self, uuid_backup: str, domaine: str, nom_fichier: str, taille: int) -> Optional[list]:
+        # :uuid_backup, :domaine, :nom_fichier, :taille
+        param = {'uuid_backup': uuid_backup, 'domaine': domaine, 'nom_fichier': nom_fichier, 'taille': taille}
+        self.__batch.append(param)
+        if len(self.__batch) >= self.__batch_size:
+            batch, resultat = await self.commit_batch()
+            return batch
+
+    async def commit_batch(self):
+        batch = self.__batch
+        resultat = await asyncio.to_thread(self._cur.executemany, scripts_database.INSERT_BACKUP_PRIMAIRE, batch)
+        self.__batch = list()  # Nouvelle liste
+        return batch, resultat
+
+
+class SQLiteDetachedTransferApply(SQLiteDetachedOperations):
+    """
+    Copie vers la base de donnees transfer.sqlite a partir de sync.sqlite et fichiers.sqlite
+    """
+
+    def __init__(self, connection_sync: SQLiteConnection):
+        super().__init__(connection_sync)
+
+    async def _create(self):
+        pass  # Rien a faire
+
+    async def _transfer_data(self):
+        date_creation = datetime.datetime.now(tz=pytz.UTC)
+        params = {'date_creation': date_creation}
+        await asyncio.to_thread(self._cur.execute, scripts_database.TRANSFERT_INSERT_DOWNLOADS, params)
+        await asyncio.to_thread(self._connection.commit)
+        await asyncio.sleep(1)
+
+        await asyncio.to_thread(self._cur.execute, scripts_database.TRANSFERT_INSERT_UPLOADS, params)
+        await asyncio.to_thread(self._connection.commit)
+        await asyncio.sleep(1)
+
+        await asyncio.to_thread(self._cur.execute, scripts_database.TRANSFERT_INSERT_BACKUPS)

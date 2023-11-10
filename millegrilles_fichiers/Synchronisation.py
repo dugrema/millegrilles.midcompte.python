@@ -25,7 +25,9 @@ from millegrilles_fichiers.SQLiteDao import SQLiteConnection
 from millegrilles_fichiers.UploadFichiersPrimaire import uploader_fichier, EtatUpload
 from millegrilles_fichiers.SQLiteDao import (SQLiteConnection, SQLiteReadOperations, SQLiteWriteOperations,
                                              SQLiteBatchOperations,
-                                             SQLiteDetachedSyncCreate, SQLiteDetachedSyncTransfer)
+                                             SQLiteDetachedSyncCreate, SQLiteDetachedSyncApply,
+                                             SQLiteDetachedReclamationAppend, SQLiteDetachedBackupAppend,
+                                             SQLiteDetachedTransferApply, SQLiteTransfertOperations, SQLiteDetachedReclamationFichierAppend)
 
 CONST_LIMITE_SAMPLES_DOWNLOAD = 50  # Utilise pour calcul taux de transfert
 
@@ -61,6 +63,9 @@ class SyncManager:
     @property
     def sync_en_cours(self) -> bool:
         return self.__sync_event_primaire.is_set() or self.__sync_event_secondaire.is_set()
+
+    def get_path_database_sync(self) -> pathlib.Path:
+        return pathlib.Path(self.__etat_instance.get_path_data(), Constantes.FICHIER_DATABASE_SYNC)
 
     def demarrer_sync_primaire(self):
         self.__sync_event_primaire.set()
@@ -313,17 +318,15 @@ class SyncManager:
         self.__logger.info("thread_sync_primaire Fin sync")
 
     async def __sequence_sync_primaire(self, event_sync: asyncio.Event):
-        with self.__etat_instance.sqlite_connection(check_same_thread=False) as connection:
-            path_data = connection.path_data
-            path_database_sync = pathlib.Path(path_data, Constantes.FICHIER_DATABASE_SYNC)
-            try:
+        try:
+            with SQLiteConnection(self.get_path_database_sync(), None, check_same_thread=False, reuse=False) as connection:
                 # Date debut utilise pour trouver les fichiers orphelins (si reclamation est complete)
                 debut_reclamation = datetime.datetime.utcnow()
 
                 # Initialiser la base de donnees de synchronisation
-                async with SQLiteDetachedSyncCreate(connection, path_database_sync):
+                async with SQLiteDetachedSyncCreate(connection):
                     # L'ouverture execute la creation de la db
-                    self.__logger.debug("Nouvelle base de donnes de sync cree (%s)" % path_database_sync)
+                    self.__logger.debug("Nouvelle base de donnes de sync cree (%s)" % connection.path_database)
 
                 self.__logger.info("__sequence_sync_primaire Debut reclamation (Progres 1/5)")
                 reclamation_complete = await self.reclamer_fuuids()
@@ -335,7 +338,7 @@ class SyncManager:
                     # Ajouter visiter_fuuids dans les taches de sync
                     # tasks_initiales.append(asyncio.create_task(self.__consignation.visiter_fuuids(dao_batch)))
                     self.__logger.info("__sequence_sync_primaire visiter_fuuids (Progres: 2/5)")
-                    await self.__consignation.visiter_fuuids()
+                    await self.__consignation.visiter_fuuids(connection)
                 else:
                     self.__logger.info("__sequence_sync_primaire reclamer_fuuids Skip visiter fuuids (Progres: 2/5)")
 
@@ -346,30 +349,39 @@ class SyncManager:
                 if self.__stop_event.is_set():
                     return  # Stopped
 
-                async with SQLiteDetachedSyncTransfer(connection, path_database_sync):
+                with self.__etat_instance.sqlite_connection() as connection_fichiers:
+                    path_database_fichiers = connection_fichiers.path_database
+
+                async with SQLiteDetachedSyncApply(connection) as sync_dao:
                     self.__logger.debug("__sequence_sync_primaire Sync vers base de donnee de fichiers")
-                    pass  # Fermer, la sync s'execute automatiquement
+
+                    # Attacher la database de fichiers (destination)
+                    await sync_dao.attach_destination(path_database_fichiers)
+
+                    pass  # Fermer, le transfert s'execute automatiquement a la fermeture
 
                 # # Process orphelins
                 # self.__logger.info("__sequence_sync_primaire marquer_orphelins (Progres: 3/5)")
                 # await self.__consignation.marquer_orphelins(dao_batch, debut_reclamation, reclamation_complete)
 
-                if self.__stop_event.is_set():
-                    return  # Stopped
+            if self.__stop_event.is_set():
+                return  # Stopped
 
+            with self.__etat_instance.sqlite_connection(check_same_thread=False) as connection:
                 # Generer la liste des reclamations en .jsonl.gz pour les secondaires
                 self.__logger.info("__sequence_sync_primaire generer_reclamations_sync (Progres: 4/5)")
                 await self.__consignation.generer_reclamations_sync(connection)
 
-                if self.__stop_event.is_set():
-                    return  # Stopped
+            if self.__stop_event.is_set():
+                return  # Stopped
 
-                # Generer la liste des fichiers de backup
-                self.__logger.info("__sequence_sync_primaire generer_backup_sync (Progres: 5/5)")
-                await self.__consignation.generer_backup_sync()
-            finally:
-                self.__logger.info("__sequence_sync_primaire termine")
-                event_sync.set()
+            # Generer la liste des fichiers de backup (aucun acces db requis)
+            self.__logger.info("__sequence_sync_primaire generer_backup_sync (Progres: 5/5)")
+            await self.__consignation.generer_backup_sync()
+
+        finally:
+            self.__logger.info("__sequence_sync_primaire termine")
+            event_sync.set()
 
     async def run_sync_secondaire(self):
         self.__logger.info("run_sync_secondaire Demarrer sync")
@@ -394,84 +406,168 @@ class SyncManager:
         self.__logger.info("run_sync_secondaire Fin sync")
 
     async def __sequence_sync_secondaire(self, event_sync: asyncio.Event):
+        path_database_sync = self.get_path_database_sync()
+
+        # Supprimer base de donnees de sync
+        path_database_sync.unlink(missing_ok=True)
+
+        path_database_fichiers = self.__etat_instance.sqlite_connection().path_database
+        path_database_transferts = pathlib.Path(self.__etat_instance.get_path_data(),
+                                                Constantes.FICHIER_DATABASE_TRANSFERTS)
+        with SQLiteConnection(path_database_transferts, None, check_same_thread=False, reuse=False) as connection:
+            async with SQLiteTransfertOperations(connection) as transfert_dao:
+                await transfert_dao.init_database()
+
         try:
+            with SQLiteConnection(path_database_sync, None, check_same_thread=False, reuse=False) as connection:
+                # Initialiser la base de donnees de synchronisation
+                async with SQLiteDetachedSyncCreate(connection):
+                    # L'ouverture execute la creation de la db
+                    self.__logger.debug("__sequence_sync_secondaire Nouvelle base de donnees de sync cree (%s)" % connection.path_database)
 
-            with self.__etat_instance.sqlite_connection() as connection:
-                async with SQLiteBatchOperations(connection) as dao_batch:
+                if self.__consignation.timestamp_visite is None:
+                    # Debloquer les visites (pour prochaine visite)
+                    self.__consignation.timestamp_visite = datetime.datetime.utcnow()
+                    self.__logger.info("__sequence_sync_secondaire visiter_fuuids (Progres: 1/5)")
+                    await self.__consignation.visiter_fuuids(connection)
+                else:
+                    self.__logger.info("__sequence_sync_secondaire skip visiter fuuids (Progres: 1/5)")
 
-                    # tasks_initiales = [
-                    #     self.download_fichiers_reclamation(),
-                    # ]
-
-                    # Download fichiers reclamations primaire
-                    if self.__consignation.timestamp_visite is None:
-                        # Debloquer les visites (pour prochaine visite)
-                        self.__consignation.timestamp_visite = datetime.datetime.utcnow()
-                        # Ajouter visiter_fuuids dans les taches de sync
-                        # tasks_initiales.append(self.__consignation.visiter_fuuids(dao_batch))
-                        self.__logger.info("__sequence_sync_secondaire visiter_fuuids (Progres: 1/5)")
-                        await self.__consignation.visiter_fuuids(dao_batch)
+                self.__logger.info(
+                    "__sequence_sync_secondaire download_fichiers_reclamation (Progres: 2/5)")
+                try:
+                    await self.download_fichiers_reclamation()
+                except aiohttp.client.ClientResponseError as e:
+                    if e.status == 404:
+                        self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
                     else:
-                        self.__logger.info("__sequence_sync_secondaire skip visiter fuuids (Progres: 1/5)")
+                        self.__logger.error(
+                            "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
+                    return  # Abandonner la sync
 
-                    self.__logger.info(
-                        "__sequence_sync_secondaire download_fichiers_reclamation (Progres: 2/5)")
+                # self.__logger.info("__sequence_sync_primaire Debut reclamation (Progres 1/5)")
+                # reclamation_complete = await self.reclamer_fuuids()
+                # self.__logger.info("__sequence_sync_primaire Debut fin reclamation (complet? %s)" % reclamation_complete)
+                #
+                # if self.__consignation.timestamp_visite is None:
+                #     # Debloquer les visites (pour prochaine visite)
+                #     self.__consignation.timestamp_visite = datetime.datetime.utcnow()
+                #     # Ajouter visiter_fuuids dans les taches de sync
+                #     # tasks_initiales.append(asyncio.create_task(self.__consignation.visiter_fuuids(dao_batch)))
+                #     self.__logger.info("__sequence_sync_primaire visiter_fuuids (Progres: 2/5)")
+                #     await self.__consignation.visiter_fuuids()
+                # else:
+                #     self.__logger.info("__sequence_sync_primaire reclamer_fuuids Skip visiter fuuids (Progres: 2/5)")
+
+                if self.__stop_event.is_set():
+                    return  # Stopped
+
+                # Merge information dans database
+                self.__logger.info("__sequence_sync_secondaire merge_fichiers_reclamation (Progres: 3/5)")
+                await self.merge_fichiers_reclamation(connection)
+
+                if self.__stop_event.is_set():
+                    return  # Stopped
+
+                self.__logger.info("__sequence_sync_secondaire merge reclamations+visites avec main db (Progres: 4/5)")
+                async with SQLiteDetachedSyncApply(connection) as sync_dao:
+                    self.__logger.debug("__sequence_sync_primaire Sync vers base de donnee de fichiers")
+                    await sync_dao.attach_destination(path_database_fichiers, 'fichiers')
+                    pass  # Fermer, la sync s'execute automatiquement
+
+                # Initialiser la base de donnees de transfert
+                self.__logger.info("__sequence_sync_secondaire Creer operations de transfert (Progres: 5/5)")
+                async with SQLiteDetachedTransferApply(connection) as transfert_dao:
                     try:
-                        await self.download_fichiers_reclamation()
-                    except aiohttp.client.ClientResponseError as e:
-                        if e.status == 404:
-                            self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
-                        else:
-                            self.__logger.error(
-                                "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
-                        return  # Abandonner la sync
+                        await transfert_dao.attach_destination(path_database_transferts, 'transferts')
+                        pass  # Fermer, la sync s'execute automatiquement
+                    except Exception as e:
+                        self.__logger.exception("__sequence_sync_secondaire Erreur preparation SQLiteDetachedTransferApply")
+                        raise e
 
+                pass
 
-                    # try:
-                    #     await asyncio.gather(*tasks_initiales)
-                    # except aiohttp.client.ClientResponseError as e:
-                    #     if e.status == 404:
-                    #         self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
-                    #     else:
-                    #         self.__logger.error(
-                    #             "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
-                    #     return  # Abandonner la sync
-
-            # try:
-            #     self.__logger.info("__sequence_sync_secondaire download_fichiers_reclamation (Progres: 1/4)")
-            #     await self.download_fichiers_reclamation()
-            # except aiohttp.client.ClientResponseError as e:
-            #     if e.status == 404:
-            #         self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
-            #     else:
-            #         self.__logger.error(
-            #             "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
-            #     return  # Abandonner la sync
-
-            if self.__stop_event.is_set():
-                return  # Stopped
-
-            # Merge information dans database
-            self.__logger.info("__sequence_sync_secondaire merge_fichiers_reclamation (Progres: 3/5)")
-            await self.merge_fichiers_reclamation()
-
-            if self.__stop_event.is_set():
-                return  # Stopped
-
-            # Ajouter manquants, marquer fichiers reclames
-            # Marquer orphelins, determiner downloads et upload
-            self.__logger.info("__sequence_sync_secondaire creer_operations_sur_secondaire (Progres: 4/5)")
-            await self.creer_operations_sur_secondaire()
-
-            if self.__stop_event.is_set():
-                return  # Stopped
-
-            # Declencher sync des fichiers de backup avec le primaire
-            self.__logger.info("__sequence_sync_secondaire run_sync_backup (Progres: 5/5)")
-            await self.run_sync_backup()
         finally:
-            self.__logger.info("__sequence_sync_secondaire Termine")
+            self.__logger.info("__sequence_sync_primaire termine")
             event_sync.set()
+
+        # try:
+        #     with self.__etat_instance.sqlite_connection() as connection:
+        #         async with SQLiteBatchOperations(connection) as dao_batch:
+        #
+        #             # tasks_initiales = [
+        #             #     self.download_fichiers_reclamation(),
+        #             # ]
+        #
+        #             # Download fichiers reclamations primaire
+        #             if self.__consignation.timestamp_visite is None:
+        #                 # Debloquer les visites (pour prochaine visite)
+        #                 self.__consignation.timestamp_visite = datetime.datetime.utcnow()
+        #                 # Ajouter visiter_fuuids dans les taches de sync
+        #                 # tasks_initiales.append(self.__consignation.visiter_fuuids(dao_batch))
+        #                 self.__logger.info("__sequence_sync_secondaire visiter_fuuids (Progres: 1/5)")
+        #                 await self.__consignation.visiter_fuuids(dao_batch)
+        #             else:
+        #                 self.__logger.info("__sequence_sync_secondaire skip visiter fuuids (Progres: 1/5)")
+        #
+        #             self.__logger.info(
+        #                 "__sequence_sync_secondaire download_fichiers_reclamation (Progres: 2/5)")
+        #             try:
+        #                 await self.download_fichiers_reclamation()
+        #             except aiohttp.client.ClientResponseError as e:
+        #                 if e.status == 404:
+        #                     self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
+        #                 else:
+        #                     self.__logger.error(
+        #                         "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
+        #                 return  # Abandonner la sync
+        #
+        #
+        #             # try:
+        #             #     await asyncio.gather(*tasks_initiales)
+        #             # except aiohttp.client.ClientResponseError as e:
+        #             #     if e.status == 404:
+        #             #         self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
+        #             #     else:
+        #             #         self.__logger.error(
+        #             #             "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
+        #             #     return  # Abandonner la sync
+        #
+        #     # try:
+        #     #     self.__logger.info("__sequence_sync_secondaire download_fichiers_reclamation (Progres: 1/4)")
+        #     #     await self.download_fichiers_reclamation()
+        #     # except aiohttp.client.ClientResponseError as e:
+        #     #     if e.status == 404:
+        #     #         self.__logger.error("__sequence_sync_secondaire Fichier de reclamation primaire n'est pas disponible (404)")
+        #     #     else:
+        #     #         self.__logger.error(
+        #     #             "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
+        #     #     return  # Abandonner la sync
+        #
+        #     if self.__stop_event.is_set():
+        #         return  # Stopped
+        #
+        #     # Merge information dans database
+        #     self.__logger.info("__sequence_sync_secondaire merge_fichiers_reclamation (Progres: 3/5)")
+        #     await self.merge_fichiers_reclamation()
+        #
+        #     if self.__stop_event.is_set():
+        #         return  # Stopped
+        #
+        #     # Ajouter manquants, marquer fichiers reclames
+        #     # Marquer orphelins, determiner downloads et upload
+        #     self.__logger.info("__sequence_sync_secondaire creer_operations_sur_secondaire (Progres: 4/5)")
+        #     await self.creer_operations_sur_secondaire()
+        #
+        #     if self.__stop_event.is_set():
+        #         return  # Stopped
+        #
+        #     # Declencher sync des fichiers de backup avec le primaire
+        #     self.__logger.info("__sequence_sync_secondaire run_sync_backup (Progres: 5/5)")
+        #     await self.run_sync_backup()
+        # finally:
+        #     self.__logger.info("__sequence_sync_secondaire Termine")
+        #     event_sync.set()
 
     async def thread_emettre_evenement_secondaire(self, event_sync: asyncio.Event):
         while event_sync.is_set() is False:
@@ -670,19 +766,30 @@ class SyncManager:
 
         self.__logger.debug("traiter_fichiers_reclamation Download termine OK")
 
-    async def merge_fichiers_reclamation(self):
-        with self.__etat_instance.sqlite_connection() as connection:
-            async with SQLiteBatchOperations(connection) as dao:
-                path_data = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_DATA)
-                path_reclamations = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
-                path_reclamations_intermediaire = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
-                path_backup = pathlib.Path(path_data, Constantes.FICHIER_BACKUP)
+    async def merge_fichiers_reclamation(self, connection: SQLiteConnection):
+        # Charger reclamations
+        path_data = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_DATA)
+        path_reclamations = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
+        path_reclamations_intermediaire = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
 
-                async with SQLiteWriteOperations(connection) as dao_write:
-                    await asyncio.to_thread(dao_write.truncate_fichiers_primaire)
+        async with SQLiteDetachedReclamationFichierAppend(connection) as reclamation_dao:
+            # L'ouverture execute la creation de la db
+            self.__logger.debug(
+                "__sequence_sync_secondaire Nouvelle base de donnees de sync cree (%s)" % connection.path_database)
 
-                # Lire le fichier de reclamations et conserver dans table FICHIERS_PRIMAIRE
-                with gzip.open(str(path_reclamations), 'rt') as fichier:
+            # Lire le fichier de reclamations
+            with gzip.open(str(path_reclamations), 'rt') as fichier:
+                while True:
+                    row_str = await asyncio.to_thread(fichier.readline, 1024)
+                    if not row_str:
+                        break
+                    if self.__stop_event.is_set():
+                        raise Exception('stopped')  # Stopped
+                    row = json.loads(row_str)
+                    await reclamation_dao.ajouter_reclamation(row['fuuid'], row['bucket'], row['taille'], row['etat_fichier'])
+
+            try:
+                with path_reclamations_intermediaire.open('rt') as fichier:
                     while True:
                         row_str = await asyncio.to_thread(fichier.readline, 1024)
                         if not row_str:
@@ -690,57 +797,109 @@ class SyncManager:
                         if self.__stop_event.is_set():
                             raise Exception('stopped')  # Stopped
                         row = json.loads(row_str)
-                        commit_done = await dao.ajouter_fichier_primaire(row)
-                        if commit_done:
-                            # Ajouter throttle pour permettre acces DB
-                            await asyncio.sleep(0.5)
+                        await reclamation_dao.ajouter_reclamation(row['fuuid'], row['bucket'])
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    pass  # OK, fichier absent
+                else:
+                    raise e
 
-                # Charger fichier intermediaire si present
-                try:
-                    with path_reclamations_intermediaire.open('rt') as fichier:
-                        while True:
-                            row_str = await asyncio.to_thread(fichier.readline, 1024)
-                            if not row_str:
-                                break
-                            if self.__stop_event.is_set():
-                                raise Exception('stopped')  # Stopped
-                            row = json.loads(row_str)
-                            commit_done = await dao.ajouter_fichier_primaire(row)
-                            if commit_done:
-                                # Ajouter throttle pour permettre acces DB
-                                await asyncio.sleep(0.5)
+            # Commit derniere batch
+            await reclamation_dao.commit_batch()
 
-                except OSError as e:
-                    if e.errno == errno.ENOENT:
-                        pass  # OK, fichier absent
-                    else:
-                        raise e
+        # Charger fichier de backup (si present)
+        path_backup = pathlib.Path(path_data, Constantes.FICHIER_BACKUP)
+        try:
+            with gzip.open(str(path_backup), 'rt') as fichier:
+                async with SQLiteDetachedBackupAppend(connection) as backup_dao:
+                    while True:
+                        row_str = await asyncio.to_thread(fichier.readline, 1024)
+                        if not row_str:
+                            break
+                        if self.__stop_event.is_set():
+                            raise Exception('stopped')  # Stopped
+                        row = json.loads(row_str)
+                        await backup_dao.ajouter_backup_primaire(row['uuid_backup'], row['domaine'], row['nom_fichier'], row['taille'])
 
-                # Commit derniere batch
-                await dao.commit_batch()
+                    # Commit derniere batch
+                    await backup_dao.commit_batch()
+        except OSError as e:
+            if e.errno == errno.ENOENT:
+                pass  # OK, fichier absent
+            else:
+                raise e
 
-                # Charger fichier backup si present
-                async with SQLiteWriteOperations(connection) as dao_write:
-                    await asyncio.to_thread(dao_write.truncate_backup_primaire)
 
-                try:
-                    with gzip.open(str(path_backup), 'rt') as fichier:
-                        while True:
-                            row_str = await asyncio.to_thread(fichier.readline, 1024)
-                            if not row_str:
-                                break
-                            if self.__stop_event.is_set():
-                                raise Exception('stopped')  # Stopped
-                            row = json.loads(row_str)
-                            await dao.ajouter_backup_primaire(row)
-                except OSError as e:
-                    if e.errno == errno.ENOENT:
-                        pass  # OK, fichier absent
-                    else:
-                        raise e
-
-                # Commit derniere batch
-                await dao.commit_batch()
+        # with self.__etat_instance.sqlite_connection() as connection:
+        #     async with SQLiteBatchOperations(connection) as dao:
+        #         path_data = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_DATA)
+        #         path_reclamations = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
+        #         path_reclamations_intermediaire = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
+        #         path_backup = pathlib.Path(path_data, Constantes.FICHIER_BACKUP)
+        #
+        #         async with SQLiteWriteOperations(connection) as dao_write:
+        #             await asyncio.to_thread(dao_write.truncate_fichiers_primaire)
+        #
+        #         # Lire le fichier de reclamations et conserver dans table FICHIERS_PRIMAIRE
+        #         with gzip.open(str(path_reclamations), 'rt') as fichier:
+        #             while True:
+        #                 row_str = await asyncio.to_thread(fichier.readline, 1024)
+        #                 if not row_str:
+        #                     break
+        #                 if self.__stop_event.is_set():
+        #                     raise Exception('stopped')  # Stopped
+        #                 row = json.loads(row_str)
+        #                 commit_done = await dao.ajouter_fichier_primaire(row)
+        #                 if commit_done:
+        #                     # Ajouter throttle pour permettre acces DB
+        #                     await asyncio.sleep(0.5)
+        #
+        #         # Charger fichier intermediaire si present
+        #         try:
+        #             with path_reclamations_intermediaire.open('rt') as fichier:
+        #                 while True:
+        #                     row_str = await asyncio.to_thread(fichier.readline, 1024)
+        #                     if not row_str:
+        #                         break
+        #                     if self.__stop_event.is_set():
+        #                         raise Exception('stopped')  # Stopped
+        #                     row = json.loads(row_str)
+        #                     commit_done = await dao.ajouter_fichier_primaire(row)
+        #                     if commit_done:
+        #                         # Ajouter throttle pour permettre acces DB
+        #                         await asyncio.sleep(0.5)
+        #
+        #         except OSError as e:
+        #             if e.errno == errno.ENOENT:
+        #                 pass  # OK, fichier absent
+        #             else:
+        #                 raise e
+        #
+        #         # Commit derniere batch
+        #         await dao.commit_batch()
+        #
+        #         # Charger fichier backup si present
+        #         async with SQLiteWriteOperations(connection) as dao_write:
+        #             await asyncio.to_thread(dao_write.truncate_backup_primaire)
+        #
+        #         try:
+        #             with gzip.open(str(path_backup), 'rt') as fichier:
+        #                 while True:
+        #                     row_str = await asyncio.to_thread(fichier.readline, 1024)
+        #                     if not row_str:
+        #                         break
+        #                     if self.__stop_event.is_set():
+        #                         raise Exception('stopped')  # Stopped
+        #                     row = json.loads(row_str)
+        #                     await dao.ajouter_backup_primaire(row)
+        #         except OSError as e:
+        #             if e.errno == errno.ENOENT:
+        #                 pass  # OK, fichier absent
+        #             else:
+        #                 raise e
+        #
+        #         # Commit derniere batch
+        #         await dao.commit_batch()
 
     async def creer_operations_sur_secondaire(self):
         with self.__etat_instance.sqlite_connection() as connection:

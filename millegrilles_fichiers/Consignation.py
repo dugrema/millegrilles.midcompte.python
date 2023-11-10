@@ -166,12 +166,15 @@ class ConsignationHandler:
             except asyncio.TimeoutError:
                 pass  # OK
 
-    async def visiter_fuuids(self):
-        with self.__etat_instance.sqlite_connection() as connection:
-            path_data = connection.path_data
-            path_db_sync = pathlib.Path(path_data, Constantes.FICHIER_DATABASE_SYNC)
-            async with SQLiteDetachedVisiteAppend(connection, path_db_sync) as detached_dao:
-                await self.__store_consignation.visiter_fuuids(detached_dao)
+    async def visiter_fuuids(self, connection: SQLiteConnection):
+        async with SQLiteDetachedVisiteAppend(connection) as detached_dao:
+            await self.__store_consignation.visiter_fuuids(detached_dao)
+
+        # path_data = self.etat_instance.get_path_data()
+        # path_db_sync = pathlib.Path(path_data, Constantes.FICHIER_DATABASE_SYNC)
+        # with self.__etat_instance.sqlite_connection() as connection:
+        #     async with SQLiteDetachedVisiteAppend(connection, path_db_sync) as detached_dao:
+        #         await self.__store_consignation.visiter_fuuids(detached_dao)
 
     async def traiter_cedule(self, producer: MessageProducerFormatteur, message: MessageWrapper):
         self.__traiter_cedule_event.set()

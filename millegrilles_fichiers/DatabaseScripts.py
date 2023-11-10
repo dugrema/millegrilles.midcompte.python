@@ -22,19 +22,14 @@ CONST_CREATE_FICHIERS = """
 CONST_CREATE_SYNC = """
     CREATE TABLE fichiers(
         fuuid VARCHAR PRIMARY KEY,
+        etat_fichier VARCHAR,
         taille INTEGER,
         bucket_reclame VARCHAR,
         date_reclamation TIMESTAMP,
         bucket_visite VARCHAR,
         date_presence TIMESTAMP
     );
-
-    CREATE TABLE fichiers_backup(
-        fuuid VARCHAR PRIMARY KEY,
-        taille INTEGER,
-        bucket VARCHAR
-    );
-
+    
     CREATE TABLE fichiers_primaire(
         fuuid VARCHAR PRIMARY KEY,
         etat_fichier VARCHAR NOT NULL,
@@ -47,7 +42,6 @@ CONST_CREATE_SYNC = """
         domaine VARCHAR NOT NULL,
         nom_fichier VARCHAR NOT NULL,
         taille INTEGER NOT NULL,
-        flag_download INTEGER,
         PRIMARY KEY (uuid_backup, domaine, nom_fichier)
     );
 """
@@ -78,6 +72,15 @@ CONST_CREATE_TRANSFERTS = """
         position INTEGER NOT NULL,
         essais INTEGER NOT NULL,
         erreur INTEGER
+    );
+    
+    CREATE TABLE IF NOT EXISTS backups_primaire(
+        uuid_backup VARCHAR NOT NULL,
+        domaine VARCHAR NOT NULL,
+        nom_fichier VARCHAR NOT NULL,
+        taille INTEGER NOT NULL,
+        flag_download INTEGER,
+        PRIMARY KEY (uuid_backup, domaine, nom_fichier)
     );
 """
 
@@ -154,15 +157,6 @@ UPDATE_SECONDAIRES_NON_RECLAMES_VERS_ORPHELINS = """
     UPDATE FICHIERS
         SET etat_fichier = 'orphelin'
         WHERE date_reclamation < :date_reclamation;
-"""
-
-INSERT_DOWNLOADS = """
-    INSERT OR IGNORE INTO DOWNLOADS(fuuid, taille, date_creation, essais)
-    SELECT f.fuuid, fp.taille, :date_creation, 0
-    FROM FICHIERS f
-    LEFT JOIN FICHIERS_PRIMAIRE fp ON f.fuuid = fp.fuuid
-    WHERE f.etat_fichier = 'manquant'
-      AND fp.etat_fichier = 'actif';
 """
 
 INSERT_DOWNLOAD = """
@@ -294,9 +288,15 @@ INSERT_RECLAMER_FICHIER = """
     VALUES (:fuuid, :bucket, :date_reclamation)
 """
 
+INSERT_RECLAMER_FICHIER_SECONDAIRE = """
+    INSERT INTO FICHIERS(fuuid, bucket_reclame, date_reclamation, taille, etat_fichier)
+    VALUES (:fuuid, :bucket, :date_reclamation, :taille, :etat_fichier)
+"""
+
 SELECT_STATS_FICHIERS = """
     SELECT etat_fichier, bucket, count(fuuid) as nombre, sum(taille) as taille
     FROM fichiers
+    WHERE taille IS NOT NULL
     GROUP BY etat_fichier, bucket;
 """
 
@@ -448,7 +448,7 @@ DELETE_TRUNCATE_BACKUPS_PRIMAIRE = """
 #         date_backup TIMESTAMP
 
 TRANSFERT_INSERT_PRESENCE_FICHIERS = """
-    INSERT INTO destination.FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_reclamation)
+    INSERT INTO fichiers.FICHIERS(fuuid, etat_fichier, taille, bucket, date_presence, date_reclamation)
     SELECT fuuid, 'actif', taille, bucket_visite, date_presence, date_reclamation
     FROM fichiers
     WHERE bucket_visite IS NOT NULL
@@ -463,7 +463,7 @@ TRANSFERT_INSERT_PRESENCE_FICHIERS = """
 """
 
 TRANSFERT_INSERT_MANQUANTS_FICHIERS = """
-    INSERT INTO destination.FICHIERS(fuuid, etat_fichier, date_reclamation)
+    INSERT INTO fichiers.FICHIERS(fuuid, etat_fichier, date_reclamation)
     SELECT fuuid, 'manquant', date_reclamation
     FROM fichiers
     WHERE bucket_visite IS NULL
@@ -474,7 +474,7 @@ TRANSFERT_INSERT_MANQUANTS_FICHIERS = """
 """
 
 TRANSFERT_INSERT_ORPHELINS_FICHIERS = """
-    INSERT INTO destination.FICHIERS(fuuid, etat_fichier, date_presence)
+    INSERT INTO fichiers.FICHIERS(fuuid, etat_fichier, date_presence)
     SELECT fuuid, 'orphelin', date_presence
     FROM fichiers
     WHERE bucket_reclame IS NULL
@@ -492,4 +492,30 @@ TRANSFERT_UPDATE_BACKUPS = """
     WHERE dest.fuuid = source.fuuid
       AND dest.taille = source.taille
     ;
+"""
+
+TRANSFERT_INSERT_DOWNLOADS = """
+    INSERT OR IGNORE INTO transferts.downloads(fuuid, taille, date_creation, essais)
+    SELECT fuuid, taille, :date_creation, 0
+    FROM fichiers
+    WHERE date_presence IS NULL
+      AND date_reclamation IS NOT NULL
+    ;
+"""
+
+TRANSFERT_INSERT_UPLOADS = """
+    INSERT OR IGNORE INTO transferts.uploads(fuuid, taille, date_creation, position, essais)
+    SELECT fmain.fuuid, fmain.taille, :date_creation, 0, 0
+    FROM fichiers fsync
+    LEFT JOIN fichiers.fichiers fmain on fsync.fuuid = fmain.fuuid
+    WHERE fsync.etat_fichier = 'manquant'
+      AND fmain.etat_fichier = 'actif'
+    ;
+"""
+
+TRANSFERT_INSERT_BACKUPS = """
+INSERT OR IGNORE INTO transferts.backups_primaire(uuid_backup, domaine, nom_fichier, taille)
+SELECT uuid_backup, domaine, nom_fichier, taille
+FROM backups_primaire
+;
 """
