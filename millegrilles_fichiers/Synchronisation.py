@@ -325,7 +325,7 @@ class SyncManager:
             # Supprimer base de donnees de sync
             path_database_sync.unlink(missing_ok=True)
 
-            with SQLiteConnection(self.get_path_database_sync(), None, check_same_thread=False, reuse=False) as connection:
+            with SQLiteConnection(self.get_path_database_sync(), check_same_thread=False, timeout=30.0) as connection:
                 # Date debut utilise pour trouver les fichiers orphelins (si reclamation est complete)
                 debut_reclamation = datetime.datetime.utcnow()
 
@@ -334,10 +334,11 @@ class SyncManager:
                     # L'ouverture execute la creation de la db
                     self.__logger.debug("Nouvelle base de donnes de sync cree (%s)" % connection.path_database)
 
-                self.__logger.info("__sequence_sync_primaire Debut reclamation (Progres 1/5)")
-                reclamation_complete = await self.reclamer_fuuids()
-                self.__logger.info("__sequence_sync_primaire Debut fin reclamation (complet? %s)" % reclamation_complete)
+            self.__logger.info("__sequence_sync_primaire Debut reclamation (Progres 1/5)")
+            reclamation_complete = await self.reclamer_fuuids()
+            self.__logger.info("__sequence_sync_primaire Debut fin reclamation (complet? %s)" % reclamation_complete)
 
+            with SQLiteConnection(self.get_path_database_sync(), check_same_thread=False, timeout=30.0) as connection:
                 # Debloquer les visites (pour prochaine visite)
                 self.__consignation.timestamp_visite = datetime.datetime.utcnow()
                 # Ajouter visiter_fuuids dans les taches de sync
@@ -419,7 +420,7 @@ class SyncManager:
                 await transfert_dao.init_database()
 
         try:
-            with SQLiteConnection(path_database_sync, None, check_same_thread=False, reuse=False) as connection:
+            with SQLiteConnection(path_database_sync, check_same_thread=False, timeout=30.0) as connection:
                 # Initialiser la base de donnees de synchronisation
                 async with SQLiteDetachedSyncCreate(connection):
                     # L'ouverture execute la creation de la db
