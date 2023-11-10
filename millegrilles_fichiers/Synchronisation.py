@@ -345,10 +345,6 @@ class SyncManager:
                 self.__logger.info("__sequence_sync_primaire visiter_fuuids (Progres: 2/5)")
                 await self.__consignation.visiter_fuuids(connection)
 
-                #debut_reclamation = datetime.datetime.utcnow()
-                #resultat_initial = await asyncio.gather(*tasks_initiales)
-                #reclamation_complete = resultat_initial[0]
-
                 if self.__stop_event.is_set():
                     return  # Stopped
 
@@ -362,7 +358,11 @@ class SyncManager:
                     # Attacher la database de fichiers (destination)
                     await sync_dao.attach_destination(path_database_fichiers, 'fichiers')
 
+                    debut_transfert_data = datetime.datetime.utcnow()
+
                     pass  # Fermer, le transfert s'execute automatiquement a la fermeture
+                self.__logger.info("__sequence_sync_primaire Duree transfert data vers consignation.sqlite : %s" % (
+                        datetime.datetime.utcnow()-debut_transfert_data))
 
             if self.__stop_event.is_set():
                 return  # Stopped
@@ -470,6 +470,13 @@ class SyncManager:
                     except Exception as e:
                         self.__logger.exception("__sequence_sync_secondaire Erreur preparation SQLiteDetachedTransferApply")
                         raise e
+
+                    debut_transfert_data = datetime.datetime.utcnow()
+
+                    pass  # Fermer, le transfert s'execute automatiquement a la fermeture
+
+                self.__logger.info("__sequence_sync_secondaire Duree transfert data vers consignation.sqlite : %s" % (
+                        datetime.datetime.utcnow()-debut_transfert_data))
 
                 # Declencher les threads d'upload et de download (aucun effect si threads deja actives)
                 self.__upload_event.set()
