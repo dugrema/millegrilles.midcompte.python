@@ -21,7 +21,8 @@ from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.UploadFichiersPrimaire import EtatUpload, feed_filepart2
 from millegrilles_fichiers.SQLiteDao import (SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations,
-                                             SQLiteDetachedReclamationAppend, SQLiteDetachedVisiteAppend)
+                                             SQLiteDetachedReclamationAppend, SQLiteDetachedVisiteAppend,
+                                             SQLiteTransfertOperations)
 
 
 class ConsignationStore:
@@ -350,7 +351,7 @@ class ConsignationStore:
         """ Genere le fichier backup.jsonl.gz """
         raise NotImplementedError('must implement')
 
-    async def upload_backups_primaire(self, session: ClientSession, dao: SQLiteReadOperations):
+    async def upload_backups_primaire(self, connection_transfert: SQLiteConnection, session: ClientSession):
         raise NotImplementedError('must implement')
 
     async def upload_backup_primaire(self, session: ClientSession, uuid_backup: str, domaine: str, nom_fichier: str, fichier):
@@ -660,23 +661,23 @@ class ConsignationStoreMillegrille(ConsignationStore):
             'taille': info.st_size
         }
 
-    async def upload_backups_primaire(self, session: ClientSession, dao: SQLiteReadOperations):
-        raise NotImplementedError('todo')
-        # path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
-        # for path_uuid_backup in path_backup.iterdir():
-        #     uuid_backup = path_uuid_backup.name
-        #     for path_domaine in path_uuid_backup.iterdir():
-        #         domaine = path_domaine.name
-        #         for path_fichier in path_domaine.iterdir():
-        #             nom_fichier = path_fichier.name
-        #
-        #             info = await asyncio.to_thread(
-        #                 dao.get_info_backup_primaire, uuid_backup, domaine, nom_fichier)
-        #
-        #             if info is None:
-        #                 self.__logger.info("Fichier backup %s/%s/%s absent du primaire, on upload" % (uuid_backup, domaine, nom_fichier))
-        #                 with path_fichier.open('rb') as fichier:
-        #                     await self.upload_backup_primaire(session, uuid_backup, domaine, nom_fichier, fichier)
+    async def upload_backups_primaire(self, connection_transfert: SQLiteConnection, session: ClientSession):
+        path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
+        async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
+            for path_uuid_backup in path_backup.iterdir():
+                uuid_backup = path_uuid_backup.name
+                for path_domaine in path_uuid_backup.iterdir():
+                    domaine = path_domaine.name
+                    for path_fichier in path_domaine.iterdir():
+                        nom_fichier = path_fichier.name
+
+                        info = await asyncio.to_thread(
+                            transfert_dao.get_info_backup_primaire, uuid_backup, domaine, nom_fichier)
+
+                        if info is None:
+                            self.__logger.info("Fichier backup %s/%s/%s absent du primaire, on upload" % (uuid_backup, domaine, nom_fichier))
+                            with path_fichier.open('rb') as fichier:
+                                await self.upload_backup_primaire(session, uuid_backup, domaine, nom_fichier, fichier)
 
 
 def map_type(type_store: str) -> Type[ConsignationStore]:

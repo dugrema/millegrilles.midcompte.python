@@ -179,22 +179,6 @@ class SQLiteReadOperations(SQLiteCursor):
 
         self.reset_intermediaires()
 
-    def get_info_backup_primaire(self, uuid_backup: str, domaine: str, nom_fichier: str) -> Optional[dict]:
-        params = {'uuid_backup': uuid_backup, 'domaine': domaine, 'nom_fichier': nom_fichier}
-
-        self._cur.execute(scripts_database.SELECT_BACKUP_PRIMAIRE, params)
-        row = self._cur.fetchone()
-        if row is not None:
-            uuid_backup, domaine, nom_fichier, taille = row
-            return {
-                'uuid_backup': uuid_backup,
-                'domaine': domaine,
-                'nom_fichier': nom_fichier,
-                'taille': taille
-            }
-
-        return None
-
     def charger_verifier_fuuids(self, limite_taille: Constantes.CONST_LIMITE_TAILLE_VERIFICATION) -> list[dict]:
         # Generer une batch de fuuids a verifier
         limite_nombre = 1000
@@ -659,6 +643,22 @@ class SQLiteTransfertOperations(SQLiteCursor):
         # Le fichier est inconnu localement ou inactif
         return False
 
+    def get_info_backup_primaire(self, uuid_backup: str, domaine: str, nom_fichier: str) -> Optional[dict]:
+        params = {'uuid_backup': uuid_backup, 'domaine': domaine, 'nom_fichier': nom_fichier}
+
+        self._cur.execute(scripts_database.SELECT_BACKUP_PRIMAIRE, params)
+        row = self._cur.fetchone()
+        if row is not None:
+            uuid_backup, domaine, nom_fichier, taille = row
+            return {
+                'uuid_backup': uuid_backup,
+                'domaine': domaine,
+                'nom_fichier': nom_fichier,
+                'taille': taille
+            }
+
+        return None
+
 
 class SQLiteDetachedOperations(SQLiteCursor):
 
@@ -849,12 +849,12 @@ class SQLiteDetachedSyncApply(SQLiteDetachedOperations):
 
     async def _transfer_data(self):
         await self.__transfert_actifs()
-        await asyncio.to_thread(self._connection.commit)
-        await asyncio.sleep(1)
+        # await asyncio.to_thread(self._connection.commit)
+        # await asyncio.sleep(1)
 
         await self.__transfert_manquants()
-        await asyncio.to_thread(self._connection.commit)
-        await asyncio.sleep(1)
+        # await asyncio.to_thread(self._connection.commit)
+        # await asyncio.sleep(1)
 
         await self.__transfert_orphelins()
         await self.__transfer_supprimes()
@@ -926,6 +926,7 @@ class SQLiteTransfertSecondaireOperations(SQLiteCursor):
     def init_database(self):
         self._connection.init_database(scripts_database.CONST_CREATE_TRANSFERTS)
 
+
 class SQLiteDetachedTransfertSecondaire(SQLiteDetachedOperations):
 
     def __init__(self, connection_destination: SQLiteConnection, database_work):
@@ -987,11 +988,11 @@ class SQLiteDetachedTransferApply(SQLiteDetachedOperations):
         date_creation = datetime.datetime.now(tz=pytz.UTC)
         params = {'date_creation': date_creation}
         await asyncio.to_thread(self._cur.execute, scripts_database.TRANSFERT_INSERT_DOWNLOADS, params)
-        await asyncio.to_thread(self._connection.commit)
-        await asyncio.sleep(1)
+        # await asyncio.to_thread(self._connection.commit)
+        # await asyncio.sleep(1)
 
         await asyncio.to_thread(self._cur.execute, scripts_database.TRANSFERT_INSERT_UPLOADS, params)
-        await asyncio.to_thread(self._connection.commit)
-        await asyncio.sleep(1)
+        # await asyncio.to_thread(self._connection.commit)
+        # await asyncio.sleep(1)
 
         await asyncio.to_thread(self._cur.execute, scripts_database.TRANSFERT_INSERT_BACKUPS)

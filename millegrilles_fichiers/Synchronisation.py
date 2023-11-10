@@ -475,11 +475,9 @@ class SyncManager:
                 self.__upload_event.set()
                 self.__download_event.set()
 
-                # # Declencher sync des fichiers de backup avec le primaire
-                # self.__logger.info("__sequence_sync_secondaire run_sync_backup (Progres: 5/5)")
-                # await self.run_sync_backup()
-
-                pass
+                # Declencher sync des fichiers de backup avec le primaire
+                self.__logger.info("__sequence_sync_secondaire run_sync_backup (Progres: 5/5)")
+                await self.run_sync_backup()
 
         finally:
             self.__logger.info("__sequence_sync_primaire termine")
@@ -1334,18 +1332,20 @@ class SyncManager:
 
     async def run_sync_backup(self):
         if self.__etat_instance.est_primaire is False:
-            with self.__etat_instance.sqlite_connection() as connection:
+            path_database_transferts = pathlib.Path(self.__etat_instance.get_path_data(),
+                                                    Constantes.FICHIER_DATABASE_TRANSFERTS)
+
+            with SQLiteConnection(path_database_transferts, check_same_thread=False) as connection_transfert:
                 timeout = aiohttp.ClientTimeout(connect=20, total=900)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with SQLiteReadOperations(connection) as dao:
-                        await self.__consignation.upload_backups_primaire(session, dao)
-                    await self.download_backups_primaire(connection, session)
+                    await self.__consignation.upload_backups_primaire(connection_transfert, session)
+                    await self.download_backups_primaire(connection_transfert, session)
 
-    async def download_backups_primaire(self, sqlite_connection: SQLiteConnection, session: aiohttp.ClientSession):
+    async def download_backups_primaire(self, connection_transfert: SQLiteConnection, session: aiohttp.ClientSession):
         """ Downloader les fichiers de backup qui sont manquants localement """
 
         while True:
-            async with SQLiteWriteOperations(sqlite_connection) as dao:
+            async with SQLiteTransfertOperations(connection_transfert) as dao:
                 backups = await asyncio.to_thread(dao.get_batch_backups_primaire)
             if len(backups) == 0:
                 break  # Done

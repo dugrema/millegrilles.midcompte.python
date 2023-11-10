@@ -518,11 +518,12 @@ TRANSFERT_INSERT_DOWNLOADS = """
 
 TRANSFERT_INSERT_UPLOADS = """
     INSERT OR IGNORE INTO transferts.uploads(fuuid, taille, date_creation, position, essais)
-    SELECT fmain.fuuid, fmain.taille, :date_creation, 0, 0
-    FROM fichiers fsync
-    LEFT JOIN fichiers.fichiers fmain on fsync.fuuid = fmain.fuuid
-    WHERE fsync.etat_fichier = 'manquant'
-      AND fmain.etat_fichier = 'actif'
+    SELECT fuuid, taille, :date_creation, 0, 0
+    FROM fichiers
+    WHERE etat_fichier = 'actif'
+      AND etat_fichier_primaire = 'manquant'
+      AND date_presence IS NOT NULL
+      AND date_reclamation IS NOT NULL
     ;
 """
 

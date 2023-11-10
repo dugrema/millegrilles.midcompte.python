@@ -484,9 +484,9 @@ class ConsignationHandler:
         await self.__store_pret_event.wait()
         return await self.__store_consignation.reactiver_fuuids(commande)
 
-    async def upload_backups_primaire(self, session: aiohttp.ClientSession, dao: SQLiteReadOperations):
+    async def upload_backups_primaire(self, connection_transfert: SQLiteConnection, session: aiohttp.ClientSession):
         await self.__store_pret_event.wait()
-        await self.__store_consignation.upload_backups_primaire(session, dao)
+        await self.__store_consignation.upload_backups_primaire(connection_transfert, session)
 
     @asynccontextmanager
     async def get_fp_fuuid(self, fuuid: str, start: Optional[int] = None):
