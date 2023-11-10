@@ -23,6 +23,7 @@ CONST_CREATE_SYNC = """
     CREATE TABLE fichiers(
         fuuid VARCHAR PRIMARY KEY,
         etat_fichier VARCHAR,
+        etat_fichier_primaire VARCHAR,
         taille INTEGER,
         bucket_reclame VARCHAR,
         date_reclamation TIMESTAMP,
@@ -30,13 +31,6 @@ CONST_CREATE_SYNC = """
         date_presence TIMESTAMP
     );
     
-    CREATE TABLE fichiers_primaire(
-        fuuid VARCHAR PRIMARY KEY,
-        etat_fichier VARCHAR NOT NULL,
-        taille INTEGER,
-        bucket VARCHAR
-    );
-
     CREATE TABLE backups_primaire(
         uuid_backup VARCHAR NOT NULL,
         domaine VARCHAR NOT NULL,
@@ -302,11 +296,12 @@ INSERT_RECLAMER_FICHIER = """
 """
 
 INSERT_RECLAMER_FICHIER_SECONDAIRE = """
-    INSERT INTO FICHIERS(fuuid, bucket_reclame, date_reclamation, taille, etat_fichier)
+    INSERT INTO FICHIERS(fuuid, bucket_reclame, date_reclamation, taille, etat_fichier_primaire)
     VALUES (:fuuid, :bucket, :date_reclamation, :taille, :etat_fichier)
     ON CONFLICT(fuuid) DO UPDATE SET
         bucket_reclame = :bucket,
-        date_reclamation = :date_reclamation
+        date_reclamation = :date_reclamation,
+        etat_fichier_primaire = :etat_fichier
     ;
 """
 
@@ -424,10 +419,10 @@ SELECT_FICHIERS_TRANSFERT = """
     WHERE etat_fichier IN ('actif', 'manquant');
 """
 
-INSERT_FICHIER_PRIMAIRE = """
-    INSERT OR REPLACE INTO FICHIERS_PRIMAIRE(fuuid, etat_fichier, taille, bucket)
-    VALUES(:fuuid, :etat_fichier, :taille, :bucket);
-"""
+# INSERT_FICHIER_PRIMAIRE = """
+#     INSERT OR REPLACE INTO FICHIERS_PRIMAIRE(fuuid, etat_fichier, taille, bucket)
+#     VALUES(:fuuid, :etat_fichier, :taille, :bucket);
+# """
 
 INSERT_BACKUP_PRIMAIRE = """
     INSERT OR REPLACE INTO BACKUPS_PRIMAIRE(uuid_backup, domaine, nom_fichier, taille)

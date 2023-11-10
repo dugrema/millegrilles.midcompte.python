@@ -85,7 +85,7 @@ class SyncManager:
         self.__upload_event = asyncio.Event()
         self.__download_event = asyncio.Event()
         self.__backup_event = asyncio.Event()
-        self.__event_attendre_visite = asyncio.Event()
+        # self.__event_attendre_visite = asyncio.Event()
 
         await asyncio.gather(
             self.thread_sync_primaire(),
@@ -338,15 +338,12 @@ class SyncManager:
                 reclamation_complete = await self.reclamer_fuuids()
                 self.__logger.info("__sequence_sync_primaire Debut fin reclamation (complet? %s)" % reclamation_complete)
 
-                if self.__consignation.timestamp_visite is None:
-                    # Debloquer les visites (pour prochaine visite)
-                    self.__consignation.timestamp_visite = datetime.datetime.utcnow()
-                    # Ajouter visiter_fuuids dans les taches de sync
-                    # tasks_initiales.append(asyncio.create_task(self.__consignation.visiter_fuuids(dao_batch)))
-                    self.__logger.info("__sequence_sync_primaire visiter_fuuids (Progres: 2/5)")
-                    await self.__consignation.visiter_fuuids(connection)
-                else:
-                    self.__logger.info("__sequence_sync_primaire reclamer_fuuids Skip visiter fuuids (Progres: 2/5)")
+                # Debloquer les visites (pour prochaine visite)
+                self.__consignation.timestamp_visite = datetime.datetime.utcnow()
+                # Ajouter visiter_fuuids dans les taches de sync
+                # tasks_initiales.append(asyncio.create_task(self.__consignation.visiter_fuuids(dao_batch)))
+                self.__logger.info("__sequence_sync_primaire visiter_fuuids (Progres: 2/5)")
+                await self.__consignation.visiter_fuuids(connection)
 
                 #debut_reclamation = datetime.datetime.utcnow()
                 #resultat_initial = await asyncio.gather(*tasks_initiales)
@@ -428,14 +425,12 @@ class SyncManager:
                     # L'ouverture execute la creation de la db
                     self.__logger.debug("__sequence_sync_secondaire Nouvelle base de donnees de sync cree (%s)" % connection.path_database)
 
-                if self.__consignation.timestamp_visite is None:
-                    # Debloquer les visites (pour prochaine visite)
-                    self.__consignation.timestamp_visite = datetime.datetime.utcnow()
-                    self.__logger.info("__sequence_sync_secondaire visiter_fuuids (Progres: 1/5)")
-                    await self.__consignation.visiter_fuuids(connection)
-                else:
-                    self.__logger.info("__sequence_sync_secondaire skip visiter fuuids (Progres: 1/5)")
+                # Visites
+                self.__consignation.timestamp_visite = datetime.datetime.utcnow()
+                self.__logger.info("__sequence_sync_secondaire visiter_fuuids (Progres: 1/5)")
+                await self.__consignation.visiter_fuuids(connection)
 
+                # Reclamations (download du primaire)
                 self.__logger.info(
                     "__sequence_sync_secondaire download_fichiers_reclamation (Progres: 2/5)")
                 try:
@@ -448,24 +443,10 @@ class SyncManager:
                             "__sequence_sync_secondaire Fichier de reclamation primaire non accessible (%d)" % e.status)
                     return  # Abandonner la sync
 
-                # self.__logger.info("__sequence_sync_primaire Debut reclamation (Progres 1/5)")
-                # reclamation_complete = await self.reclamer_fuuids()
-                # self.__logger.info("__sequence_sync_primaire Debut fin reclamation (complet? %s)" % reclamation_complete)
-                #
-                # if self.__consignation.timestamp_visite is None:
-                #     # Debloquer les visites (pour prochaine visite)
-                #     self.__consignation.timestamp_visite = datetime.datetime.utcnow()
-                #     # Ajouter visiter_fuuids dans les taches de sync
-                #     # tasks_initiales.append(asyncio.create_task(self.__consignation.visiter_fuuids(dao_batch)))
-                #     self.__logger.info("__sequence_sync_primaire visiter_fuuids (Progres: 2/5)")
-                #     await self.__consignation.visiter_fuuids()
-                # else:
-                #     self.__logger.info("__sequence_sync_primaire reclamer_fuuids Skip visiter fuuids (Progres: 2/5)")
-
                 if self.__stop_event.is_set():
                     return  # Stopped
 
-                # Merge information dans database
+                # Merge information reclamations dans database
                 self.__logger.info("__sequence_sync_secondaire merge_fichiers_reclamation (Progres: 3/5)")
                 debut_reclamation = datetime.datetime.now(tz=pytz.UTC)
                 await self.merge_fichiers_reclamation(connection)
@@ -473,13 +454,14 @@ class SyncManager:
                 if self.__stop_event.is_set():
                     return  # Stopped
 
+                # Transferer data vers consignation.sqlite
                 self.__logger.info("__sequence_sync_secondaire merge reclamations+visites avec main db (Progres: 4/5)")
                 async with SQLiteDetachedSyncApply(connection, debut_reclamation) as sync_dao:
                     self.__logger.debug("__sequence_sync_primaire Sync vers base de donnee de fichiers")
                     await sync_dao.attach_destination(path_database_fichiers, 'fichiers')
                     pass  # Fermer, la sync s'execute automatiquement
 
-                # Initialiser la base de donnees de transfert
+                # Initialiser la base de donnees transfert.sqlite
                 self.__logger.info("__sequence_sync_secondaire Creer operations de transfert (Progres: 5/5)")
                 async with SQLiteDetachedTransferApply(connection) as transfert_dao:
                     try:
