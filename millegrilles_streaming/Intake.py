@@ -16,7 +16,7 @@ from millegrilles_streaming.Configuration import InformationFuuid
 
 LOGGER = logging.getLogger(__name__)
 
-CONST_MAX_RETRIES_CLE = 2
+CONST_MAX_RETRIES_CLE = 3
 
 
 class IntakeJob:
@@ -308,8 +308,6 @@ class IntakeStreaming(IntakeHandler):
                 if reponse['status'] != 200:
                     info.status = reponse['status']
                     return info
-            else:
-                event_attente = self.__events_fuuids[fuuid]
 
         if event_attente is not None and timeout is not None:
             done, pending = await asyncio.wait(
@@ -319,14 +317,19 @@ class IntakeStreaming(IntakeHandler):
                 task.cancel()
             if self._stop_event.is_set():
                 raise Exception('thread stopped')
-        # else:
-        #     # Pas de timeout, retourner l'info qu'on a deja
-        #     return info
+        elif timeout is not None:
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout)
+            except asyncio.TimeoutError:
+                pass  # OK
 
+        # Tenter de charger le fichier. Retourner
         info = self.get_fichier_dechiffre(fuuid)
         if info is not None:
             return info
 
+        # On n'a aucune information, le download a peut-etre echoue (thread differente)
+        # Tenter de recharger l'information et retourner le resultat final (e.g. None)
         return self.get_progres_download(fuuid)
 
 
