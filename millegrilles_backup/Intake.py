@@ -405,18 +405,16 @@ class IntakeBackup(IntakeHandler):
         date_transaction_debut = datetime.datetime.fromtimestamp(contenu['date_transactions_debut'])
         date_debut_format = date_transaction_debut.strftime("%Y%m%dT%H%M%SZ")
 
-        dict_domaine = self.__dict_domaines.get(nom_domaine)
-        id_fichier = None
-        if dict_domaine is not None:
-            compteur_fichiers = dict_domaine.get('fichiers') or 0
-            if compteur_fichiers is not None:
-                # On est dans un backup complet, utiliser compteur de 8 chiffres (00000000, 00000001, ...)
-                id_fichier = "C{:0>8}".format(compteur_fichiers)
-                # dict_domaine['compteur_fichiers'] = compteur_fichiers + 1  # Incrementer compteur
-
-        if id_fichier is None:
+        try:
+            dict_domaine = self.__dict_domaines[nom_domaine]
+        except AttributeError:
             # Mode incremental, utiliser fin du hachage de contenu
+            dict_domaine = None
             id_fichier = 'I%s' % hachage[-8:]
+        else:
+            # On est dans un backup complet, utiliser compteur de 8 chiffres (00000000, 00000001, ...)
+            compteur_fichiers = dict_domaine.get('fichiers') or 0
+            id_fichier = "C{:0>8}".format(compteur_fichiers)
 
         nom_fichier = '_'.join([nom_domaine, date_debut_format, id_fichier])
 
