@@ -191,7 +191,11 @@ def probe_video(filepath) -> dict:
         audio_stream = next([s for s in info_probe['streams'] if s['codec_type'] == 'audio'].__iter__())
     except StopIteration:
         audio_stream = None
-    info_video['duration'] = float(info_probe['format']['duration'])
+
+    try:
+        info_video['duration'] = float(info_probe['format']['duration'])
+    except KeyError:
+        LOGGER.info("Duree du video non disponible")
 
     if video_stream is not None:
         codec_video = video_stream['codec_name']

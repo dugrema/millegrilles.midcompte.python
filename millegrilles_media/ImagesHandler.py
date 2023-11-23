@@ -151,8 +151,11 @@ async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, etat
     tmp_file_snapshot = tempfile.NamedTemporaryFile(dir=dir_staging, suffix='.jpg')
     try:
         probe = ffmpeg.probe(tmp_file_video.name)
-        duration = float(probe['format']['duration'])
-        snapshot_position = duration * 0.2
+        try:
+            duration = float(probe['format']['duration'])
+            snapshot_position = duration * 0.2
+        except KeyError:
+            snapshot_position = 5  # Mettre a 5 secondes, duree non disponible
         stream = ffmpeg \
             .input(tmp_file_video.name, ss=snapshot_position) \
             .output(tmp_file_snapshot.name, vframes=1) \
@@ -225,7 +228,10 @@ def preparer_commande_associer(
         except StopIteration:
             audio_stream = None
         commande_associer['mimetype'] = job['mimetype']  # Override mimetype image snapshot
-        commande_associer['duration'] = float(info_video['format']['duration'])
+        try:
+            commande_associer['duration'] = float(info_video['format']['duration'])
+        except KeyError:
+            pass  # Duration non disponible
 
         if video_stream is not None:
             codec_video = video_stream['codec_name']
