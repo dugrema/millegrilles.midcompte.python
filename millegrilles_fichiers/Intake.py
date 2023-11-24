@@ -6,6 +6,7 @@ import logging
 import os
 import pathlib
 import shutil
+import sqlite3
 
 from typing import Optional
 
@@ -104,12 +105,23 @@ class IntakeFichiers(IntakeHandler):
         path_fichier = await asyncio.to_thread(reassembler_fichier, *args)
 
         # Consigner : deplacer fichier vers repertoire final
-        try:
-            await self.__consignation_handler.consigner(path_fichier, job.fuuid)
-        except StoreNonInitialise:
-            self.__logger.info("Erreur store non initialise sur intake - attendre 10 secondes et reessayer")
-            await asyncio.sleep(10)
-            await self.__consignation_handler.consigner(path_fichier, job.fuuid)
+        limit_retry = 5
+        for i in range(0, limit_retry):  # 5 essais, 5 a 10 secondes chaque
+            try:
+                if i < 1:
+                    raise StoreNonInitialise('tata')
+                await self.__consignation_handler.consigner(path_fichier, job.fuuid)
+                break  # Ok
+            except sqlite3.OperationalError as erreur:
+                self.__logger.info(
+                    "Erreur store DB locked sur intake - attendre 5 secondes et reessayer")
+                if i == limit_retry - 1:
+                    raise erreur
+            except StoreNonInitialise as erreur:
+                self.__logger.info("Erreur store non initialise sur intake - attendre 5 secondes et reessayer")
+                if i == limit_retry - 1:
+                    raise erreur
+            await asyncio.sleep(5)
 
         # Charger transactions, cles. Emettre.
         await self.emettre_transactions(job)
@@ -138,7 +150,20 @@ class IntakeFichiers(IntakeHandler):
 
         if info_retry['retry'] > 3:
             self.__logger.error("Job %s irrecuperable, trop de retries" % fuuid)
-            shutil.rmtree(path_repertoire)
+            # shutil.rmtree(path_repertoire)
+            path_rejected = pathlib.Path(path_repertoire.parent.parent, 'rejected')
+            path_rejected.mkdir(exist_ok=True)
+            path_rejected_fuuid = pathlib.Path(path_rejected, path_repertoire.name)
+            try:
+                path_repertoire.rename(path_rejected_fuuid)
+            except OSError as e:
+                if e.errno == errno.ENOTEMPTY:
+                    # Erreur de transfert vers retry, directory existe deja. On remplace
+                    shutil.rmtree(path_rejected_fuuid)
+                    path_repertoire.rename(path_rejected_fuuid)
+                else:
+                    self.__logger.exception("Erreur transfert job vers rejected, suppression de l'original")
+                    shutil.rmtree(path_repertoire)
             raise Exception('too many retries')
         else:
             info_retry['retry'] += 1
@@ -436,10 +461,13 @@ def reassembler_fichier(job: IntakeJob) -> pathlib.Path:
 
     if path_fuuid.exists() is True:
         # Le fichier reassemble existe deja
+        LOGGER.debug("reassembler_fichier Existe deja (OK) : %s" % path_fuuid)
         return path_fuuid
 
     path_work = pathlib.Path(path_repertoire, '%s.work' % fuuid)
     path_work.unlink(missing_ok=True)
+
+    LOGGER.info("reassembler_fichier Path : %s" % path_fuuid)
 
     parts = sort_parts(path_repertoire)
     verificateur = VerificateurHachage(fuuid)

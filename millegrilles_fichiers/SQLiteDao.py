@@ -48,11 +48,11 @@ class SQLiteConnection:
 
         self.__con: Optional[sqlite3.Connection] = None
 
-    async def ainit(self):
-        if self.__sqlite_locks is None:
-            sqlite_locks = SQLiteLocks()
-            await sqlite_locks.ainit()
-            self.__sqlite_locks = sqlite_locks
+    # async def ainit(self):
+    #     if self.__sqlite_locks is None:
+    #         sqlite_locks = SQLiteLocks()
+    #         await sqlite_locks.ainit()
+    #         self.__sqlite_locks = sqlite_locks
 
     def open(self):
         self.__con = sqlite3.connect(
