@@ -108,8 +108,6 @@ class IntakeFichiers(IntakeHandler):
         limit_retry = 5
         for i in range(0, limit_retry):  # 5 essais, 5 a 10 secondes chaque
             try:
-                if i < 1:
-                    raise StoreNonInitialise('tata')
                 await self.__consignation_handler.consigner(path_fichier, job.fuuid)
                 break  # Ok
             except sqlite3.OperationalError as erreur:
