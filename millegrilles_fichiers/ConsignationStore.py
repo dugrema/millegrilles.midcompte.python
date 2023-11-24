@@ -396,20 +396,22 @@ class ConsignationStoreMillegrille(ConsignationStore):
         return pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
 
     async def consigner(self, path_src: pathlib.Path, fuuid: str):
-        await super().consigner(path_src, fuuid)
-
         path_dest = self.get_path_fuuid(Constantes.BUCKET_PRINCIPAL, fuuid)
-        # Tenter de deplacer avec rename
-        try:
-            path_dest.parent.mkdir(parents=True, exist_ok=True)
-            path_src.rename(path_dest)
-        except OSError as e:
-            if e.errno == errno.EEXIST:
-                self.__logger.info(
-                    "ConsignationStoreMillegrille.consigner Le fuuid %s existe deja - supprimer la source" % fuuid)
-                path_src.unlink()
-            else:
-                raise e
+        if path_dest.exists() is False:
+            # Tenter de deplacer avec rename
+            try:
+                path_dest.parent.mkdir(parents=True, exist_ok=True)
+                path_src.rename(path_dest)
+            except OSError as e:
+                if e.errno == errno.EEXIST:
+                    self.__logger.info(
+                        "ConsignationStoreMillegrille.consigner Le fuuid %s existe deja - supprimer la source" % fuuid)
+                    path_src.unlink()
+                else:
+                    raise e
+
+        # Conserver dans DB et emettre evenement de consignation a la fin
+        await super().consigner(path_dest, fuuid)
 
     async def run_entretien(self):
         pass

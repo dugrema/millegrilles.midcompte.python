@@ -14,11 +14,14 @@ from millegrilles_messages.messages import Constantes as ConstantesMillegrille
 from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
 from millegrilles_messages.jobs.Intake import IntakeHandler
 from millegrilles_messages.MilleGrillesConnecteur import EtatInstance
+from millegrilles_messages.FileLocking import FileLock, FileLockedException, is_locked
 
 from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.Consignation import ConsignationHandler, InformationFuuid, StoreNonInitialise
 
 LOGGER = logging.getLogger(__name__)
+
+CONST_INTAKE_LOCK_NAME = 'intake.lock'
 
 # CONST_MAX_RETRIES_CLE = 2
 
@@ -80,12 +83,16 @@ class IntakeFichiers(IntakeHandler):
             path_repertoire = repertoires[0].path_fichier
             fuuid = path_repertoire.name
             repertoires = None
-            self.__logger.debug("traiter_prochaine_job Traiter job intake fichier pour fuuid %s" % fuuid)
-            path_repertoire.touch()  # Touch pour mettre a la fin en cas de probleme de traitement
-            job = IntakeJob(fuuid, path_repertoire)
-            await self.traiter_job(job)
+            path_lock = pathlib.Path(path_repertoire, CONST_INTAKE_LOCK_NAME)
+            with FileLock(path_lock, lock_timeout=300):
+                self.__logger.debug("traiter_prochaine_job Traiter job intake fichier pour fuuid %s" % fuuid)
+                path_repertoire.touch()  # Touch pour mettre a la fin en cas de probleme de traitement
+                job = IntakeJob(fuuid, path_repertoire)
+                await self.traiter_job(job)
         except IndexError:
             return None  # Condition d'arret de l'intake
+        except FileLockedException:
+            return {'ok': False, 'err': 'job locked - traitement en cours'}
         except FileNotFoundError as e:
             raise e  # Erreur fatale
         except Exception as e:
@@ -98,11 +105,22 @@ class IntakeFichiers(IntakeHandler):
         raise NotImplementedError('must override')
 
     async def traiter_job(self, job):
-        await self.handle_retries(job)
-
         # Reassembler et valider le fichier
-        args = [job]
-        path_fichier = await asyncio.to_thread(reassembler_fichier, *args)
+        try:
+            args = [job]
+            path_fichier = await asyncio.to_thread(reassembler_fichier, *args)
+        except ErreurHachage as e:
+            self.__logger.exception("traiter_job Erreur hachage pour le fichier reassemble %s" % job.fuuid)
+            await self.handle_retries(job, reject=True)  # Rejeter immediatement (vers repertoire reject)
+            raise e
+        except Exception as e:
+            self.__logger.exception("traiter_job Erreur reassemblage fichier %s" % job.fuuid)
+            await self.handle_retries(job)  # Incrementer le nombre de retries
+            raise e
+        else:
+            # Incrementer le nombre de retries
+            # Noter que le fichier est reassemble, valide et transfere vers le repertoire de consignation
+            await self.handle_retries(job)
 
         # Consigner : deplacer fichier vers repertoire final
         limit_retry = 5
@@ -134,7 +152,7 @@ class IntakeFichiers(IntakeHandler):
         # Supprimer le repertoire de la job
         shutil.rmtree(job.path_job)
 
-    async def handle_retries(self, job: IntakeJob):
+    async def handle_retries(self, job: IntakeJob, reject=False):
         path_repertoire = job.path_job
         fuuid = job.fuuid
         path_fichier_retry = pathlib.Path(path_repertoire, 'retry.json')
@@ -146,7 +164,7 @@ class IntakeFichiers(IntakeHandler):
         except FileNotFoundError:
             info_retry = {'retry': -1}
 
-        if info_retry['retry'] > 3:
+        if reject is True or info_retry['retry'] > 3:
             self.__logger.error("Job %s irrecuperable, trop de retries" % fuuid)
             # shutil.rmtree(path_repertoire)
             path_rejected = pathlib.Path(path_repertoire.parent.parent, 'rejected')
@@ -162,7 +180,8 @@ class IntakeFichiers(IntakeHandler):
                 else:
                     self.__logger.exception("Erreur transfert job vers rejected, suppression de l'original")
                     shutil.rmtree(path_repertoire)
-            raise Exception('too many retries')
+            if reject is False:
+                raise Exception('too many retries')
         else:
             info_retry['retry'] += 1
             with open(path_fichier_retry, 'wt') as fichier:
@@ -440,7 +459,9 @@ def repertoires_par_date(path_parent: pathlib.Path) -> list[RepertoireStat]:
     repertoires = list()
     for item in path_parent.iterdir():
         if item.is_dir():
-            repertoires.append(RepertoireStat(item))
+            path_lock = pathlib.Path(item, CONST_INTAKE_LOCK_NAME)
+            if is_locked(path_lock, timeout=300) is False:
+                repertoires.append(RepertoireStat(item))
 
     # Trier repertoires par date
     repertoires = sorted(repertoires, key=get_modification_date)
