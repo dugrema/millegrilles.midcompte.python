@@ -192,7 +192,10 @@ class IntakeJobVideo(IntakeHandler):
     async def get_prochain_fichier(self) -> Optional[dict]:
         try:
             producer = self._etat_media.producer
-            requete = {'instance_id': self._etat_media.instance_id_consignation}
+            requete = {
+                'instance_id': self._etat_media.instance_id_consignation,
+                'fallback': self._etat_media.configuration.fallback_only,
+            }
             job = await producer.executer_commande(
                 requete, 'GrosFichiers', 'getJobVideo', exchange="4.secure")
 

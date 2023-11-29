@@ -23,6 +23,7 @@ class ConfigurationMedia:
         self.mq_host = 'localhost'
         self.mq_port = 5673
         self.dir_staging = '/var/opt/millegrilles/staging'
+        self.fallback_only = False
 
     def get_env(self) -> dict:
         """
@@ -53,3 +54,4 @@ class ConfigurationMedia:
         self.mq_host = dict_params.get(ConstantesMessages.ENV_MQ_HOSTNAME) or self.mq_host
         self.mq_port = dict_params.get(ConstantesMessages.ENV_MQ_PORT) or self.mq_port
         self.dir_staging = dict_params.get(ConstantesMessages.ENV_DIR_STAGING) or self.dir_staging
+        self.fallback_only = dict_params.get('fallback') or False

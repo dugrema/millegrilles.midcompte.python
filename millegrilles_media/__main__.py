@@ -100,6 +100,10 @@ def parse() -> argparse.Namespace:
         '--novideo', action="store_true", required=False,
         help="Desactive le traitement video"
     )
+    parser.add_argument(
+        '--fallback', action="store_true", required=False,
+        help="Active le traitement video pour fallback seulement (h264 270p)"
+    )
 
     args = parser.parse_args()
     adjust_logging(args)
