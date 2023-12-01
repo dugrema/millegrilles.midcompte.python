@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 import os
+import pathlib
 import signal
 
 from typing import Optional
@@ -62,6 +63,10 @@ class StreamingMain:
         # S'assurer d'avoir le repertoire de consignation (via buckets)
         dir_buckets = os.path.join(self._etat.configuration.dir_consignation, Constantes.DIR_BUCKETS)
         os.makedirs(dir_buckets, exist_ok=True)
+
+        # Repertoire de data
+        path_data = pathlib.Path(self._etat.configuration.dir_data)
+        path_data.mkdir(parents=True, exist_ok=True)
 
         self.__web_server = WebServer(self._etat, self.__commandes_handler, self.__intake, self.__consignation_handler)
         self.__web_server.setup()

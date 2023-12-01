@@ -580,7 +580,7 @@ class WebServer:
             except Forbidden:
                 return web.HTTPForbidden()
 
-            path_data = pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_DATA)
+            path_data = pathlib.Path(self.__etat.configuration.dir_data)
             path_fichier = pathlib.Path(path_data, fichier_nom)
             try:
                 stat_fichier = path_fichier.stat()

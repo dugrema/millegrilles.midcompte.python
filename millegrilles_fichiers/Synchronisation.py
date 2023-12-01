@@ -593,7 +593,7 @@ class SyncManager:
         url_primaire_backup = parse_url(
             '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert/sync', Constantes.FICHIER_BACKUP))
 
-        path_data = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_DATA)
+        path_data = pathlib.Path(self.__etat_instance.configuration.dir_data)
         path_reclamations = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
         path_reclamations_work = pathlib.Path('%s.work' % path_reclamations)
         path_reclamations_intermediaire = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
@@ -666,7 +666,7 @@ class SyncManager:
 
     async def merge_fichiers_reclamation(self, connection: SQLiteConnection):
         # Charger reclamations
-        path_data = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_DATA)
+        path_data = pathlib.Path(self.__etat_instance.configuration.dir_data)
         path_reclamations = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
         path_reclamations_intermediaire = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
 

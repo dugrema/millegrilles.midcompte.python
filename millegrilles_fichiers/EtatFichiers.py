@@ -144,7 +144,7 @@ class EtatFichiers(EtatInstance):
             path_database, self.__sqlite_locks, check_same_thread=check_same_thread, reuse=False)
 
     def get_path_data(self) -> pathlib.Path:
-        return pathlib.Path(self.configuration.dir_consignation, Constantes.DIR_DATA)
+        return pathlib.Path(self.configuration.dir_data)
 
     def get_public_key_ssh(self) -> dict:
         return {'rsa': self.__public_key_ssh_rsa, 'ed25519': self.__public_key_ssh_ed25519}

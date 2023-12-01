@@ -33,7 +33,7 @@ class ConsignationStore:
 
         # Creer repertoire data, path database
         path_database = pathlib.Path(
-            self._etat.configuration.dir_consignation, Constantes.DIR_DATA, Constantes.FICHIER_DATABASE_FICHIERS)
+            self._etat.configuration.dir_data, Constantes.FICHIER_DATABASE_FICHIERS)
         self.__path_database = path_database
 
         self._stop_store: Optional[asyncio.Event] = None
@@ -327,9 +327,8 @@ class ConsignationStore:
                 await detached_dao.reclamer_fuuids(fuuids, bucket)
 
     async def generer_reclamations_sync(self, connection: SQLiteConnection):
-        dir_data = pathlib.Path(self._etat.configuration.dir_consignation)
-        fichier_reclamations = pathlib.Path(dir_data,
-                                            Constantes.DIR_DATA, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
+        dir_data = pathlib.Path(self._etat.configuration.dir_data)
+        fichier_reclamations = pathlib.Path(dir_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
 
         # Preparer le fichier work
         fichier_reclamations_work = pathlib.Path('%s.work' % fichier_reclamations)
@@ -625,7 +624,7 @@ class ConsignationStoreMillegrille(ConsignationStore):
                 }
 
     def __generer_backup_sync(self):
-        path_data = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_DATA)
+        path_data = pathlib.Path(self._etat.configuration.dir_data)
         path_output = pathlib.Path(path_data, Constantes.FICHIER_BACKUP)
         path_output_work = pathlib.Path('%s.work' % path_output)
 
