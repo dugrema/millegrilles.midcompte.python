@@ -110,7 +110,7 @@ class CommandHandler(CommandesAbstract):
         date_cedule = datetime.datetime.fromtimestamp(contenu['estampille'], tz=pytz.UTC)
 
         now = datetime.datetime.now(tz=pytz.UTC)
-        if now - datetime.timedelta(minutes=2) > date_cedule:
+        if now - datetime.timedelta(seconds=80) > date_cedule:
             return  # Vieux message de cedule
 
         weekday = date_cedule.weekday()
