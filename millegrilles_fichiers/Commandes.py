@@ -190,7 +190,7 @@ class CommandHandler(CommandesAbstract):
         elif type_message == 'evenement':
             if action == ConstantesMilleGrilles.EVENEMENT_PING_CEDULE and exchange == ConstantesMilleGrilles.SECURITE_PUBLIC:
                 await self.traiter_cedule(producer, message)
-            if ConstantesMilleGrilles.SECURITE_PRIVE in exchanges:
+            elif ConstantesMilleGrilles.SECURITE_PRIVE in exchanges:
                 if action == Constantes.EVENEMENT_CHANGEMENT_CONSIGNATION_PRIMAIRE:
                     await self.__consignation.charger_topologie()
                 elif action == Constantes.EVENEMENT_SYNC_PRET:
