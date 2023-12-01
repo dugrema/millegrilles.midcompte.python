@@ -26,6 +26,7 @@ class ConfigurationFichiers(ConfigurationAbstract):
     def __init__(self):
         super().__init__()
         self.dir_consignation = '/var/opt/millegrilles/consignation'
+        self.dir_staging = '/var/opt/millegrilles/staging/consignation'
         self.path_key_ssh_ed25519 = '/run/secrets/sftp.ed25519.key.pem'
         self.path_key_ssh_rsa = '/run/secrets/sftp.rsa.key.pem'
 
@@ -44,6 +45,7 @@ class ConfigurationFichiers(ConfigurationAbstract):
 
         # Params optionnels
         self.dir_consignation = dict_params.get(Constantes.ENV_DIR_CONSIGNATION) or self.dir_consignation
+        self.dir_staging = dict_params.get(Constantes.ENV_DIR_STAGING) or self.dir_staging
         self.path_key_ssh_ed25519 = dict_params.get(Constantes.ENV_PATH_KEY_SSH_ED25519) or self.path_key_ssh_ed25519
         self.path_key_ssh_rsa = dict_params.get(Constantes.ENV_PATH_KEY_SSH_RSA) or self.path_key_ssh_rsa
 

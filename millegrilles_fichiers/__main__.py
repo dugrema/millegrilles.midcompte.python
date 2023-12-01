@@ -56,7 +56,10 @@ class StreamingMain:
         await self.__intake.configurer()
 
         # S'assurer d'avoir le repertoire de staging
+        dir_staging = os.path.join(self._etat.configuration.dir_staging)
+        os.makedirs(dir_staging, exist_ok=True)
 
+        # S'assurer d'avoir le repertoire de consignation (via buckets)
         dir_buckets = os.path.join(self._etat.configuration.dir_consignation, Constantes.DIR_BUCKETS)
         os.makedirs(dir_buckets, exist_ok=True)
 

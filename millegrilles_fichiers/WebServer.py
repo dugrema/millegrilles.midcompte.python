@@ -74,7 +74,7 @@ class WebServer:
         self.__configuration.parse_config(configuration)
 
     def get_path_upload_fuuid(self, cn: str, fuuid: str):
-        return pathlib.Path(self.__etat.configuration.dir_consignation, Constantes.DIR_STAGING_UPLOAD, cn, fuuid)
+        return pathlib.Path(self.__etat.configuration.dir_staging, Constantes.DIR_STAGING_UPLOAD, cn, fuuid)
 
     def _preparer_routes(self):
         self.__app.add_routes([
@@ -296,56 +296,6 @@ class WebServer:
                 return web.HTTPServerError()
 
             return web.HTTPOk()
-
-    # async def handle_path_fuuid(self, request: Request):
-    #     fuuid = request.match_info['fuuid']
-    #     headers = request.headers
-    #     jwt_token = request.query.get('jwt')
-    #
-    #     if jwt_token is None:
-    #         # Token JWT absent
-    #         self.__logger.debug("handle_path_fuuid ERROR jwt absent pour requete sur fuuid %s" % fuuid)
-    #         return web.HTTPForbidden()
-    #
-    #     self.__logger.debug("handle_path_fuuid Requete sur fuuid %s" % fuuid)
-    #     try:
-    #         claims = await self.verifier_token_jwt(jwt_token, fuuid)
-    #         if claims is False:
-    #             self.__logger.debug("handle_path_fuuid ERROR jwt refuse pour requete sur fuuid %s" % fuuid)
-    #             return web.HTTPUnauthorized()
-    #
-    #         # Verifier si le fichier existe deja (dechiffre)
-    #         reponse = await self.__commandes.traiter_fuuid(fuuid, jwt_token, claims)
-    #         if reponse is None:
-    #             # On n'a aucune information sur ce fichier/download.
-    #             self.__logger.warning("handle_path_fuuid Aucune information sur le download %s", fuuid)
-    #             return web.HTTPInternalServerError()
-    #
-    #         if reponse.status == 404:
-    #             # Fichier inconnu localement
-    #             return web.HTTPNotFound
-    #         elif reponse.status is not None and reponse.status != 200:
-    #             # On a une erreur du back-end (consignation)
-    #             return web.HTTPInternalServerError()
-    #
-    #         if reponse.est_pret:
-    #             # Repondre avec le stream demande
-    #             return await self.stream_reponse(request, reponse)
-    #
-    #         # HTTP 204 - le contenu n'est pas pret
-    #         if reponse.position_courante is not None:
-    #             headers_response = {
-    #                 'Content-Type': reponse.mimetype,
-    #                 'X-File-Size': str(reponse.taille),
-    #                 'X-File-Position': str(reponse.position_courante),
-    #             }
-    #             return web.Response(status=204, headers=headers_response)
-    #
-    #         return web.HTTPInternalServerError()  # Fix me
-    #
-    #     except Exception:
-    #         self.__logger.exception("handle_path_fuuid ERROR")
-    #         return web.HTTPInternalServerError()
 
     async def thread_entretien(self):
         self.__logger.debug('Entretien web')
