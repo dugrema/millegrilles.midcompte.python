@@ -407,7 +407,7 @@ class IntakeBackup(IntakeHandler):
 
         try:
             dict_domaine = self.__dict_domaines[nom_domaine]
-        except AttributeError:
+        except (TypeError, AttributeError):
             # Mode incremental, utiliser fin du hachage de contenu
             dict_domaine = None
             id_fichier = 'I%s' % hachage[-8:]
