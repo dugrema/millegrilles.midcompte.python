@@ -40,7 +40,8 @@ class CommandHandler(CommandesAbstract):
         res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'commande.backup.restaurerTransactions')
         res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'commande.backup.catalogueTraite')
         res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'evenement.*.backupMaj')
-        res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PRIVE, 'evenement.global.cedule')
+        res_primaire.ajouter_rk(ConstantesMilleGrilles.SECURITE_PUBLIC,
+                                f'evenement.{ConstantesMilleGrilles.ROLE_CEDULEUR}.{ConstantesMilleGrilles.EVENEMENT_PING_CEDULE}')
         messages_thread.ajouter_consumer(res_primaire)
 
         res_backup = RessourcesConsommation(self.callback_reply_q,
@@ -95,9 +96,9 @@ class CommandHandler(CommandesAbstract):
                 elif action == Constantes.COMMANDE_DOMAINE_TRAITE:
                     await self.__restauration_handler.confirmation_domaine(message)
         elif type_message == 'evenement':
-            if ConstantesMilleGrilles.SECURITE_SECURE in exchanges:
-                if action == 'cedule':
-                    if 'core' in roles:
+            if ConstantesMilleGrilles.SECURITE_PUBLIC in exchanges:
+                if ConstantesMilleGrilles.ROLE_CEDULEUR in roles:
+                    if action == ConstantesMilleGrilles.EVENEMENT_PING_CEDULE:
                         await self.traiter_cedule(producer, message)
             if ConstantesMilleGrilles.SECURITE_PRIVE in exchanges:
                 if action == Constantes.EVENEMENT_BACKUP_DOMAINE_MISEAJOUR:
@@ -106,6 +107,12 @@ class CommandHandler(CommandesAbstract):
         return False  # Empeche de transmettre un message de reponse
 
     async def traiter_cedule(self, producer: MessageProducerFormatteur, message: MessageWrapper):
+
+        if ConstantesMilleGrilles.SECURITE_PUBLIC not in message.certificat.get_exchanges:
+            self.__logger.warning("traiter_cedule Message sans l'exchange 1.public - SKIP")
+        elif ConstantesMilleGrilles.ROLE_CEDULEUR not in message.certificat.get_roles:
+            self.__logger.warning("traiter_cedule Message sans le role ceduleur - SKIP")
+
         contenu = message.parsed
         date_cedule = datetime.datetime.fromtimestamp(contenu['estampille'], tz=pytz.UTC)
 
