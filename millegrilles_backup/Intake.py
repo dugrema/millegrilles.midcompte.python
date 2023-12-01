@@ -192,7 +192,7 @@ class IntakeBackup(IntakeHandler):
             path_destination = os.path.join(dir_backup, uuid_backup)
             os.rename(path_transactions, os.path.join(dir_backup, path_destination))
         except KeyError:
-            self.__logger.warning("Backup set %s invalide, on le supprime", path_transactions)
+            self.__logger.warning("rotation_backup Backup set %s invalide, on le supprime", path_transactions)
             shutil.rmtree(path_transactions)
         except FileNotFoundError:
             pass
@@ -210,6 +210,7 @@ class IntakeBackup(IntakeHandler):
         dir_backup = configuration.dir_backup
         path_domaine = os.path.join(dir_backup, 'staging')
         try:
+            self.__logger.warning("preparer_backup Suppression de repertoire de staging invalide sous %s" % path_domaine)
             shutil.rmtree(path_domaine)
         except FileNotFoundError:
             pass  # OK
