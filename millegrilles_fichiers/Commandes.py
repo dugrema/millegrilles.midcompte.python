@@ -34,7 +34,6 @@ class CommandHandler(CommandesAbstract):
         return [
             # f'evenement.{Constantes.DOMAINE_GROSFICHIERS}.{Constantes.EVENEMENT_GROSFICHIERS_CHANGEMENT_CONSIGNATION_PRIMAIRE}',
             # 'evenement.GrosFichiers.changementConsignation',  # TODO - evenement n'existe pas encore
-            'evenement.global.%s' % Constantes.EVENEMENT_CEDULE,
         ]
 
     def configurer_consumers(self, messages_thread: MessagesThread):
@@ -59,6 +58,16 @@ class CommandHandler(CommandesAbstract):
         res_primaire.ajouter_rk(
             ConstantesMilleGrilles.SECURITE_PRIVE,
             f'commande.{Constantes.DOMAINE_FICHIERS}.{Constantes.COMMANDE_ACTIVITE_FUUIDS}',)
+
+        # Queue d'instance
+        res_instance = RessourcesConsommation(
+            self.callback_reply_q,
+            nom_queue=f"{Constantes.QUEUE_INSTANCE_NOM}/{instance_id}", channel_separe=True, est_asyncio=True, auto_delete=True)
+
+        res_instance.ajouter_rk(
+            ConstantesMilleGrilles.SECURITE_PUBLIC,
+            f'evenement.{ConstantesMilleGrilles.ROLE_CEDULEUR}.{ConstantesMilleGrilles.EVENEMENT_PING_CEDULE}',
+        )
 
         # Queue anonyme de traitements
         res_evenements = RessourcesConsommation(self.callback_reply_q, channel_separe=True, est_asyncio=True)
@@ -109,6 +118,7 @@ class CommandHandler(CommandesAbstract):
 
         # Ajouter threads
         messages_thread.ajouter_consumer(res_primaire)
+        messages_thread.ajouter_consumer(res_instance)
         messages_thread.ajouter_consumer(res_evenements)
 
     async def traiter_commande(self, producer: MessageProducerFormatteur, message: MessageWrapper):
@@ -178,13 +188,13 @@ class CommandHandler(CommandesAbstract):
                 self.__logger.warning(
                     "Requete non supportee (action %s) - SKIP" % action)
         elif type_message == 'evenement':
+            if action == ConstantesMilleGrilles.EVENEMENT_PING_CEDULE and exchange == ConstantesMilleGrilles.SECURITE_PUBLIC:
+                await self.traiter_cedule(producer, message)
             if ConstantesMilleGrilles.SECURITE_PRIVE in exchanges:
                 if action == Constantes.EVENEMENT_CHANGEMENT_CONSIGNATION_PRIMAIRE:
                     await self.__consignation.charger_topologie()
                 elif action == Constantes.EVENEMENT_SYNC_PRET:
                     raise NotImplementedError('todo')
-                elif action == Constantes.EVENEMENT_CEDULE:
-                    await self.traiter_cedule(producer, message)
                 elif action == Constantes.EVENEMENT_SYNC_SECONDAIRE:
                     return await self.__consignation.declencher_sync_secondaire(message.parsed)
                 elif action == Constantes.EVENEMENT_CONSIGNATION_PRIMAIRE:
@@ -200,32 +210,19 @@ class CommandHandler(CommandesAbstract):
         return False  # Empeche de transmettre un message de reponse
 
     async def traiter_cedule(self, producer: MessageProducerFormatteur, message: MessageWrapper):
+        if ConstantesMilleGrilles.SECURITE_PUBLIC not in message.certificat.get_exchanges:
+            self.__logger.warning("traiter_cedule Message sans l'exchange 1.public - SKIP")
+        elif ConstantesMilleGrilles.ROLE_CEDULEUR not in message.certificat.get_roles:
+            self.__logger.warning("traiter_cedule Message sans le role ceduleur - SKIP")
+
         contenu = message.parsed
         date_cedule = datetime.datetime.fromtimestamp(contenu['estampille'], tz=pytz.UTC)
 
-        if (ConstantesMilleGrilles.SECURITE_PRIVE not in message.certificat.get_exchanges or
-                Constantes.DOMAINE_CORE_TOPOLOGIE not in message.certificat.get_domaines):
-            self.__logger.warning("Message cedule recu avec mauvais domaine")
-            return
-
         now = datetime.datetime.now(tz=pytz.UTC)
-        if now - datetime.timedelta(minutes=2) > date_cedule:
+        if now - datetime.timedelta(seconds=80) > date_cedule:
             return  # Vieux message de cedule
 
-        weekday = date_cedule.weekday()
-        hour = date_cedule.hour
-        minute = date_cedule.minute
-
         await self.__consignation.traiter_cedule(producer, message)
-
-        # if self.__intake.en_cours or self.__etat_instance.backup_inhibe:
-        #     # Ignorer le trigger, backup ou restauration en cours
-        #     return
-        #
-        # if weekday == 0 and hour == 4:
-        #     pass
-        # elif minute % 20 == 0:
-        #     pass
 
     async def requete_cles_ssh(self):
         cles_ssh = self.__etat_instance.get_public_key_ssh()

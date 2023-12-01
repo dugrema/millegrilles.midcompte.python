@@ -37,6 +37,7 @@ DOMAINE_CORE_TOPOLOGIE = 'CoreTopologie'
 DOMAINE_FICHIERS = 'fichiers'
 
 QUEUE_PRIMAIRE_NOM = 'fichiers/primaire'
+QUEUE_INSTANCE_NOM = 'fichiers/instance'
 
 EVENEMENT_CEDULE = 'cedule'
 EVENEMENT_PRESENCE = 'presence'
