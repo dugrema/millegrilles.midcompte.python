@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import os
+import pathlib
 import sys
 import tempfile
 import socket
@@ -12,9 +13,10 @@ import ffmpeg
 VIDEO_1 = '/home/mathieu/Videos/SaveOurLake/005.MOV'
 VIDEO_2 = '/home/mathieu/Videos/SaveOurLake/DSC_0751[1].MOV'
 VIDEO_3 = '/home/mathieu/tas/tmp/101.mpeg'
+VIDEO_4 = '/home/mathieu/tas/videoTest/street-fighter-01.VOB'
 OUTPUT_WEBM = '/home/mathieu/tmp/output.webm'
-VIDEO_FILE = VIDEO_3
-VIDEO_PROBE = VIDEO_3
+VIDEO_FILE = VIDEO_4
+VIDEO_PROBE = VIDEO_4
 
 
 def probe(file=VIDEO_PROBE):
@@ -26,6 +28,7 @@ def probe(file=VIDEO_PROBE):
     resolution = min(width, height)
     print("Video %s x %s (%dp)" % (width, height, resolution))
     return (width, height, resolution)
+
 
 def thumbnail():
     with tempfile.NamedTemporaryFile() as tmp_fichier:
@@ -40,12 +43,15 @@ def thumbnail():
             .input(tmp_fichier.name, ss=snapshot_position) \
             .output('/home/mathieu/tmp/video_thumbnail.jpg', vframes=1) \
             .overwrite_output() \
-            .run_entretien()
+            .run()
 
 
 def convertir_h264_270p():
     width, height, resolution = probe(VIDEO_FILE)
     width_resized, height_resized = calculer_resize(width, height)
+
+    output_path = pathlib.Path('/home/mathieu/tmp/output_270p.mp4')
+    output_path.unlink(missing_ok=True)
 
     params_output = {
         'format': 'mp4',
@@ -60,8 +66,8 @@ def convertir_h264_270p():
         'threads': 3,
     }
     stream = ffmpeg.input(VIDEO_FILE)
-    stream = stream.output('/home/mathieu/tmp/output_270p.mp4', **params_output)
-    stream.run_entretien()
+    stream = stream.output(str(output_path), **params_output)
+    stream.run()
 
 
 def convertir_vp9():
@@ -81,7 +87,7 @@ def convertir_vp9():
     }
     stream = ffmpeg.input(VIDEO_FILE)
     stream = stream.output('/home/mathieu/tmp/output.webm', **params_output)
-    stream.run_entretien()
+    stream.run()
 
 
 def convertir_hevc():
@@ -106,7 +112,7 @@ def convertir_hevc():
     }
     stream = ffmpeg.input(VIDEO_FILE)
     stream = stream.output('/home/mathieu/tmp/output_hevc.mp4', **params_output)
-    stream.run_entretien()
+    stream.run()
 
 
 def convertir_av1():
@@ -128,7 +134,7 @@ def convertir_av1():
     }
     stream = ffmpeg.input(VIDEO_FILE)
     stream = stream.output('/home/mathieu/tmp/output_av1.webm', **params_output)
-    stream.run_entretien()
+    stream.run()
 
 
 def convertir_pipe_out():
@@ -148,12 +154,16 @@ def convertir_pipe_out():
     }
     stream = ffmpeg.input(VIDEO_FILE)
     stream = stream.output('pipe:', **params_output)
-    out, _ = stream.run_entretien(capture_stdout=True)
+    out, _ = stream.run(capture_stdout=True)
 
     with open('/home/mathieu/tmp/output_buffer.mp4') as output_fichier:
         while out.closed is False:
             buffer = out.read(64*1024)
             output_fichier.write(buffer)
+
+
+def trouver_frames(probe_info):
+    streams = probe_info['streams']
 
 
 async def convertir_progress():
@@ -162,6 +172,21 @@ async def convertir_progress():
     event = asyncio.Event()
 
     probe_info = ffmpeg.probe(VIDEO_FILE)
+
+    # Verifier si on a le nombre de frames
+    video_stream = next(
+        (stream for stream in probe_info['streams'] if stream['codec_type'] == 'video'),
+        None)
+    if video_stream.get('nb_frames') is None:
+        # Compter le nombre de frames (plus lent)
+        probe_info_read = ffmpeg.probe(VIDEO_FILE, select_streams='v:0', count_frames=None,
+                                       show_entries='stream=nb_read_frames')
+        # Injecter le nombre de frames dans le probe_info precedent
+        nb_read_frames = probe_info_read['streams'][0]['nb_read_frames']
+        video_stream['nb_frames'] = nb_read_frames
+
+    path_output = pathlib.Path('/home/mathieu/tmp/output_progress.webm')
+    path_output.unlink(missing_ok=True)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         socket_filename = os.path.join(tmpdir, 'sock')
@@ -184,7 +209,7 @@ async def convertir_progress():
                 'threads': 3,
             }
             stream = ffmpeg.input(VIDEO_FILE)
-            stream = stream.output('/home/mathieu/tmp/output_progress.webm', **params_output)
+            stream = stream.output(str(path_output), **params_output)
             stream = stream.global_args('-progress', f'unix://{socket_filename}')
             stream = stream.overwrite_output()
             ffmpeg_process = stream.run_async(pipe_stdout=True, pipe_stderr=True)
@@ -233,18 +258,61 @@ async def progress_handler(etat, probe_info, key, value):
     if key == 'frame':
         now = datetime.datetime.now().timestamp()
         if etat['dernier_update'] + etat['intervalle_update'] < now:
-            progres = round(float(value) / etat['frames'] * 100)
-            print(f'Progres : {progres}%')
+            try:
+                progres = round(float(value) / etat['frames'] * 100)
+                print(f'Progres : {progres}%')
+            except TypeError:
+                pass
             etat['dernier_update'] = now
 
 
 async def _run_connection(connection, probe_info, handler):
     loop = asyncio.get_running_loop()
-    video_stream = next((stream for stream in probe_info['streams'] if stream['codec_type'] == 'video'), None)
+
+    video_stream = next(
+        (stream for stream in probe_info['streams'] if stream['codec_type'] == 'video'),
+        None)
+
+    # frames = None
+    # for stream in probe_info['streams']:
+    #     try:
+    #         frames = stream['nb_read_frames']
+    #         break
+    #     except KeyError:
+    #         try:
+    #             codec_type = stream['codec_type']
+    #         except KeyError:
+    #             continue
+    #
+    #         if codec_type == 'video':
+    #             try:
+    #                 frames = stream['nb_frames']
+    #                 break
+    #             except KeyError:
+    #                 pass
+
+    try:
+        frames = round(float(video_stream['nb_frames']))
+    except (AttributeError, KeyError):
+        frames = None
+
+    #if frames is not None:
+    #    frames = round(float(frames))
+
+    # video_stream = next((stream for stream in probe_info['streams'] if stream['codec_type'] == 'video' and (stream.get('nb_frames') or stream.get('nb_read_frames'))), None)
+
+    # try:
+    #     frames = float(video_stream['nb_read_frames'])
+    # except (KeyError, AttributeError):
+    #     try:
+    #         frames = float(video_stream['nb_frames'])
+    #     except (KeyError, AttributeError):
+    #         frames = None
+
     etat = {
         'dernier_update': 0,
         'intervalle_update': 3,
-        'frames': float(video_stream['nb_frames']),
+        'frames': frames,
     }
 
     data = b''
@@ -287,6 +355,9 @@ def calculer_resize(width, height, resolution=270):
         width_resized = resolution
         height_resized = (resolution * ratio)
 
+    if width_resized % 2 == 1:
+        width_resized = width_resized + 1
+
     return width_resized, height_resized
 
 
@@ -306,13 +377,13 @@ async def temp_play():
 
 def main():
     # probe()
-    thumbnail()
+    # thumbnail()
     # convertir_h264_270p()
     # convertir_vp9()
     # convertir_hevc()
     # convertir_av1()
     # convertir_pipe_out()
-    # asyncio.run(convertir_progress())
+    asyncio.run(convertir_progress())
     # asyncio.run(temp_play())
 
 

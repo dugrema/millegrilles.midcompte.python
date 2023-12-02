@@ -69,6 +69,9 @@ class ProgressHandler:
         user_id = self.job['user_id']
         fuuid = self.job['fuuid']
         mimetype_conversion = self.job['cle_conversion'].split(';')[0]
+        progres = progres_pct
+        if progres > 100.0:
+            progres = 100  # Plafond a 100
         evenement = {
             'tuuid': self.job['tuuid'],
             'fuuid': fuuid,
@@ -78,7 +81,7 @@ class ProgressHandler:
             'videoQuality': self.job['qualityVideo'],
             'resolution': self.job['resolutionVideo'],
             'height': self.job['resolutionVideo'],
-            'pctProgres': progres_pct,
+            'pctProgres': progres,
             'etat': etat,
         }
 
@@ -156,7 +159,7 @@ async def chiffrer_video(etat_media, job: dict, tmp_input: tempfile.NamedTempora
     LOGGER.debug("probe fichier video transcode : %s" % tmp_input.name)
     tmp_input.seek(0)
     tmp_input.flush()
-    info_video = await loop.run_in_executor(None, probe_video, tmp_input.name)
+    info_video = await asyncio.to_thread(probe_video, tmp_input.name)
 
     clecert = etat_media.clecertificat
     cle = job['cle']
@@ -183,6 +186,21 @@ async def chiffrer_video(etat_media, job: dict, tmp_input: tempfile.NamedTempora
 
 def probe_video(filepath) -> dict:
     info_probe = ffmpeg.probe(filepath)
+
+    # Verifier si on a le nombre de frames
+    video_stream = next(
+        (stream for stream in info_probe['streams'] if stream['codec_type'] == 'video'),
+        None)
+    if video_stream.get('nb_frames') is None:
+        # Compter le nombre de frames (plus lent)
+        try:
+            probe_info_read = ffmpeg.probe(filepath, select_streams='v:0', count_frames=None,
+                                           show_entries='stream=nb_read_frames')
+            # Injecter le nombre de frames dans le probe_info precedent
+            nb_read_frames = probe_info_read['streams'][0]['nb_read_frames']
+            video_stream['nb_frames'] = nb_read_frames
+        except:
+            LOGGER.exception("probe_video Erreur fallback sur count_frames, nombre de frames inconnu")
 
     info_video = dict()
 
@@ -379,7 +397,7 @@ def get_profil(job: dict) -> dict:
 
 
 def calculer_resize(width, height, resolution=270):
-    # Trouver nouvelles dimensions pour 270p
+    # Trouver nouvelles dimensions pour la resolution
     if width > height:
         ratio = width / height
         height_resized = resolution
@@ -387,7 +405,14 @@ def calculer_resize(width, height, resolution=270):
     else:
         ratio = height / width
         width_resized = resolution
-        height_resized = (resolution * ratio)
+        height_resized = round(resolution * ratio)
+
+    # Certains formats (dont VP9) requierent des dimensions paires
+    if width_resized % 2 == 1:
+        width_resized = width_resized + 1
+
+    if height_resized % 2 == 1:
+        height_resized = height_resized + 1
 
     return width_resized, height_resized
 
@@ -399,6 +424,7 @@ ARGS_OVERRIDE_GEOLOC = [
   '-metadata', 'location-eng='
 ]
 
+
 async def convertir_progress(etat_media: EtatMedia, job: dict,
                              src_file: tempfile.NamedTemporaryFile,
                              dest_file: tempfile.NamedTemporaryFile,
@@ -409,8 +435,9 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
     dir_staging = etat_media.configuration.dir_staging
 
     LOGGER.debug("convertir_progress executer probe")
+    await progress_handler.emettre_progres(0, 'probe')
     # probe_info = await loop.run_in_executor(None, probe_video, src_file.name)
-    probe_info = probe_video(src_file.name)
+    probe_info = await asyncio.to_thread(probe_video, src_file.name)
     LOGGER.debug("convertir_progress probe info %s" % probe_info)
     try:
         progress_handler.frames = probe_info['frames']
