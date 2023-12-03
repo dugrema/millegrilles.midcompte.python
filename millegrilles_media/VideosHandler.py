@@ -441,7 +441,7 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
     probe_info = None
     while probe_info is None:
         await progress_handler.emettre_progres(0, 'probe')
-        done, probe_info_coroutine = await asyncio.wait(probe_info_coroutine, timeout=10_000)
+        done, probe_info_coroutine = await asyncio.wait(probe_info_coroutine, timeout=10)
         for r in done:
             e = r.exception()
             if e:
