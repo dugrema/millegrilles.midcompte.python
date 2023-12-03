@@ -435,9 +435,19 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
     dir_staging = etat_media.configuration.dir_staging
 
     LOGGER.debug("convertir_progress executer probe")
-    await progress_handler.emettre_progres(0, 'probe')
     # probe_info = await loop.run_in_executor(None, probe_video, src_file.name)
-    probe_info = await asyncio.to_thread(probe_video, src_file.name)
+    probe_info_coroutine = [asyncio.to_thread(probe_video, src_file.name)]
+
+    probe_info = None
+    while probe_info is None:
+        await progress_handler.emettre_progres(0, 'probe')
+        done, probe_info_coroutine = await asyncio.wait(probe_info_coroutine, timeout=10_000)
+        for r in done:
+            e = r.exception()
+            if e:
+                raise e
+            probe_info = r.result()
+
     LOGGER.debug("convertir_progress probe info %s" % probe_info)
     try:
         progress_handler.frames = probe_info['frames']
