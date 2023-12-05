@@ -76,12 +76,25 @@ class SolrDao:
             else:
                 # Delete data
                 data = {'delete': {'query': '*:*'}}
-                delete_url = f'{self.solr_url}/solr/{nom_collection}/update'
+                delete_url = f'{self.solr_url}/solr/{nom_collection}/update?commit=true'
                 async with session.post(delete_url, ssl=self.__ssl_context, json=data) as resp:
                     if resp.status != 200:
                         self.__logger.warning("reset_index Status DELETE de data collections %s : %d" % (nom_collection, resp.status))
                     else:
                         self.__logger.info("reset_index Status DELETE de collections OK (200)")
+
+    async def supprimer_tuuids(self, nom_collection, tuuids: list[str]):
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            # Delete data
+            for tuuid in tuuids:
+                data = {'delete': {'id': tuuid}}
+                delete_url = f'{self.solr_url}/solr/{nom_collection}/update?commit=true'
+                async with session.post(delete_url, ssl=self.__ssl_context, json=data) as resp:
+                    if resp.status != 200:
+                        self.__logger.warning("supprimer_tuuids Status DELETE de id:%s collections %s : %d" % (tuuid, nom_collection, resp.status))
+                    else:
+                        self.__logger.info("supprimer_tuuids Status DELETE de id:%s collections %s OK (200)" % (tuuid, nom_collection))
 
     async def requete(self, nom_collection, user_id, query, qf='name^2 content', start=0, limit=100):
         timeout = aiohttp.ClientTimeout(total=5)  # Timeout requete 5 secondes

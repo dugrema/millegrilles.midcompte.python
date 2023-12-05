@@ -53,7 +53,7 @@ class IntakeHandler:
         contenu = message.parsed
         tuuids = contenu['tuuids']
         self.__logger.debug("Supprimer tuuids de l'index: %s" % tuuids)
-
+        await self.__solr_dao.supprimer_tuuids(self.__solr_dao.nom_collection_fichiers, tuuids)
         return {'ok': True}
 
     async def run(self):
