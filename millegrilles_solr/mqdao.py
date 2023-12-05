@@ -46,6 +46,7 @@ class MqThread:
         res_relai_requete_fichiers = RessourcesConsommation(self.callback_reply_q, nom_queue='solrrelai/volatil', channel_separe=True, est_asyncio=True)
         res_relai_requete_fichiers.ajouter_rk(Constantes.SECURITE_PRIVE, 'requete.solrrelai.fichiers')
         res_relai_requete_fichiers.ajouter_rk(Constantes.SECURITE_SECURE, 'evenement.GrosFichiers.reindexerConsignation')
+        res_relai_requete_fichiers.ajouter_rk(Constantes.SECURITE_SECURE, 'commande.solrrelai.supprimerTuuids')
         messages_thread.ajouter_consumer(res_relai_requete_fichiers)
 
         # res_relai_trigger = RessourcesConsommation(self.callback_reply_q, nom_queue='solrrelai/trigger', channel_separe=True, est_asyncio=True)

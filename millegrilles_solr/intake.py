@@ -9,6 +9,7 @@ from ssl import SSLContext
 
 from asyncio import Event, TimeoutError, wait, FIRST_COMPLETED, gather
 
+from millegrilles_messages.messages.MessagesModule import MessageWrapper
 from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_document, get_decipher
 from millegrilles_solr.EtatRelaiSolr import EtatRelaiSolr
 from millegrilles_solr.solrdao import SolrDao
@@ -48,6 +49,13 @@ class IntakeHandler:
         # Redemarrer l'indexaction
         self.__event_fichiers.set()
 
+    async def supprimer_tuuids(self, message: MessageWrapper):
+        contenu = message.parsed
+        tuuids = contenu['tuuids']
+        self.__logger.debug("Supprimer tuuids de l'index: %s" % tuuids)
+
+        return {'ok': True}
+
     async def run(self):
         self.__logger.info('IntakeHandler running')
         await gather(self.traiter_fichiers())
@@ -74,33 +82,58 @@ class IntakeHandler:
                 job = await self.get_prochain_fichier()
 
                 if job is not None:
-                    # Downloader/dechiffrer
-                    fuuid = job['fuuid']
-                    mimetype = job['mimetype']
                     user_id = job['user_id']
-                    if mimetype_supporte_fulltext(mimetype):
-                        self.__logger.debug("Downloader %s" % fuuid)
-                        tmp_file = tempfile.TemporaryFile()
-                        await self.downloader_dechiffrer_fichier(job, tmp_file)
-                        tmp_file.seek(0)  # Rewind pour upload
-                        self.__logger.debug("Fichier a indexer est dechiffre (fp tmp)")
-                    else:
+                    tuuid = job['tuuid']
+
+                    # Downloader/dechiffrer
+                    try:
+                        fuuid = job['fuuid']
+                        mimetype = job['mimetype']
+                        if fuuid is None or mimetype is None:
+                            raise TypeError('fuuid ou mimetype None')
+                    except (KeyError, TypeError):
+                        # Aucun fichier (e.g. un repertoire
+                        mimetype = None
+                        fuuid = None
                         tmp_file = None
+                    else:
+                        if mimetype_supporte_fulltext(mimetype):
+                            self.__logger.debug("traiter_fichiers Downloader %s" % fuuid)
+                            tmp_file = tempfile.TemporaryFile()
+                            try:
+                                await self.downloader_dechiffrer_fichier(job, tmp_file)
+                                tmp_file.seek(0)
+                            except aiohttp.ClientResponseError as e:
+                                if e.status == 404:
+                                    self.__logger.warning("Fichier absent (404) : %s - contenu non indexe" % fuuid)
+                                    tmp_file.close()
+                                    tmp_file = None
+                                else:
+                                    raise e
+                            except FichierVide:
+                                self.__logger.warning("Fichier vide : %s - contenu non indexe" % fuuid)
+                                tmp_file.close()
+                                tmp_file = None
+
+                            self.__logger.debug("Fichier a indexer est dechiffre (fp tmp)")
+                        else:
+                            tmp_file = None
 
                     info_fichier = await self.dechiffrer_metadata(job)
                     info_fichier['mimetype'] = mimetype
-                    info_fichier['tuuid'] = job['tuuid']
+                    # info_fichier['tuuid'] = tuuid
+                    info_fichier['fuuid'] = fuuid
 
                     self.__logger.debug("Indexer fichier %s" % json.dumps(info_fichier, indent=2))
 
                     # Indexer
                     await self.__solr_dao.indexer(
-                        self.__solr_dao.nom_collection_fichiers, user_id, fuuid, info_fichier, tmp_file)
+                        self.__solr_dao.nom_collection_fichiers, user_id, tuuid, info_fichier, tmp_file)
 
                     # Confirmer succes de l'indexation
                     producer = self._etat_relaisolr.producer
                     await producer.executer_commande(
-                        {'fuuid': fuuid, 'user_id': user_id},
+                        {'fuuid': fuuid, 'user_id': user_id, 'tuuid': tuuid},
                         'GrosFichiers', 'confirmerFichierIndexe', exchange='4.secure',
                         nowait=True
                     )
@@ -117,7 +150,7 @@ class IntakeHandler:
             producer = self._etat_relaisolr.producer
             job_indexation = await producer.executer_commande(
                 dict(), 'GrosFichiers', 'getJobIndexation', exchange="4.secure")
-            if job_indexation.parsed['ok'] == True:
+            if job_indexation.parsed['ok'] is True:
                 self.__logger.debug("Executer job indexation : %s" % job_indexation)
                 return job_indexation.parsed
             else:
@@ -143,6 +176,7 @@ class IntakeHandler:
         url_consignation = self._etat_relaisolr.url_consignation
         url_fichier = f'{url_consignation}/fichiers_transfert/{fuuid}'
 
+        taille_fichier = 0
         timeout = aiohttp.ClientTimeout(connect=5, total=240)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url_fichier, ssl=self.__ssl_context) as resp:
@@ -150,8 +184,16 @@ class IntakeHandler:
 
                 async for chunk in resp.content.iter_chunked(64*1024):
                     tmp_file.write(decipher.update(chunk))
+                    taille_fichier = taille_fichier + len(chunk)
 
-        tmp_file.write(decipher.finalize())
+        try:
+            dernier_chunk = decipher.finalize()
+            tmp_file.write(dernier_chunk)
+            taille_fichier = taille_fichier + len(dernier_chunk)
+            if taille_fichier == 0:
+                raise FichierVide('fuuid %s est vide' % fuuid)
+        except ValueError as e:
+            raise FichierVide('fuuid %s est vide (err: %s)' % (fuuid, e))
 
         # DEBUG
         # tmp_file.seek(0)
@@ -178,3 +220,7 @@ def mimetype_supporte_fulltext(mimetype) -> bool:
             return True
 
     return False
+
+
+class FichierVide(Exception):
+    pass

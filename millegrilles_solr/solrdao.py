@@ -93,7 +93,7 @@ class SolrDao:
                 'fq': f'user_id:{user_id}',
                 'q': query,
                 'qf': qf,
-                'fl': 'id,tuuid,score',
+                'fl': 'id,fuuid,score',
                 'start': start,
                 'rows': limit,
             }
@@ -188,7 +188,8 @@ class SolrDao:
             {"name": "name", "type": "text_en_splitting_tight", "stored": False},
             {"name": "content", "type": "text_general", "stored": False},
             {"name": "user_id", "type": "string", "multiValued": True, "stored": True},
-            {"name": "tuuid", "type": "string", "stored": True},
+            # {"name": "tuuid", "type": "string", "stored": True},
+            {"name": "fuuid", "type": "string", "stored": True},
             # {"name": "series_t", "type": "text_en_splitting_tight", "multiValued": False},
             # {"name": "cat", "type": "string", "multiValued": True},
             # {"name": "manu", "type": "string"},

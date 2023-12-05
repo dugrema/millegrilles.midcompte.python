@@ -54,6 +54,9 @@ class CommandHandler:
                 if type_message == 'evenement':
                     if action == ConstantesRelaiSolr.EVENEMENT_REINDEXER_CONSIGNATION:
                         return await self._intake_handler.reset_index_fichiers()
+                if type_message == 'commande':
+                    if action == ConstantesRelaiSolr.COMMANDE_SUPPRIMER_TUUIDS:
+                        return await self._intake_handler.supprimer_tuuids(message)
             elif exchange == Constantes.SECURITE_PRIVE and user_id is not None:
                 if type_message == 'requete' and action in [ConstantesRelaiSolr.REQUETE_FICHIERS]:
                     reponse = await self._requetes_handler.traiter_requete(message)
