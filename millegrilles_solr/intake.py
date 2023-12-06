@@ -9,6 +9,7 @@ from ssl import SSLContext
 
 from asyncio import Event, TimeoutError, wait, FIRST_COMPLETED, gather
 
+from millegrilles_messages.messages.Hachage import convertir_hachage_mb_hex
 from millegrilles_messages.messages.MessagesModule import MessageWrapper
 from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_document, get_decipher
 from millegrilles_solr.EtatRelaiSolr import EtatRelaiSolr
@@ -123,6 +124,25 @@ class IntakeHandler:
                     info_fichier['mimetype'] = mimetype
                     # info_fichier['tuuid'] = tuuid
                     info_fichier['fuuid'] = fuuid
+
+                    try:
+                        hachage_original = info_fichier['hachage_original']
+                        # Decoder la valeur multihash et re-encoder en hex
+                        hachage_original_hex = convertir_hachage_mb_hex(hachage_original)
+                        info_fichier['hachage_original'] = hachage_original_hex
+                    except KeyError:
+                        pass  # OK
+
+                    try:
+                        cuuids: Optional[list] = job['path_cuuids']
+                        if cuuids is not None:
+                            # Path cuuids commence par le parent immediat (idx:0 est le parent)
+                            # Inverser l'ordre pour l'indexation
+                            cuuids.reverse()
+                            # info_fichier['cuuids'] = '/'.join(cuuids)
+                            info_fichier['cuuids'] = cuuids
+                    except KeyError:
+                        pass  # Ok
 
                     self.__logger.debug("Indexer fichier %s" % json.dumps(info_fichier, indent=2))
 

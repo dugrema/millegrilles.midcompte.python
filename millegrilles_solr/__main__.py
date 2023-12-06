@@ -75,11 +75,14 @@ class ESMain:
         # await self.__solrdao.ping()
 
         # Debug
+        pass
         #await self.__solrdao.list_field_types()
         #await self.__solrdao.preparer_sample_data()
         #await self.__solrdao.preparer_sample_file()
-        resultat = await self.__requetes_handler.requete_fichiers('z2i3Xjx8abNcGbqKFa5bNzR3UGJkLWUBSgn5c6yZRQW6TxtdDPE', 'abus physiques')
-        logger.info("Resultat requete \n%s" % json.dumps(resultat, indent=2))
+        #resultat = await self.__requetes_handler.requete_fichiers('z2i3Xjx8abNcGbqKFa5bNzR3UGJkLWUBSgn5c6yZRQW6TxtdDPE', 'abus physiques')
+        # resultat = await self.__requetes_handler.requete_fichiers('z2i3XjxE6PXsVKYy6BUzAkxv7HfZHrzmKVTZsyEJvxzpmFNjtwx', '001')
+        # logger.info("Resultat requete \n%s" % json.dumps(resultat, indent=2))
+        # await self.__solrdao.reset_index(self.__config.nom_collection_fichiers, delete=True)
 
     def exit_gracefully(self, signum=None, frame=None):
         logger.info("Fermer application, signal: %d" % signum)

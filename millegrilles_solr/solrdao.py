@@ -96,17 +96,24 @@ class SolrDao:
                     else:
                         self.__logger.info("supprimer_tuuids Status DELETE de id:%s collections %s OK (200)" % (tuuid, nom_collection))
 
-    async def requete(self, nom_collection, user_id, query, qf='name^2 content', start=0, limit=100):
+    async def requete(self, nom_collection, user_id, query, qf='name^2 content', cuuids: Optional[list] = None, start=0, limit=100):
         timeout = aiohttp.ClientTimeout(total=5)  # Timeout requete 5 secondes
+
+        if cuuids is not None:
+            cuuids_str = ' OR cuuids:'.join(cuuids)
+            fq = f'user_id:{user_id} OR cuuids:{cuuids_str}'
+        else:
+            fq = f'user_id:{user_id}'
+
         async with aiohttp.ClientSession(timeout=timeout) as session:
             requete_url = f'{self.solr_url}/solr/{nom_collection}/select'
             # params = {'q': '*:*'}
             params = {
                 'defType': 'dismax',
-                'fq': f'user_id:{user_id}',
+                'fq': fq,
                 'q': query,
                 'qf': qf,
-                'fl': 'id,fuuid,score',
+                'fl': 'id,fuuid,score,user_id,cuuids',
                 'start': start,
                 'rows': limit,
             }
@@ -198,16 +205,16 @@ class SolrDao:
 
         schema_url = f'{self.solr_url}/api/collections/{nom_collection}/schema'
         data = {'add-field': [
-            {"name": "name", "type": "text_en_splitting_tight", "stored": False},
-            {"name": "content", "type": "text_general", "stored": False},
-            {"name": "user_id", "type": "string", "multiValued": True, "stored": True},
+            {"name": "name", "type": "text_en_splitting_tight", "stored": False, "required": True},
+            {"name": "user_id", "type": "string", "stored": True, "required": True},
             # {"name": "tuuid", "type": "string", "stored": True},
             {"name": "fuuid", "type": "string", "stored": True},
+            {"name": "cuuids", "type": "ancestor_path", "multiValued": True, "stored": True},
+            {"name": "content", "type": "text_general", "stored": False},
+            {"name": "hachage_original_hex", "type": "string", "stored": False},
             # {"name": "series_t", "type": "text_en_splitting_tight", "multiValued": False},
-            # {"name": "cat", "type": "string", "multiValued": True},
             # {"name": "manu", "type": "string"},
             # {"name": "features", "type": "text_general", "multiValued": True},
-            # {"name": "weight", "type": "pfloat"},
             # {"name": "price", "type": "pfloat"},
             # {"name": "popularity", "type": "pint"},
             # {"name": "inStock", "type": "boolean", "stored": True},
