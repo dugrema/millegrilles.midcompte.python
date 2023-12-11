@@ -63,6 +63,8 @@ class StreamingMain:
         # S'assurer d'avoir le repertoire de consignation (via buckets)
         dir_buckets = os.path.join(self._etat.configuration.dir_consignation, Constantes.DIR_BUCKETS)
         os.makedirs(dir_buckets, exist_ok=True)
+        dir_staging_intake = os.path.join(self._etat.configuration.dir_consignation, Constantes.DIR_STAGING_INTAKE)
+        os.makedirs(dir_staging_intake, exist_ok=True)
 
         # Repertoire de data
         path_data = pathlib.Path(self._etat.configuration.dir_data)
