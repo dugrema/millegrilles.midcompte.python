@@ -156,11 +156,11 @@ class IntakeStreaming(IntakeHandler):
 
             if status_fuuid != 200:
                 # Le fichier n'est pas disponible. Plus rien a faire
-                self.__logger.debug('Fichier %s non disponible sur consignation' % fuuid)
+                self.__logger.debug('__ajouter_job Fichier %s non disponible sur consignation' % fuuid)
                 self.cleanup_download(fuuid)
                 return info_fichier
         except Exception as e:
-            self.__logger.exception("Erreur verification existance fichier %s" % fuuid)
+            self.__logger.exception("__ajouter_job Erreur verification existance fichier %s" % fuuid)
             self.cleanup_download(fuuid)
             raise e
 
@@ -169,12 +169,12 @@ class IntakeStreaming(IntakeHandler):
             ref_fuuid = info.ref or info.fuuid
             reponse_cle = None
             for i in range(1, CONST_MAX_RETRIES_CLE+1):
-                self.__logger.debug("Recuperer_cle (try %d)" % i)
+                self.__logger.debug("__ajouter_job Recuperer_cle (try %d)" % i)
                 try:
-                    reponse_cle = await self.recuperer_cle(info.user_id, ref_fuuid, info.jwt_token, timeout=6)
+                    reponse_cle = await self.recuperer_cle(info.user_id, ref_fuuid, info.jwt_token, timeout=30)
                     break
                 except (asyncio.CancelledError, asyncio.TimeoutError) as e:
-                    self.__logger.warning("Timeout recuperer_cle (try %d de %d)" % (i, CONST_MAX_RETRIES_CLE))
+                    self.__logger.warning("__ajouter_job Timeout recuperer_cle (try %d de %d)" % (i, CONST_MAX_RETRIES_CLE))
                     if i == CONST_MAX_RETRIES_CLE:
                         raise e
 
@@ -185,7 +185,7 @@ class IntakeStreaming(IntakeHandler):
                 info.format = reponse_cle['format']
                 info.header = reponse_cle.get('header')
 
-            self.__logger.debug('Creer la job de download pour fuuid %s' % fuuid)
+            self.__logger.debug('__ajouter_job Creer la job de download pour fuuid %s' % fuuid)
             job = IntakeJob(info, cle_chiffree)
             self.__jobs.put_nowait(job)
             # S'assurer de demarrer le traitement immediatement
@@ -203,11 +203,11 @@ class IntakeStreaming(IntakeHandler):
 
     async def recuperer_cle(self, user_id: str, fuuid: str, jwt_token: str, timeout=15) -> dict:
         producer = self._etat_instance.producer
-        await asyncio.wait_for(producer.producer_pret().wait(), 3)
+        await asyncio.wait_for(producer.producer_pret().wait(), 1)
 
         domaine = 'GrosFichiers'
         action = 'getClesStream'
-        requete_cle = { 'user_id': user_id, 'fuuids': [fuuid], 'jwt': jwt_token }
+        requete_cle = {'user_id': user_id, 'fuuids': [fuuid], 'jwt': jwt_token}
         reponse_cle = await producer.executer_requete(
             requete_cle,
             domaine=domaine, action=action, exchange='2.prive', timeout=timeout)
@@ -230,7 +230,7 @@ class IntakeStreaming(IntakeHandler):
         :param fuuid: Fuuid du fichier dechiffre.
         :return: L'information pour acceder au fichier dechiffre, incluant metadonnes. None si fichier n'existe pas.
         """
-        path_dechiffre_dat = pathlib.Path(os.path.join(self.get_path_dechiffre(), fuuid + '.dat'))
+        path_dechiffre_dat = pathlib.Path(self.get_path_dechiffre(), fuuid + '.dat')
 
         try:
             stat_dat = path_dechiffre_dat.stat()
@@ -276,13 +276,13 @@ class IntakeStreaming(IntakeHandler):
 
         return reponse
 
-    def get_path_dechiffre(self):
+    def get_path_dechiffre(self) -> pathlib.Path:
         path_staging = self._etat_instance.configuration.dir_staging
-        return os.path.join(path_staging, Constantes.DIR_DECHIFFRE)
+        return pathlib.Path(path_staging, Constantes.DIR_DECHIFFRE)
 
-    def get_path_download(self):
+    def get_path_download(self) -> pathlib.Path:
         path_staging = self._etat_instance.configuration.dir_staging
-        return os.path.join(path_staging, Constantes.DIR_DOWNLOAD)
+        return pathlib.Path(path_staging, Constantes.DIR_DOWNLOAD)
 
     async def attendre_download(self, fuuid: str, jwt_token: str, params: dict, timeout: Optional[int] = None) -> Optional[InformationFuuid]:
         # Verifier si le fichier est deja dechiffre

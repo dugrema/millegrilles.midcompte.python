@@ -78,14 +78,14 @@ class ConsignationHandler:
         clecert = self.__etat_instance.clecertificat
         decipher = get_decipher(clecert, cle_chiffree, params_dechiffrage)
 
-        timeout = aiohttp.ClientTimeout(connect=5, total=600)
+        timeout = aiohttp.ClientTimeout(connect=30, total=900)
         with path_destination.open(mode='wb') as output_file:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url_fuuid, ssl=self.__etat_instance.ssl_context) as resp:
                     resp.raise_for_status()
 
                     async for chunk in resp.content.iter_chunked(64*1024):
-                        output_file.write(decipher.update(chunk))
+                        await asyncio.to_thread(output_file.write, decipher.update(chunk))
 
             output_file.write(decipher.finalize())
 
