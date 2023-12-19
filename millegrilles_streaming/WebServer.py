@@ -75,7 +75,7 @@ class WebServer:
 
             if reponse.status == 404:
                 # Fichier inconnu localement
-                return web.HTTPNotFound
+                return web.HTTPNotFound()
             elif reponse.status is not None and reponse.status != 200:
                 # On a une erreur du back-end (consignation)
                 return web.HTTPInternalServerError()
