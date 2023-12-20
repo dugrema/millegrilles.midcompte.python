@@ -808,49 +808,77 @@ class SyncManager:
         path_download.mkdir(parents=True, exist_ok=True)
         path_fichier_work = pathlib.Path(path_download, '%s.work' % fuuid)
 
+        # Verifier si on resume un download
+        try:
+            stat_fichier_work = path_fichier_work.stat()
+        except FileNotFoundError:
+            # Le fichier n'existe pas
+            position = 0
+            headers = dict()
+        else:
+            # Tenter de resumer le download
+            position = stat_fichier_work.st_size
+            taille_fichier = self.__download_en_cours['taille']
+            headers = {'Range': 'bytes=%s-%s' % (position, taille_fichier-1)}
+            self.__logger.debug("Resumer %s a position %s" % (fuuid, headers))
+
         date_download_maj = datetime.datetime.utcnow()
         intervalle_download_maj = datetime.timedelta(seconds=5)
 
-        with path_fichier_work.open('wb') as output_file:
-            async with session.get(url_primaire_reclamations.url, ssl=self.__etat_instance.ssl_context) as resp:
-                if resp.status != 200:
-                    self.__logger.warning("Erreur download fichier %s (status %d)" % (fuuid, resp.status))
-                    async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
-                        if resp.status == 404:
-                            self.__logger.warning(
-                                "Erreur download fichier %s - supprimer le download" % fuuid)
-                            await asyncio.to_thread(transfert_dao.supprimer_job_download, fuuid)
-                        await asyncio.to_thread(transfert_dao.touch_download, fuuid, resp.status)
-                    path_fichier_work.unlink()
-                    return
-
+        async with session.get(url_primaire_reclamations.url, ssl=self.__etat_instance.ssl_context, headers=headers) as resp:
+            if resp.status == 200:
+                # On doit commencer a 0
+                position = 0
+                flag_open = 'wb'
+            elif resp.status == 206:
+                # On va resumer a la position demandee
+                flag_open = 'ab'
+            else:
+                self.__logger.warning("Erreur download fichier %s (status %d)" % (fuuid, resp.status))
                 async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
-                    await self.emettre_etat_download(fuuid, transfert_dao, producer)
-                date_download_maj = datetime.datetime.utcnow()
+                    if resp.status == 404:
+                        self.__logger.warning(
+                            "Erreur download fichier %s - supprimer le download" % fuuid)
+                        await asyncio.to_thread(transfert_dao.supprimer_job_download, fuuid)
+                    await asyncio.to_thread(transfert_dao.touch_download, fuuid, resp.status)
+                path_fichier_work.unlink(missing_ok=True)
+                return
 
-                debut_chunk = datetime.datetime.utcnow()
-                async for chunk in resp.content.iter_chunked(64 * 1024):
-                    if self.__stop_event.is_set():
-                        self.__logger.warning("download_fichier_primaire Annuler download, stop_event est True")
-                        return
+            taille_recue = int(resp.headers['Content-Length'])
+            if taille_recue != self.__download_en_cours['taille'] - position:
+                raise Exception('mismatch taille attendue et taille recue')
 
-                    output_file.write(chunk)
-                    self.__download_en_cours['position'] += len(chunk)
+            if position < taille_recue:
+                with path_fichier_work.open(flag_open) as output_file:
+                    async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
+                        await self.emettre_etat_download(fuuid, transfert_dao, producer)
+                    date_download_maj = datetime.datetime.utcnow()
 
-                    # Calculer vitesse transfert
-                    now = datetime.datetime.utcnow()
-                    duree_transfert = now - debut_chunk
-                    self.__samples_download.append({'duree': duree_transfert, 'taille': len(chunk)})
-                    while len(self.__samples_download) > CONST_LIMITE_SAMPLES_DOWNLOAD:
-                        self.__samples_download.pop(0)  # Detruire vieux samples
+                    debut_chunk = datetime.datetime.utcnow()
+                    async for chunk in resp.content.iter_chunked(64 * 1024):
+                        if self.__stop_event.is_set():
+                            self.__logger.warning("download_fichier_primaire Annuler download, stop_event est True")
+                            return
 
-                    if now - intervalle_download_maj > date_download_maj:
-                        date_download_maj = now
-                        async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
-                            await self.emettre_etat_download(fuuid, transfert_dao, producer)
+                        output_file.write(chunk)
+                        self.__download_en_cours['position'] += len(chunk)
 
-                    # Debut compter pour prochain chunk
-                    debut_chunk = now
+                        # Calculer vitesse transfert
+                        now = datetime.datetime.utcnow()
+                        duree_transfert = now - debut_chunk
+                        self.__samples_download.append({'duree': duree_transfert, 'taille': len(chunk)})
+                        while len(self.__samples_download) > CONST_LIMITE_SAMPLES_DOWNLOAD:
+                            self.__samples_download.pop(0)  # Detruire vieux samples
+
+                        if now - intervalle_download_maj > date_download_maj:
+                            date_download_maj = now
+                            async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
+                                await self.emettre_etat_download(fuuid, transfert_dao, producer)
+
+                        # Debut compter pour prochain chunk
+                        debut_chunk = now
+
+                        self.__logger.debug("Fuuid %s position %d/%d" % (fuuid, self.__download_en_cours['position'], self.__download_en_cours['taille']))
 
         async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
             await self.emettre_etat_download(fuuid, transfert_dao, producer)
