@@ -17,6 +17,7 @@ from urllib3.util import parse_url
 from aiohttp.client_exceptions import ClientResponseError
 
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
+from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
 
 from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
@@ -824,6 +825,7 @@ class SyncManager:
 
         date_download_maj = datetime.datetime.utcnow()
         intervalle_download_maj = datetime.timedelta(seconds=5)
+        verificateur_hachage = VerificateurHachage(fuuid)
 
         async with session.get(url_primaire_reclamations.url, ssl=self.__etat_instance.ssl_context, headers=headers) as resp:
             if resp.status == 200:
@@ -833,6 +835,8 @@ class SyncManager:
             elif resp.status == 206:
                 # On va resumer a la position demandee
                 flag_open = 'ab'
+                # Remettre le hachage en place
+                await asyncio.to_thread(read_into_verificateur, path_fichier_work, verificateur_hachage)
             else:
                 self.__logger.warning("Erreur download fichier %s (status %d)" % (fuuid, resp.status))
                 async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
@@ -848,7 +852,7 @@ class SyncManager:
             if taille_recue != self.__download_en_cours['taille'] - position:
                 raise Exception('mismatch taille attendue et taille recue')
 
-            if position < taille_recue:
+            if position < self.__download_en_cours['taille']:
                 with path_fichier_work.open(flag_open) as output_file:
                     async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
                         await self.emettre_etat_download(fuuid, transfert_dao, producer)
@@ -861,6 +865,7 @@ class SyncManager:
                             return
 
                         output_file.write(chunk)
+                        verificateur_hachage.update(chunk)
                         self.__download_en_cours['position'] += len(chunk)
 
                         # Calculer vitesse transfert
@@ -879,6 +884,13 @@ class SyncManager:
                         debut_chunk = now
 
                         self.__logger.debug("Fuuid %s position %d/%d" % (fuuid, self.__download_en_cours['position'], self.__download_en_cours['taille']))
+
+        try:
+            verificateur_hachage.verify()
+        except ErreurHachage as e:
+            self.__logger.error("Hachage du fuuid %s est invalide, supprimer le download")
+            path_fichier_work.unlink()
+            raise e
 
         async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
             await self.emettre_etat_download(fuuid, transfert_dao, producer)
@@ -1240,3 +1252,13 @@ class SyncManager:
 
             output.seek(0)
             await self.__consignation.conserver_backup(output, uuid_backup, domaine, nom_fichier)
+
+
+def read_into_verificateur(file_path: pathlib.Path, verificateur: VerificateurHachage):
+    CHUNK_SIZE = 64 * 1024
+    with open(file_path, 'rb') as fichier:
+        while True:
+            data = fichier.read(CHUNK_SIZE)
+            if not data:
+                break
+            verificateur.update(data)
