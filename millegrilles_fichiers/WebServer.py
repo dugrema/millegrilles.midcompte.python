@@ -37,7 +37,8 @@ CONST_FICHIERS_ACCEPTES_SYNC = frozenset([
 
 class JobVerifierParts:
 
-    def __init__(self, path_upload: pathlib.Path, hachage: str):
+    def __init__(self, transaction, path_upload: pathlib.Path, hachage: str):
+        self.transaction = transaction
         self.path_upload = path_upload
         self.hachage = hachage
         self.done = asyncio.Event()
@@ -161,13 +162,22 @@ class WebServer:
             path_upload.mkdir(parents=True, exist_ok=True)
 
             path_fichier = pathlib.Path(path_upload, '%s.part' % position)
+            # S'assurer que le fichier .part n'existe pas deja (on serait en mode resume)
+            try:
+                stat_fichier = path_fichier.stat()
+                if content_length == stat_fichier.st_size:
+                    return web.HTTPOk()  # On a deja ce .part de fichier, il a la meme longueur
+            except FileNotFoundError:
+                pass  # Fichier absent ou taille differente
+
+            path_fichier_work = pathlib.Path(path_upload, '%s.part.work' % position)
             self.__logger.debug("handle_put_fuuid Conserver part %s" % path_fichier)
 
             if content_hash:
                 verificateur = VerificateurHachage(content_hash)
             else:
                 verificateur = None
-            with open(path_fichier, 'wb', buffering=1024*1024) as fichier:
+            with open(path_fichier_work, 'wb', buffering=1024*1024) as fichier:
                 async for chunk in request.content.iter_chunked(64 * 1024):
                     if verificateur:
                         verificateur.update(chunk)
@@ -179,16 +189,19 @@ class WebServer:
                     verificateur.verify()
                 except ErreurHachage as e:
                     self.__logger.info("handle_put_fuuid Erreur verification hachage : %s" % str(e))
-                    path_fichier.unlink(missing_ok=True)
+                    path_fichier_work.unlink(missing_ok=True)
                     return web.HTTPBadRequest()
 
             # Verifier que la taille sur disque correspond a la taille attendue
             # Meme si le hachage est OK, s'assurer d'avoir conserve tous les bytes
-            stat = path_fichier.stat()
+            stat = path_fichier_work.stat()
             if content_length is not None and stat.st_size != content_length:
                 self.__logger.info("handle_put_fuuid Erreur verification taille, sauvegarde %d, attendu %d" % (stat.st_size, content_length))
-                path_fichier.unlink(missing_ok=True)
+                path_fichier_work.unlink(missing_ok=True)
                 return web.HTTPBadRequest()
+
+            # Retirer le .work du fichier
+            path_fichier_work.rename(path_fichier)
 
             self.__logger.debug("handle_put_fuuid fuuid: %s position: %s recu OK" % (fuuid, position))
 
@@ -234,17 +247,10 @@ class WebServer:
                     with open(path_transaction, 'wt') as fichier:
                         json.dump(transaction, fichier)
                 except KeyError:
-                    pass
+                    transaction = None
 
-                try:
-                    cles = body['cles']
-                    await self.__etat.validateur_message.verifier(cles)  # Lance exception si echec verification
-                    path_cles = pathlib.Path(path_upload, Constantes.FICHIER_CLES)
-                    with open(path_cles, 'wt') as fichier:
-                        json.dump(cles, fichier)
-                except KeyError:
-                    pass
             else:
+                transaction = None
                 # Sauvegarder etat.json sans body
                 etat = {'hachage': fuuid, 'retryCount': 0, 'created': int(datetime.datetime.utcnow().timestamp()*1000)}
                 hachage = fuuid
@@ -253,11 +259,15 @@ class WebServer:
 
             # Valider hachage du fichier complet (parties assemblees)
             try:
-                job_valider = JobVerifierParts(path_upload, hachage)
+                job_valider = JobVerifierParts(transaction, path_upload, hachage)
                 await self.__queue_verifier_parts.put(job_valider)
-                await asyncio.wait_for(job_valider.done.wait(), timeout=270)
+                await asyncio.wait_for(job_valider.done.wait(), timeout=20)
                 if job_valider.exception is not None:
                     raise job_valider.exception
+            except asyncio.TimeoutError:
+                self.__logger.info(
+                    'handle_post_fuuid Verification fichier %s assemble en cours, repondre HTTP:201' % fuuid)
+                return web.HTTPCreated()
             except Exception as e:
                 self.__logger.warning('handle_post_fuuid Erreur verification hachage fichier %s assemble : %s' % (fuuid, e))
                 shutil.rmtree(path_upload)
@@ -268,7 +278,7 @@ class WebServer:
                 await self.__intake.ajouter_upload(path_upload)
             except Exception as e:
                 self.__logger.warning('handle_post_fuuid Erreur ajout fichier %s assemble au intake : %s' % (fuuid, e))
-                shutil.rmtree(path_upload)
+                # shutil.rmtree(path_upload)
                 return web.HTTPServerError()
 
             return web.HTTPAccepted()

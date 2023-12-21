@@ -22,6 +22,7 @@ from millegrilles_fichiers.Consignation import ConsignationHandler, InformationF
 LOGGER = logging.getLogger(__name__)
 
 CONST_INTAKE_LOCK_NAME = 'intake.lock'
+CONST_CHUNK_SIZE = 64 * 1024
 
 # CONST_MAX_RETRIES_CLE = 2
 
@@ -319,7 +320,7 @@ def reassembler_fichier(job: IntakeJob, work_path: Optional[pathlib.Path] = None
             path_part = pathlib.Path(path_repertoire, '%d.part' % position)
             with open(path_part, 'rb') as part_file:
                 while True:
-                    chunk = part_file.read(64*1024)
+                    chunk = part_file.read(CONST_CHUNK_SIZE)
                     if not chunk:
                         break
                     output.write(chunk)
