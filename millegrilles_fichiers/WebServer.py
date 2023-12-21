@@ -273,14 +273,6 @@ class WebServer:
                 shutil.rmtree(path_upload)
                 return web.HTTPFailedDependency()
 
-            # Transferer vers intake
-            try:
-                await self.__intake.ajouter_upload(path_upload)
-            except Exception as e:
-                self.__logger.warning('handle_post_fuuid Erreur ajout fichier %s assemble au intake : %s' % (fuuid, e))
-                # shutil.rmtree(path_upload)
-                return web.HTTPServerError()
-
             return web.HTTPAccepted()
 
     async def handle_delete_fuuid(self, request: Request) -> StreamResponse:
@@ -362,22 +354,40 @@ class WebServer:
                 else:
                     job_verifier_parts: JobVerifierParts = d.result()
                     try:
-                        path_upload = job_verifier_parts.path_upload
-                        hachage = job_verifier_parts.hachage
-                        args = [path_upload, hachage]
-                        # Utiliser thread pool pour validation
-                        await asyncio.to_thread(valider_hachage_upload_parts, *args)
+                        await self.traiter_job_verifier_parts(job_verifier_parts)
                     except Exception as e:
                         self.__logger.exception("thread_verifier_parts Erreur verification hachage %s" % job_verifier_parts.hachage)
                         job_verifier_parts.exception = e
-
-                    # Liberer job
-                    job_verifier_parts.done.set()
+                    finally:
+                        # Liberer job
+                        job_verifier_parts.done.set()
 
             if len(pending) == 0:
                 raise Exception('arrete indirectement (pending vide)')
 
             pending.add(asyncio.create_task(self.__queue_verifier_parts.get()))
+
+    async def traiter_job_verifier_parts(self, job: JobVerifierParts):
+        try:
+            path_upload = job.path_upload
+            hachage = job.hachage
+            args = [path_upload, hachage]
+            # Utiliser thread pool pour validation
+            await asyncio.to_thread(valider_hachage_upload_parts, *args)
+        except Exception as e:
+            self.__logger.warning(
+                'traiter_job_verifier_parts Erreur verification hachage fichier %s assemble : %s' % (job.path_upload, e))
+            shutil.rmtree(job.path_upload, ignore_errors=True)
+            # return web.HTTPFailedDependency()
+            raise e
+
+        # Transferer vers intake
+        try:
+            await self.__intake.ajouter_upload(path_upload)
+        except Exception as e:
+            self.__logger.warning(
+                'handle_post Erreur ajout fichier %s assemble au intake : %s' % (path_upload, e))
+            raise e
 
     async def run(self, stop_event: Optional[Event] = None):
         if stop_event is not None:
