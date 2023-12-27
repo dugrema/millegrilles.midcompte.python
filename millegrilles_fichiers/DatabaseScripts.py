@@ -489,7 +489,7 @@ TRANSFERT_INSERT_ORPHELINS_FICHIERS = """
     INSERT INTO fichiers.FICHIERS(fuuid, etat_fichier, date_presence)
     SELECT fuuid, 'orphelin', date_presence
     FROM fichiers
-    WHERE bucket_reclame IS NULL
+    WHERE date_reclamation IS NULL
     ON CONFLICT(fuuid) DO UPDATE SET 
         etat_fichier = 'orphelin',
         date_presence = excluded.date_presence
