@@ -874,6 +874,9 @@ class SQLiteDetachedSyncApply(SQLiteDetachedOperations):
         params = {'date_reclamation': self.__date_reclamation}
         await asyncio.to_thread(self._cur.execute, scripts_database.TRANSFERT_UPDATE_MARQUER_ORPHELINS, params)
 
+        # Retirer date_orphelin des fichiers qui ne sont pas orphelins
+        await asyncio.to_thread(self._cur.execute, scripts_database.TRANSFERT_UPDATE_RETIRER_DATE_NON_ORPHELINS)
+
     async def __transfer_supprimes(self):
         """ Process fichiers a supprimer (absents du sync) """
         pass

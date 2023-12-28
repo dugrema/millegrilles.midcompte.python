@@ -386,16 +386,20 @@ UPDATE_DATE_ETATFICHIER_PRESENCE = """
     WHERE fuuid = :fuuid;
 """
 
+#Obsolete?
 UPDATE_ACTIFS_VISITES = """
     UPDATE FICHIERS
-    SET etat_fichier = 'actif'
+    SET etat_fichier = 'actif',
+        date_orphelin = NULL
     WHERE date_presence >= :date_presence
       AND etat_fichier = 'manquant';
 """
 
+#Obsolete?
 UPDATE_MANQANTS_VISITES = """
     UPDATE FICHIERS
-    SET etat_fichier = 'manquant'
+    SET etat_fichier = 'manquant',
+        date_orphelin = NULL
     WHERE date_presence < :date_presence
       AND etat_fichier IN ('actif', 'orphelin');
 """
@@ -541,4 +545,11 @@ TRANSFERT_UPDATE_MARQUER_ORPHELINS = """
     UPDATE fichiers.fichiers
     SET etat_fichier = 'orphelin'
     WHERE date_reclamation < :date_reclamation
+"""
+
+TRANSFERT_UPDATE_RETIRER_DATE_NON_ORPHELINS = """
+    UPDATE fichiers.fichiers
+    SET date_orphelin = NULL
+    WHERE date_orphelin IS NOT NULL
+      AND etat_fichier != 'orphelin'
 """
