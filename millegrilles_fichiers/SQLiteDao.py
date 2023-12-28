@@ -867,7 +867,8 @@ class SQLiteDetachedSyncApply(SQLiteDetachedOperations):
 
     async def __transfert_orphelins(self):
         """ Process fichiers orphelins (presence sans reclamation) - upsert dans table fichiers """
-        await asyncio.to_thread(self._cur.execute, scripts_database.TRANSFERT_INSERT_ORPHELINS_FICHIERS)
+        params = {'date_now': self.__date_reclamation}
+        await asyncio.to_thread(self._cur.execute, scripts_database.TRANSFERT_INSERT_ORPHELINS_FICHIERS, params)
 
         # Marquer les fichiers qui n'ont pas ete mis a jour comme orphelins
         params = {'date_reclamation': self.__date_reclamation}

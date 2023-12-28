@@ -10,13 +10,15 @@ CONST_CREATE_FICHIERS = """
         date_presence TIMESTAMP,
         date_reclamation TIMESTAMP,
         date_verification TIMESTAMP,
-        date_backup TIMESTAMP
+        date_backup TIMESTAMP,
+        date_orphelin TIMESTAMP
     );
     
     CREATE INDEX IF NOT EXISTS fichiers_date_backup ON fichiers(date_backup ASC, etat_fichier);
     CREATE INDEX IF NOT EXISTS fichiers_date_verification ON fichiers(date_verification ASC, etat_fichier);
     CREATE INDEX IF NOT EXISTS fichiers_date_reclamation ON fichiers(date_reclamation ASC, etat_fichier);
-        
+    CREATE INDEX IF NOT EXISTS fichiers_date_orphelin ON fichiers(date_orphelin ASC, etat_fichier);
+
 """
 
 CONST_CREATE_SYNC = """
@@ -401,10 +403,10 @@ UPDATE_MANQANTS_VISITES = """
 SELECT_BATCH_ORPHELINS = """
     SELECT fuuid, taille, bucket
     FROM FICHIERS
-    WHERE date_reclamation < :date_reclamation
-      AND etat_fichier IN ('orphelin', 'manquant')
+    WHERE date_orphelin < :date_orphelin
+      AND etat_fichier = 'orphelin'
       AND bucket is NOT NULL
-    ORDER BY date_reclamation
+    ORDER BY date_orphelin
     LIMIT :limit;
 """
 
@@ -486,13 +488,14 @@ TRANSFERT_INSERT_MANQUANTS_FICHIERS = """
 """
 
 TRANSFERT_INSERT_ORPHELINS_FICHIERS = """
-    INSERT INTO fichiers.FICHIERS(fuuid, etat_fichier, date_presence)
-    SELECT fuuid, 'orphelin', date_presence
+    INSERT INTO fichiers.FICHIERS(fuuid, etat_fichier, date_presence, date_orphelin)
+    SELECT fuuid, 'orphelin', date_presence, :date_now
     FROM fichiers
     WHERE date_reclamation IS NULL
     ON CONFLICT(fuuid) DO UPDATE SET 
         etat_fichier = 'orphelin',
-        date_presence = excluded.date_presence
+        date_presence = excluded.date_presence,
+        date_orphelin = coalesce(date_orphelin, :date_now)
     ;
 """
 
