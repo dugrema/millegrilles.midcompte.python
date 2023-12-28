@@ -151,7 +151,7 @@ class SQLiteReadOperations(SQLiteCursor):
 
     def identifier_orphelins(self, expiration: datetime.datetime) -> list:
         params = {
-            'date_reclamation': expiration,
+            'date_orphelin': expiration,
             'limit': 1000,
         }
         orphelins = list()
