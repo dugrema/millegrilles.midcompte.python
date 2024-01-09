@@ -480,7 +480,7 @@ class WebServer:
 
         taille_fichier: int = info_fichier['taille']
 
-        if taille_fichier > size_limit:
+        if size_limit is not None and taille_fichier > size_limit:
             self.__logger.error(f"stream_reponse Taille fichier {fuuid} depasse limite {size_limit}")
             return web.HTTPExpectationFailed()
 
