@@ -63,7 +63,7 @@ class WebServer:
         self.__queue_verifier_parts: Optional[asyncio.Queue] = None
 
         self.__connexions_write_sem = asyncio.BoundedSemaphore(3)
-        self.__connexions_read_sem = asyncio.BoundedSemaphore(10)
+        self.__connexions_read_sem = asyncio.BoundedSemaphore(30)
         self.__connexions_backup_sem = asyncio.BoundedSemaphore(2)
 
     def setup(self, configuration: Optional[dict] = None):
@@ -138,6 +138,11 @@ class WebServer:
                     return web.json_response({'complet': True})
             except (TypeError, AttributeError, KeyError):
                 pass  # OK, le fichier n'existe pas
+
+            # Verifier si le fichier est dans l'intake
+            path_intake = self.__intake.get_path_intake_fuuid(fuuid)
+            if path_intake.exists():
+                return web.json_response({'complet': False, 'en_traitement': True}, status=201)
 
             # Verifier si la job existe
             path_upload = self.get_path_upload_fuuid(common_name, fuuid)
@@ -456,7 +461,7 @@ class WebServer:
             self.__logger.info("Site arrete")
             await runner.cleanup()
 
-    async def stream_reponse(self, request: Request):
+    async def stream_reponse(self, request: Request, size_limit: Optional[int] = None):
         method = request.method
         fuuid = request.match_info['fuuid']
         headers = request.headers
@@ -474,6 +479,10 @@ class WebServer:
             return web.HTTPNotFound()
 
         taille_fichier: int = info_fichier['taille']
+
+        if taille_fichier > size_limit:
+            self.__logger.error(f"stream_reponse Taille fichier {fuuid} depasse limite {size_limit}")
+            return web.HTTPExpectationFailed()
 
         range_str = None
 
@@ -624,7 +633,7 @@ class WebServer:
             await response.write_eof()
 
     async def handle_get_fichier_sync(self, request: Request) -> StreamResponse:
-        async with self.__connexions_read_sem:
+        async with self.__connexions_backup_sem:
             fichier_nom: str = request.match_info['fichier']
             headers = request.headers
 
