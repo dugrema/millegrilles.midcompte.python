@@ -80,6 +80,7 @@ class WebServer:
     def _preparer_routes(self):
         self.__app.add_routes([
             # /fichiers_transfert
+            web.get('/fichiers_transfert/job/{fuuid}', self.handle_get_job_fuuid),
             web.get('/fichiers_transfert/{fuuid}', self.handle_get_fuuid),
             web.put('/fichiers_transfert/{fuuid}/{position}', self.handle_put_fuuid),
             web.post('/fichiers_transfert/{fuuid}', self.handle_post_fuuid),
@@ -116,6 +117,46 @@ class WebServer:
 
             # Streamer le fichier
             return await self.stream_reponse(request)
+
+    async def handle_get_job_fuuid(self, request: Request):
+        async with self.__connexions_read_sem:
+            fuuid = request.match_info['fuuid']
+            method = request.method
+            self.__logger.debug("handle_get_fuuid method %s, fuuid %s" % (method, fuuid))
+
+            # Validation information SSL
+            try:
+                common_name = get_common_name(request)
+            except Forbidden:
+                return web.HTTPForbidden()
+
+            # Verifier si le fichier existe
+            try:
+                info = await self.__consignation.get_info_fichier(fuuid)
+                if info.get('etat_fichier') != Constantes.DATABASE_ETAT_MANQUANT:
+                    # Le fichier existe et le traitement est complete
+                    return web.json_response({'complet': True})
+            except (TypeError, AttributeError, KeyError):
+                pass  # OK, le fichier n'existe pas
+
+            # Verifier si la job existe
+            path_upload = self.get_path_upload_fuuid(common_name, fuuid)
+            if path_upload.exists():
+                # La job existe, trouver a quelle position du fichier on est rendu.
+                part_max = 0
+                position_courante = 0
+                for fichier in path_upload.iterdir():
+                    if fichier.name.endswith('.part'):
+                        part_position = int(fichier.name.split('.')[0])
+                        if part_position >= part_max:
+                            part_max = part_position
+                            stat_fichier = fichier.stat()
+                            position_courante = part_position + stat_fichier.st_size
+
+                return web.json_response({'complet': False, 'position': position_courante})
+
+            # Ok, le fichier et la job n'existent pas
+            return web.HTTPNotFound()
 
     async def handle_put_fuuid(self, request: Request) -> StreamResponse:
         async with self.__connexions_write_sem:
@@ -189,7 +230,8 @@ class WebServer:
                     verificateur.verify()
                 except ErreurHachage as e:
                     self.__logger.info("handle_put_fuuid Erreur verification hachage : %s" % str(e))
-                    path_fichier_work.unlink(missing_ok=True)
+                    # Effacer le repertoire pour permettre un re-upload
+                    shutil.rmtree(path_upload)
                     return web.HTTPBadRequest()
 
             # Verifier que la taille sur disque correspond a la taille attendue
