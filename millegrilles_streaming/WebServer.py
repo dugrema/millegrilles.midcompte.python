@@ -253,8 +253,11 @@ def parse_range(range, taille_totale):
     if end is None:
         end = taille_totale - 1
     else:
-        end = int(end)
-        if end > taille_totale:
+        try:
+            end = int(end)
+            if end > taille_totale:
+                end = taille_totale - 1
+        except ValueError:
             end = taille_totale - 1
 
     result = {
