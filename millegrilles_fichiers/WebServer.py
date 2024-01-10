@@ -523,11 +523,8 @@ class WebServer:
         if method == 'HEAD':
             return await response.write_eof()
 
-        def is_connected():
-            return request.writer.protocol.connected
-
         try:
-            await self.__consignation.stream_fuuid(fuuid, response, start, end, check_connection=is_connected)
+            await self.__consignation.stream_fuuid(fuuid, response, start, end)
         finally:
             await response.write_eof()
 

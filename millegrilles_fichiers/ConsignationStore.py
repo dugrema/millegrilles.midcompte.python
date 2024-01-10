@@ -87,7 +87,7 @@ class ConsignationStore:
         """ Retirer le fichier du bucket """
         raise NotImplementedError('must override')
 
-    async def stream_response_fuuid(self, fuuid: str, response: web.StreamResponse, start: Optional[int] = None, end: Optional[int] = None, check_connection=None):
+    async def stream_response_fuuid(self, fuuid: str, response: web.StreamResponse, start: Optional[int] = None, end: Optional[int] = None):
         """ Stream les bytes du fichier en utilisant la response """
         raise NotImplementedError('must override')
 
@@ -427,7 +427,7 @@ class ConsignationStoreMillegrille(ConsignationStore):
 
     async def stream_response_fuuid(
             self, fuuid: str, response: web.StreamResponse,
-            start: Optional[int] = None, end: Optional[int] = None, check_connection=None
+            start: Optional[int] = None, end: Optional[int] = None
     ):
         # Pour local FS, ignore la base de donnes. On verifie si le fichier existe dans actif ou archives
         path_fichier = self.get_path_fuuid(Constantes.BUCKET_PRINCIPAL, fuuid)
@@ -444,9 +444,6 @@ class ConsignationStoreMillegrille(ConsignationStore):
                 position = 0
 
             while True:
-                if check_connection:
-                    if check_connection() is False:
-                        raise Exception('response closed by peer')
                 chunk = input_file.read(64*1024)
                 if not chunk:
                     break
