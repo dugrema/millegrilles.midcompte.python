@@ -523,9 +523,13 @@ class WebServer:
         if method == 'HEAD':
             return await response.write_eof()
 
-        await self.__consignation.stream_fuuid(fuuid, response, start, end)
+        def is_connected():
+            return request.writer.protocol.connected
 
-        await response.write_eof()
+        try:
+            await self.__consignation.stream_fuuid(fuuid, response, start, end, check_connection=is_connected)
+        finally:
+            await response.write_eof()
 
     async def handle_post_backup_verifierfichiers(self, request: Request) -> StreamResponse:
         async with self.__connexions_backup_sem:
