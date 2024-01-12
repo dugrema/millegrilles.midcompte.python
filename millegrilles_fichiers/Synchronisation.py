@@ -10,6 +10,7 @@ import logging
 import pathlib
 import pytz
 
+from OpenSSL.crypto import X509StoreContextError
 from cryptography.exceptions import InvalidSignature
 from certvalidator.errors import PathValidationError
 from typing import Optional
@@ -1230,8 +1231,10 @@ class SyncManager:
                             self.__logger.warning("download_backups_primaire Erreur serveur - on arrete le transfert")
                             raise e
                         self.__logger.info("download_backups_primaire Backup a downloader %s %s n'est pas disponible (%d)" % (backup['uuid_backup'], backup['nom_fichier'], e.status))
-                    except (InvalidSignature, PathValidationError):
-                        self.__logger.exception("download_backups_primaire Erreur validation backup %s - SKIP", backup['nom_fichier'])
+                    except (InvalidSignature, PathValidationError, X509StoreContextError) as ve:
+                        self.__logger.error("download_backups_primaire Erreur validation backup %s : %s - SKIP" % (backup['nom_fichier'], ve))
+                    except:
+                        self.__logger.exception('download_backups_primaire Erreur download backup %s' % backup['nom_fichier'])
 
     async def download_backup(self, session: aiohttp.ClientSession, backup: dict):
         uuid_backup = backup['uuid_backup']
