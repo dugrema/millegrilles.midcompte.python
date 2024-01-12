@@ -1259,7 +1259,7 @@ class SyncManager:
             with gzip.open(output, 'rt') as fichier:
                 contenu_backup = json.load(fichier)
 
-            await self.__etat_instance.validateur_message.verifier(contenu_backup)
+            await self.__etat_instance.validateur_message.verifier(contenu_backup, utiliser_date_message=True)
 
             output.seek(0)
             await self.__consignation.conserver_backup(output, uuid_backup, domaine, nom_fichier)
