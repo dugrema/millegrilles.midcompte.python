@@ -825,7 +825,7 @@ class SyncManager:
             taille_fichier = self.__download_en_cours['taille']
             taille_transfert = taille_fichier - position
             headers = {'Range': 'bytes=%s-%s/%s' % (position, taille_fichier-1, taille_transfert)}
-            self.__logger.debug("Resumer %s a position %s" % (fuuid, headers))
+            self.__logger.info("download_fichier_primaire Resumer %s a position %s" % (fuuid, headers))
 
         date_download_maj = datetime.datetime.utcnow()
         intervalle_download_maj = datetime.timedelta(seconds=5)
@@ -840,6 +840,7 @@ class SyncManager:
                 # On va resumer a la position demandee
                 flag_open = 'ab'
                 # Remettre le hachage en place
+                self.__logger.info("download_fichier_primaire Remettre hachage en place sur %s" % fuuid)
                 await asyncio.to_thread(read_into_verificateur, path_fichier_work, verificateur_hachage)
             else:
                 self.__logger.warning("Erreur download fichier %s (status %d)" % (fuuid, resp.status))
