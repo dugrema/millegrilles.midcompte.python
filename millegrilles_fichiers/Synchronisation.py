@@ -812,6 +812,7 @@ class SyncManager:
         # Verifier si on resume un download
         try:
             stat_fichier_work = path_fichier_work.stat()
+            path_fichier_work.touch()  # Evite de supprimer le fichier, download encore actif
         except FileNotFoundError:
             # Le fichier n'existe pas
             position = 0
@@ -820,7 +821,7 @@ class SyncManager:
             # Tenter de resumer le download
             position = stat_fichier_work.st_size
             taille_fichier = self.__download_en_cours['taille']
-            headers = {'Range': 'bytes=%s-%s' % (position, taille_fichier-1)}
+            headers = {'Range': 'bytes=%s-%s/%s' % (position, taille_fichier-1, taille_fichier)}
             self.__logger.debug("Resumer %s a position %s" % (fuuid, headers))
 
         date_download_maj = datetime.datetime.utcnow()
@@ -842,17 +843,22 @@ class SyncManager:
                 async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
                     if resp.status == 404:
                         self.__logger.warning(
-                            "Erreur download fichier %s - supprimer le download" % fuuid)
+                            "Erreur download fichier %s, fichier inconnu (404). Supprimer le download" % fuuid)
                         await asyncio.to_thread(transfert_dao.supprimer_job_download, fuuid)
-                    await asyncio.to_thread(transfert_dao.touch_download, fuuid, resp.status)
-                path_fichier_work.unlink(missing_ok=True)
-                return
+                        path_fichier_work.unlink(missing_ok=True)
+                        return
+                    if 400 <= resp.status <= 599:
+                        self.__logger.warning(
+                            "Erreur serveur (HTTP %d) durant download fichier %s - supprimer le download" % (resp.status, fuuid))
+                        await asyncio.to_thread(transfert_dao.touch_download, fuuid, resp.status)
+                        return  # Le download va etre reessaye / resume plus tard
 
             taille_recue = int(resp.headers['Content-Length'])
             if taille_recue != self.__download_en_cours['taille'] - position:
                 raise Exception('mismatch taille attendue et taille recue')
 
             if position < self.__download_en_cours['taille']:
+                # Ouvrir ou append le fichier
                 with path_fichier_work.open(flag_open) as output_file:
                     async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
                         await self.emettre_etat_download(fuuid, transfert_dao, producer)
@@ -883,7 +889,7 @@ class SyncManager:
                         # Debut compter pour prochain chunk
                         debut_chunk = now
 
-                        self.__logger.debug("Fuuid %s position %d/%d" % (fuuid, self.__download_en_cours['position'], self.__download_en_cours['taille']))
+                        # self.__logger.debug("Fuuid %s position %d/%d" % (fuuid, self.__download_en_cours['position'], self.__download_en_cours['taille']))
 
         try:
             verificateur_hachage.verify()
@@ -971,7 +977,7 @@ class SyncManager:
         # Entretien repertoire staging/sync/download - supprimer fichiers inactifs
 
         path_download = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_SYNC_DOWNLOAD)
-        date_expiration = (datetime.datetime.now() - datetime.timedelta(hours=2)).timestamp()
+        date_expiration = (datetime.datetime.now() - datetime.timedelta(hours=6)).timestamp()
 
         try:
             for file in path_download.iterdir():
