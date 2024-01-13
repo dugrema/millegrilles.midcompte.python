@@ -827,19 +827,20 @@ class SyncManager:
 
         date_download_maj = datetime.datetime.utcnow()
         intervalle_download_maj = datetime.timedelta(seconds=5)
-        verificateur_hachage = VerificateurHachage(fuuid)
+        verificateur_hachage = None  # VerificateurHachage(fuuid)
 
         async with session.get(url_primaire_fuuid.url, ssl=self.__etat_instance.ssl_context, headers=headers) as resp:
             if resp.status == 200:
                 # On doit commencer a 0
                 position = 0
                 flag_open = 'wb'
+                verificateur_hachage = VerificateurHachage(fuuid)
             elif resp.status == 206:
                 # On va resumer a la position demandee
                 flag_open = 'ab'
                 # Remettre le hachage en place
-                self.__logger.info("download_fichier_primaire Remettre hachage en place sur %s" % fuuid)
-                await asyncio.to_thread(read_into_verificateur, path_fichier_work, verificateur_hachage)
+                self.__logger.info("download_fichier_primaire Resumer %s a position %d" % (fuuid, position))
+                # await asyncio.to_thread(read_into_verificateur, path_fichier_work, verificateur_hachage)
             else:
                 self.__logger.warning("Erreur download fichier %s (status %d)" % (fuuid, resp.status))
                 async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
@@ -876,11 +877,12 @@ class SyncManager:
                             return
 
                         await asyncio.to_thread(output_file.write, chunk)
-                        verificateur_hachage.update(chunk)
+                        if verificateur_hachage:
+                            verificateur_hachage.update(chunk)
                         self.__download_en_cours['position'] += len(chunk)
 
                         # if transfert_courant > 12 * 1024 * 1024:
-                        #    raise Exception('todo fix me')
+                        #   raise Exception('todo fix me')
 
                         # Calculer vitesse transfert
                         now = datetime.datetime.utcnow()
@@ -898,6 +900,12 @@ class SyncManager:
                         debut_chunk = now
 
                         # self.__logger.debug("Fuuid %s position %d/%d" % (fuuid, self.__download_en_cours['position'], self.__download_en_cours['taille']))
+
+        if verificateur_hachage is None:
+            # Faire le hachage du fichier (probablement un resume)
+            self.__logger.info("download_fichier_primaire Verifier le hachage du fichier %s (resumed)" % fuuid)
+            verificateur_hachage = VerificateurHachage(fuuid)
+            await asyncio.to_thread(read_into_verificateur, path_fichier_work, verificateur_hachage)
 
         try:
             verificateur_hachage.verify()
