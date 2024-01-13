@@ -879,8 +879,8 @@ class SyncManager:
                         verificateur_hachage.update(chunk)
                         self.__download_en_cours['position'] += len(chunk)
 
-                        #if transfert_courant > 50 * 1024 * 1024:
-                        #    raise Exception('todo fix me')
+                        if transfert_courant > 12 * 1024 * 1024:
+                           raise Exception('todo fix me')
 
                         # Calculer vitesse transfert
                         now = datetime.datetime.utcnow()
@@ -975,29 +975,33 @@ class SyncManager:
             exchanges=ConstantesMillegrilles.SECURITE_PRIVE
         )
 
-    async def run_entretien_transferts(self):
+    async def run_entretien_transferts(self, reset=False):
         path_database = pathlib.Path(self.__etat_instance.get_path_data(), Constantes.FICHIER_DATABASE_TRANSFERTS)
         with SQLiteConnection(path_database, check_same_thread=False) as connection:
             async with SQLiteTransfertOperations(connection) as dao:
                 await dao.init_database()  # Aucun effet si existe deja
-                await dao.entretien_transferts()
+                if reset is True:
+                    # Resetter le transfert de tous les fichiers
+                    await dao.entretien_transferts(expiration_secs=None)
+                else:
+                    await dao.entretien_transferts()
 
         # Entretien repertoire staging/sync/download - supprimer fichiers inactifs
-
-        path_download = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_SYNC_DOWNLOAD)
-        date_expiration = (datetime.datetime.now() - datetime.timedelta(hours=6)).timestamp()
-
-        try:
-            for file in path_download.iterdir():
-                stat_file = file.stat()
-                if stat_file.st_mtime < date_expiration:
-                    self.__logger.info("Supprimer fichier sync download expire %s" % file)
-                    file.unlink()
-        except OSError as e:
-            if e.errno == errno.ENOENT:
-                pass  # OK
-            else:
-                raise e
+        if reset is not True:
+            path_download = pathlib.Path(self.__etat_instance.configuration.dir_consignation,
+                                         Constantes.DIR_SYNC_DOWNLOAD)
+            date_expiration = (datetime.datetime.now() - datetime.timedelta(hours=Constantes.CONST_FICHIERS_DOWNLOAD_SYNC_INACTIFS_SECS)).timestamp()
+            try:
+                for file in path_download.iterdir():
+                    stat_file = file.stat()
+                    if stat_file.st_mtime < date_expiration:
+                        self.__logger.info("Supprimer fichier sync download expire %s" % file)
+                        file.unlink()
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    pass  # OK
+                else:
+                    raise e
 
         if self.__etat_instance.est_primaire is False:
             # Redeclencher transferts sur secondaire

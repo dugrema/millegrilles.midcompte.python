@@ -525,25 +525,25 @@ class SQLiteTransfertOperations(SQLiteCursor):
 
         return None
 
-    async def entretien_transferts(self):
+    async def entretien_transferts(self, expiration_secs: Optional[int] = 1800):
         """ Marque downloads ou uploads expires, permet nouvel essai. """
         now = datetime.datetime.now(tz=pytz.UTC)
 
-        #self.open()
-        # try:
         await asyncio.to_thread(self._cur.execute, scripts_database.DELETE_DOWNLOADS_ESSAIS_EXCESSIFS)
 
-        expiration_downloads = now - datetime.timedelta(minutes=30)
-        params = {'date_activite': expiration_downloads}
-        await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_DOWNLOAD_EXPIRE, params)
+        if expiration_secs is None:
+            await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_DOWNLOAD_MANUEL)
+        else:
+            expiration_downloads = now - datetime.timedelta(seconds=expiration_secs)
+            params = {'date_activite': expiration_downloads}
+            await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_DOWNLOAD_EXPIRE, params)
 
-        expiration_uploads = now - datetime.timedelta(minutes=30)
-        params = {'date_activite': expiration_uploads}
-        await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_UPLOADS_EXPIRE, params)
-
-        # await asyncio.to_thread(self._connection.commit)
-        # finally:
-        #     self.close()
+        if expiration_secs is None:
+            await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_UPLOADS_MANUEL)
+        else:
+            expiration_uploads = now - datetime.timedelta(seconds=expiration_secs)
+            params = {'date_activite': expiration_uploads}
+            await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_RESET_UPLOADS_EXPIRE, params)
 
     def get_next_download(self):
         params = {'date_activite': datetime.datetime.now(tz=pytz.UTC)}

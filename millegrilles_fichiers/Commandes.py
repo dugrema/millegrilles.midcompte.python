@@ -79,6 +79,9 @@ class CommandHandler(CommandesAbstract):
         res_evenements.ajouter_rk(
             ConstantesMilleGrilles.SECURITE_PRIVE,
             f'evenement.{Constantes.DOMAINE_FICHIERS}.{Constantes.EVENEMENT_CONSIGNATION_PRIMAIRE}', )
+        res_evenements.ajouter_rk(
+            ConstantesMilleGrilles.SECURITE_PRIVE,
+            f'commande.{Constantes.DOMAINE_FICHIERS}.{Constantes.COMMANDE_RESET_TRANSFERTS_SECONDAIRES}', )
 
         # Configuration et topologie
         # evenement.GrosFichiers.changementConsignationPrimaire
@@ -168,6 +171,8 @@ class CommandHandler(CommandesAbstract):
                     return await self.__consignation.reactiver_fuuids(message.parsed)
                 elif action == Constantes.COMMANDE_DECLENCHER_SYNC:
                     return await self.__consignation.declencher_sync_primaire(message.parsed)
+                elif action == Constantes.COMMANDE_RESET_TRANSFERTS_SECONDAIRES:
+                    return await self.__consignation.reset_transferts_secondaires(message.parsed)
                 else:
                     self.__logger.warning(
                         "Commande non supportee pour delegation globale (action %s) - SKIP" % action)

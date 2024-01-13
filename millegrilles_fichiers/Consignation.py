@@ -494,6 +494,10 @@ class ConsignationHandler:
         await self.__store_pret_event.wait()
         await self.__store_consignation.upload_backups_primaire(connection_transfert, session)
 
+    async def reset_transferts_secondaires(self, commande: dict):
+        await self.__sync_manager.run_entretien_transferts(reset=True)
+        return {'ok': True}
+
     @asynccontextmanager
     async def get_fp_fuuid(self, fuuid: str, start: Optional[int] = None):
         fichier = None
