@@ -803,7 +803,7 @@ class SyncManager:
             pass  # OK, le fichier n'existe pas
 
         url_primaire = parse_url(self.__etat_instance.url_consignation_primaire)
-        url_primaire_reclamations = parse_url(
+        url_primaire_fuuid = parse_url(
             '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert', fuuid))
 
         path_download = pathlib.Path(self.__etat_instance.configuration.dir_consignation, Constantes.DIR_SYNC_DOWNLOAD)
@@ -829,7 +829,7 @@ class SyncManager:
         intervalle_download_maj = datetime.timedelta(seconds=5)
         verificateur_hachage = VerificateurHachage(fuuid)
 
-        async with session.get(url_primaire_reclamations.url, ssl=self.__etat_instance.ssl_context, headers=headers) as resp:
+        async with session.get(url_primaire_fuuid.url, ssl=self.__etat_instance.ssl_context, headers=headers) as resp:
             if resp.status == 200:
                 # On doit commencer a 0
                 position = 0
@@ -875,7 +875,7 @@ class SyncManager:
                             self.__logger.warning("download_fichier_primaire Annuler download, stop_event est True")
                             return
 
-                        output_file.write(chunk)
+                        await asyncio.to_thread(output_file.write, chunk)
                         verificateur_hachage.update(chunk)
                         self.__download_en_cours['position'] += len(chunk)
 
