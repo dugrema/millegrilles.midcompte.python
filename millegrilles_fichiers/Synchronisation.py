@@ -822,7 +822,6 @@ class SyncManager:
             # Tenter de resumer le download
             position = stat_fichier_work.st_size
             self.__download_en_cours['position'] = position
-            taille_fichier = self.__download_en_cours['taille']
             headers = {'Range': 'bytes=%s-' % position}
             self.__logger.info("download_fichier_primaire Resumer %s a position %s" % (fuuid, headers))
 
