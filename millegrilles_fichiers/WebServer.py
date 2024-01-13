@@ -496,7 +496,7 @@ class WebServer:
             range_parsed = parse_range(range_bytes, taille_fichier)
             start = range_parsed['start']
             end = range_parsed['end']
-            # taille_transfert = str(end - start + 1)
+            taille_transfert = str(end - start + 1)
             range_str = f'bytes {start}-{end}/{taille_fichier}'
             headers_response['Content-Range'] = range_str
         else:

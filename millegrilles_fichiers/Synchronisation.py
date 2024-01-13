@@ -851,7 +851,7 @@ class SyncManager:
                         return
                     if 400 <= resp.status <= 599:
                         self.__logger.warning(
-                            "Erreur serveur (HTTP %d) durant download fichier %s - supprimer le download" % (resp.status, fuuid))
+                            "Erreur serveur (HTTP %d) durant download fichier %s - conserver la position du download" % (resp.status, fuuid))
                         await asyncio.to_thread(transfert_dao.touch_download, fuuid, resp.status)
                         return  # Le download va etre reessaye / resume plus tard
 
