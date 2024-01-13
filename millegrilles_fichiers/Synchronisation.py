@@ -879,8 +879,8 @@ class SyncManager:
                         verificateur_hachage.update(chunk)
                         self.__download_en_cours['position'] += len(chunk)
 
-                        if transfert_courant > 12 * 1024 * 1024:
-                           raise Exception('todo fix me')
+                        # if transfert_courant > 12 * 1024 * 1024:
+                        #    raise Exception('todo fix me')
 
                         # Calculer vitesse transfert
                         now = datetime.datetime.utcnow()
