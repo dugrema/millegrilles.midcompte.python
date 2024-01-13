@@ -519,6 +519,8 @@ class WebServer:
         response.content_type = 'application/stream'
         response.etag = etag
 
+        self.__logger.info("stream_reponse Stream fichier %s : Content-Length : %s, Content-Range: %s" % (fuuid, taille_transfert, range_str))
+
         await response.prepare(request)
         if method == 'HEAD':
             return await response.write_eof()
