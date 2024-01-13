@@ -215,28 +215,33 @@ class WebServer:
         response.etag = etag
 
         await response.prepare(request)
-        with path_fichier.open(mode='rb') as input_file:
-            if start is not None and start > 0:
-                input_file.seek(start, 0)
-                position = start
-            else:
-                position = 0
-
-            while True:
-                chunk = input_file.read(64*1024)
-                if not chunk:
-                    break
-
-                if end is not None and position + len(chunk) > end:
-                    taille_chunk = end - position + 1
-                    await response.write(chunk[:taille_chunk])
-                    break  # Termine
+        try:
+            with path_fichier.open(mode='rb') as input_file:
+                if start is not None and start > 0:
+                    await asyncio.to_thread(input_file.seek, start, 0)
+                    position = start
                 else:
-                    await response.write(chunk)
+                    position = 0
 
-                position += len(chunk)
+                while True:
+                    chunk = await asyncio.to_thread(input_file.read, 64*1024)
+                    if not chunk:
+                        break
 
-        await response.write_eof()
+                    if end is not None and position + len(chunk) > end:
+                        taille_chunk = end - position + 1
+                        await response.write(chunk[:taille_chunk])
+                        break  # Termine
+                    else:
+                        await response.write(chunk)
+
+                    position += len(chunk)
+        except ConnectionResetError:
+            self.__logger.debug("Connection reset pour fuuid %s" % fuuid)
+        except Exception:
+            self.__logger.exception("stream_reponse Erreur stream fichier %s" % fuuid)
+        finally:
+            await response.write_eof()
 
 
 def parse_range(range, taille_totale):
