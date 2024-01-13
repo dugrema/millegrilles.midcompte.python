@@ -823,8 +823,7 @@ class SyncManager:
             position = stat_fichier_work.st_size
             self.__download_en_cours['position'] = position
             taille_fichier = self.__download_en_cours['taille']
-            taille_transfert = taille_fichier - position
-            headers = {'Range': 'bytes=%s-%s/%s' % (position, taille_fichier-1, taille_transfert)}
+            headers = {'Range': 'bytes=%s-' % position}
             self.__logger.info("download_fichier_primaire Resumer %s a position %s" % (fuuid, headers))
 
         date_download_maj = datetime.datetime.utcnow()
@@ -861,6 +860,8 @@ class SyncManager:
             if taille_recue != self.__download_en_cours['taille'] - position:
                 raise Exception('mismatch taille attendue et taille recue')
 
+            transfert_courant = 0
+
             if position < self.__download_en_cours['taille']:
                 # Ouvrir ou append le fichier
                 with path_fichier_work.open(flag_open) as output_file:
@@ -870,6 +871,7 @@ class SyncManager:
 
                     debut_chunk = datetime.datetime.utcnow()
                     async for chunk in resp.content.iter_chunked(64 * 1024):
+                        transfert_courant += len(chunk)
                         if self.__stop_event.is_set():
                             self.__logger.warning("download_fichier_primaire Annuler download, stop_event est True")
                             return
@@ -877,6 +879,9 @@ class SyncManager:
                         output_file.write(chunk)
                         verificateur_hachage.update(chunk)
                         self.__download_en_cours['position'] += len(chunk)
+
+                        #if transfert_courant > 50 * 1024 * 1024:
+                        #    raise Exception('todo fix me')
 
                         # Calculer vitesse transfert
                         now = datetime.datetime.utcnow()
