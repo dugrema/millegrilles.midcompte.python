@@ -59,7 +59,8 @@ class WebServer:
             self.__logger.debug("handle_path_fuuid ERROR jwt absent pour requete sur fuuid %s" % fuuid)
             return web.HTTPForbidden()
 
-        self.__logger.debug("handle_path_fuuid Requete sur fuuid %s" % fuuid)
+        header_range = headers.get('Range')
+        self.__logger.debug("handle_path_fuuid Requete sur fuuid %s : %s" % (fuuid, header_range))
         try:
             claims = await self.verifier_token_jwt(jwt_token, fuuid)
             if claims is False:
