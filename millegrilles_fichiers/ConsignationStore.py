@@ -169,18 +169,22 @@ class ConsignationStore:
 
                 fuuids = [f['fuuid'] for f in batch_orphelins]
                 fuuids_a_supprimer = set(fuuids)
-                if est_primaire:
-                    # Transmettre commande pour confirmer que la suppression peut avoir lieu
-                    commande = {'fuuids': fuuids}
-                    reponse = await producer.executer_commande(
-                        commande,
-                        domaine=Constantes.DOMAINE_GROSFICHIERS, action=Constantes.COMMANDE_SUPPRIMER_ORPHELINS,
-                        exchange=ConstantesMillegrilles.SECURITE_PRIVE, timeout=30
-                    )
-                    if reponse.parsed['ok'] is True:
-                        # Retirer tous les fuuids a conserver de la liste a supprimer
-                        fuuids_conserver = reponse.parsed.get('fuuids_a_conserver') or list()
-                        fuuids_a_supprimer = fuuids_a_supprimer.difference(fuuids_conserver)
+
+                if len(fuuids_a_supprimer) > 0:
+                    self.__logger.info("Supprimer fuuids %s" % fuuids_a_supprimer)
+
+                    if est_primaire:
+                        # Transmettre commande pour confirmer que la suppression finale peut avoir lieu
+                        commande = {'fuuids': fuuids}
+                        reponse = await producer.executer_commande(
+                            commande,
+                            domaine=Constantes.DOMAINE_GROSFICHIERS, action=Constantes.COMMANDE_SUPPRIMER_ORPHELINS,
+                            exchange=ConstantesMillegrilles.SECURITE_PRIVE, timeout=30
+                        )
+                        if reponse.parsed['ok'] is True:
+                            # Retirer tous les fuuids a conserver de la liste a supprimer
+                            fuuids_conserver = reponse.parsed.get('fuuids_a_conserver') or list()
+                            fuuids_a_supprimer = fuuids_a_supprimer.difference(fuuids_conserver)
 
                     for fichier in batch_orphelins:
                         fuuid = fichier['fuuid']
@@ -198,9 +202,8 @@ class ConsignationStore:
                             else:
                                 self.__logger.info("supprimer_orphelins Nettoyer DB pour fichier orphelin deja supprime %s" % fichier)
 
-                            # Supprimer de la base de donnes locale
-                            # await asyncio.to_thread(entretien_db.supprimer, fuuid)
-                            await dao.supprimer(fuuid)
+                    # Supprimer de la base de donnes locale
+                    await dao.supprimer(fuuids_a_supprimer)
 
         pass
 

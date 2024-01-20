@@ -4,7 +4,7 @@ import json
 import logging
 import pathlib
 import sqlite3
-from typing import Optional
+from typing import Optional, Union
 
 import pytz
 
@@ -466,13 +466,10 @@ class SQLiteBatchOperations(SQLiteCursor):
             finally:
                 self.close()
 
-    async def supprimer(self, fuuid: str):
-        raise NotImplementedError('fix me')
-        # self.batch_script = scripts_database.DELETE_SUPPRIMER_FUUIDS
-        # self.ajouter_item_batch({'fuuid': fuuid})
-        #
-        # if len(self.__batch) >= self.__limite_batch:
-        #     await self.commit_batch()
+    async def supprimer(self, fuuids: Union[set, list]):
+        for fuuid in fuuids:
+            params = {'fuuid': fuuid}
+            await asyncio.to_thread(self._cur.execute, scripts_database.DELETE_SUPPRIMER_FUUIDS, params)
 
 
 class SQLiteTransfertOperations(SQLiteCursor):
