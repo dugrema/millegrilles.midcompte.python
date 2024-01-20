@@ -179,7 +179,7 @@ class ConsignationStore:
                         reponse = await producer.executer_commande(
                             commande,
                             domaine=Constantes.DOMAINE_GROSFICHIERS, action=Constantes.COMMANDE_SUPPRIMER_ORPHELINS,
-                            exchange=ConstantesMillegrilles.SECURITE_PRIVE, timeout=30
+                            exchange=ConstantesMillegrilles.SECURITE_PRIVE, timeout=90
                         )
                         if reponse.parsed['ok'] is True:
                             # Retirer tous les fuuids a conserver de la liste a supprimer
