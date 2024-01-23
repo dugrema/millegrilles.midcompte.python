@@ -3,7 +3,11 @@
 Pour travailler sur une application il faut l'installer avec CoupDoeil. Ceci permet d'obtenir un certificat pour
 la connexion a MQ et aux autres modules.
 
+Le point d'entrée de chaque application est millegrilles_*/__main__.py.
+
 ## backup
+
+Module : millegrilles_backup
 
 Ajouter ces parametres d'environnement
 <pre>
@@ -21,6 +25,8 @@ docker service scale backup=0
 </pre>
 
 ## ceduleur
+
+Module : millegrilles_ceduleur
 
 Ajouter ces parametres d'environnement
 <pre>
@@ -59,6 +65,8 @@ Note : le paramètre --verbose permetre d'augmenter le niveau de logging pour le
 
 ## fichiers
 
+Module : millegrilles_fichiers
+
 Paramètres d'environnement
 
 <pre>
@@ -89,6 +97,8 @@ https://IP_LOCALE:3021
 
 ## media
 
+Module : millegrilles_media
+
 Aucune configuration d'environnement particulière n'est requise.
 
 Fermer l'instance midcompte dans docker :
@@ -99,6 +109,8 @@ docker service scale media=0
 
 
 ## midcompte
+
+Module : millegrilles_midcompte
 
 Ajouter ces parametres d'environnement
 <pre>
@@ -121,6 +133,8 @@ Note : changer mapping sous configuration nginx (port 2444)
 
 ## relaiweb
 
+Module : millegrilles_relaiweb
+
 Ajouter ces parametres d'environnement
 
 <pre>
@@ -139,6 +153,8 @@ docker service scale relaiweb=0
 
 ## solr
 
+Module : millegrilles_solr
+
 docker service update --publish-add 8983:8983 solr_server
 
 <pre>
@@ -146,6 +162,8 @@ SOLR_URL=https://`HOSTNAME`:8983
 </pre>
 
 ## streaming
+
+Module : millegrilles_streaming
 
 Ajouter ces parametres d'environnement
 
