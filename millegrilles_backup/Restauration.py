@@ -128,9 +128,10 @@ class HandlerRestauration:
             self.__logger.debug("Traiter catalogue : %s" % catalogue)
             self.__event_attendre_confirmation.clear()
 
-            # Emettre le catalogue
-            await producer.repondre(catalogue,
-                                    reply_to=message.reply_to, correlation_id='catalogueTransactions', noformat=True)
+            # Emettre le catalogue dans un wrapper pour encapsuler un message avec certificat potentiellement expire
+            wrapper_catalogue = {'catalogue': catalogue}
+            await producer.repondre(wrapper_catalogue,
+                                    reply_to=message.reply_to, correlation_id='catalogueTransactions')
 
             # Attendre confirmation que le catalogue a ete traite
             await asyncio.wait([task_stop_event, self.__event_attendre_confirmation.wait()],
