@@ -92,6 +92,11 @@ class ConsignationHandler:
                 await self.run_consignation()
             except:
                 self.__logger.exception("Erreur execution upload backup vers consignation")
+                try:
+                    # Pause pour 30 secondes
+                    await asyncio.wait_for(self.__stop_event.wait(), 30)
+                except asyncio.TimeoutError:
+                    pass
 
         self.__logger.info("run Arreter ConsignationHandler")
 
