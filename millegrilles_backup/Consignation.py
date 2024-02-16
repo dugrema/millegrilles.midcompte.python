@@ -101,18 +101,21 @@ class ConsignationHandler:
         self.__logger.info("run Arreter ConsignationHandler")
 
     async def thread_entretien(self):
-        stop_wait_task = asyncio.create_task(self.__stop_event.wait())
         timeout = 10
         while self.__stop_event.is_set() is False:
-            await asyncio.wait([stop_wait_task], timeout=timeout)
-            if self.__stop_event.is_set() is True:
+            try:
+                await asyncio.wait_for(self.__stop_event.wait(), timeout=timeout)
                 break  # Fermer application
+            except asyncio.TimeoutError:
+                pass
+
             timeout = 3600
 
             try:
                 await self.entretien_consignation()
             except:
                 self.__logger.exception("Erreur emission message entretien consignation")
+                await asyncio.sleep(15)
 
     async def run_consignation(self):
         self.__logger.debug("run_consignation Debut")
