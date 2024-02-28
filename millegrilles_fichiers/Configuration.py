@@ -13,6 +13,9 @@ CONST_FICHIERS_PARAMS = [
     Constantes.ENV_DIR_DATA,
     Constantes.ENV_PATH_KEY_SSH_ED25519,
     Constantes.ENV_PATH_KEY_SSH_RSA,
+    Constantes.ENV_SEM_READ,
+    Constantes.ENV_SEM_WRITE,
+    Constantes.ENV_SEM_BACKUP,
 ]
 
 CONST_WEB_PARAMS = [
@@ -32,6 +35,9 @@ class ConfigurationFichiers(ConfigurationAbstract):
         self.dir_data = '/var/opt/millegrilles/consignation/data'
         self.path_key_ssh_ed25519 = '/run/secrets/sftp.ed25519.key.pem'
         self.path_key_ssh_rsa = '/run/secrets/sftp.rsa.key.pem'
+        self.sem_read_count = 30
+        self.sem_write_count = 5
+        self.sem_backup_count = 2
 
     def get_params_list(self) -> list:
         params = super().get_params_list()
@@ -52,6 +58,10 @@ class ConfigurationFichiers(ConfigurationAbstract):
         self.dir_data = dict_params.get(Constantes.ENV_DIR_DATA) or self.dir_data
         self.path_key_ssh_ed25519 = dict_params.get(Constantes.ENV_PATH_KEY_SSH_ED25519) or self.path_key_ssh_ed25519
         self.path_key_ssh_rsa = dict_params.get(Constantes.ENV_PATH_KEY_SSH_RSA) or self.path_key_ssh_rsa
+
+        self.sem_read_count = int(dict_params.get(Constantes.ENV_SEM_READ) or self.sem_read_count)
+        self.sem_write_count = int(dict_params.get(Constantes.ENV_SEM_WRITE) or self.sem_write_count)
+        self.sem_backup_count = int(dict_params.get(Constantes.ENV_SEM_BACKUP) or self.sem_backup_count)
 
 
 class ConfigurationWeb:

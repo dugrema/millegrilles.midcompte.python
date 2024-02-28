@@ -62,9 +62,9 @@ class WebServer:
 
         self.__queue_verifier_parts: Optional[asyncio.Queue] = None
 
-        self.__connexions_write_sem = asyncio.BoundedSemaphore(3)
-        self.__connexions_read_sem = asyncio.BoundedSemaphore(30)
-        self.__connexions_backup_sem = asyncio.BoundedSemaphore(2)
+        self.__connexions_read_sem = asyncio.BoundedSemaphore(self.__etat.configuration.sem_read_count)
+        self.__connexions_write_sem = asyncio.BoundedSemaphore(self.__etat.configuration.sem_write_count)
+        self.__connexions_backup_sem = asyncio.BoundedSemaphore(self.__etat.configuration.sem_backup_count)
 
     def setup(self, configuration: Optional[dict] = None):
         self._charger_configuration(configuration)
@@ -250,9 +250,8 @@ class WebServer:
             # Retirer le .work du fichier
             path_fichier_work.rename(path_fichier)
 
-            self.__logger.debug("handle_put_fuuid fuuid: %s position: %s recu OK" % (fuuid, position))
-
-            return web.HTTPOk()
+        self.__logger.debug("handle_put_fuuid fuuid: %s position: %s recu OK" % (fuuid, position))
+        return web.HTTPOk()
 
     async def handle_post_fuuid(self, request: Request) -> StreamResponse:
         async with self.__connexions_write_sem:
@@ -320,7 +319,7 @@ class WebServer:
                 shutil.rmtree(path_upload)
                 return web.HTTPFailedDependency()
 
-            return web.HTTPAccepted()
+        return web.HTTPAccepted()
 
     async def handle_delete_fuuid(self, request: Request) -> StreamResponse:
         async with self.__connexions_write_sem:
@@ -344,7 +343,7 @@ class WebServer:
                 self.__logger.info("handle_delete_fuuid Erreur suppression upload %s : %s" % (fuuid, e))
                 return web.HTTPServerError()
 
-            return web.HTTPOk()
+        return web.HTTPOk()
 
     async def thread_entretien(self):
         self.__logger.debug('Entretien web')
@@ -352,11 +351,19 @@ class WebServer:
         while not self.__stop_event.is_set():
 
             # TODO Entretien uploads
+            await self.rapport()
 
             try:
-                await asyncio.wait_for(self.__stop_event.wait(), 30)
+                await asyncio.wait_for(self.__stop_event.wait(), 300)
             except TimeoutError:
                 pass
+
+    async def rapport(self):
+        self.__logger.info("--- Rapport entretien ---")
+        self.__logger.info("Semaphores read %s, write %s, backup %s",
+            self.__connexions_read_sem._value, self.__connexions_write_sem._value, self.__connexions_backup_sem._value)
+        self.__logger.info("URL consignation primaire : %s", self.__etat.url_consignation_primaire)
+        self.__logger.info("--- Fin rapport entretien ---")
 
     async def thread_verifier_parts(self):
         self.__queue_verifier_parts = asyncio.Queue(maxsize=20)
