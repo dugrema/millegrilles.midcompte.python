@@ -165,7 +165,7 @@ class IntakeBackup(IntakeHandler):
         if reponse.parsed['ok'] is not True:
             raise Exception('Erreur reception liste domaines de CoreTopologie')
 
-        self.__logger.debug("Reponse domaines : %s" % reponse)
+        # self.__logger.debug("Reponse domaines : %s" % reponse)
         self.__domaines = reponse.parsed['resultats']
         self.__dict_domaines = dict()
         for domaine in self.__domaines:
@@ -397,7 +397,7 @@ class IntakeBackup(IntakeHandler):
     async def recevoir_fichier_transactions(self, message: MessageWrapper):
         contenu = message.parsed
 
-        self.__logger.debug("Recu fichier transactions : %s" % contenu)
+        # self.__logger.debug("Recu fichier transactions : %s" % contenu)
 
         nombre_transactions = contenu['nombre_transactions']
         original = message.contenu
