@@ -337,30 +337,34 @@ class IntakeBackup(IntakeHandler):
 
     async def run_backup(self):
         if self._etat_instance.backup_inhibe is True:
-            self.__logger.warning("Backup inhibe (e.g. restauration en cours) - ABORT")
+            self.__logger.warning("Backup inhibe (e.g. backup/restauration en cours) - ABORT")
             return
 
-        self.__event_attente_fichiers = asyncio.Event()
-        self.__notices = list()
+        self._etat_instance.backup_inhibe = True  # Blocker autres processes/events/entretien
+        try:
+            self.__event_attente_fichiers = asyncio.Event()
+            self.__notices = list()
 
-        await self.preparer_backup()
+            await self.preparer_backup()
 
-        for domaine in self.__domaines:
-            # Verifier que le domaine a precedemment repondu
-            if domaine.get('nombre_transactions'):
-                try:
-                    await self.backup_domaine(domaine)
-                except Exception as e:
-                    self.__logger.exception("Erreur traitement domaine %s" % domaine['domaine'])
-                    self.__notices.append({
-                        'domaine': domaine['domaine'],
-                        'erreur': "%s" % e
-                    })
+            for domaine in self.__domaines:
+                # Verifier que le domaine a precedemment repondu
+                if domaine.get('nombre_transactions'):
+                    try:
+                        await self.backup_domaine(domaine)
+                    except Exception as e:
+                        self.__logger.exception("Erreur traitement domaine %s" % domaine['domaine'])
+                        self.__notices.append({
+                            'domaine': domaine['domaine'],
+                            'erreur': "%s" % e
+                        })
 
-        await self.completer_backup()
+            await self.completer_backup()
 
-        # Effectuer rotation backup (local)
-        await self.rotation_backup()
+            # Effectuer rotation backup (local)
+            await self.rotation_backup()
+        finally:
+            self._etat_instance.backup_inhibe = False
 
     async def recevoir_evenement(self, message: MessageWrapper):
         if self.__domaines is None:

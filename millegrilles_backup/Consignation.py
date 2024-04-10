@@ -240,6 +240,10 @@ class ConsignationHandler:
     async def entretien_consignation(self):
         self.__logger.debug("entretien_consignation Debut")
 
+        if self.__etat_instance.backup_inhibe:
+            self.__logger.info("entretien_consignation Annule, backup/restauration en cours")
+            return
+
         # Parcourir tous les backup, charger info
         configuration = self.__etat_instance.configuration
         dir_backups = configuration.dir_backup
