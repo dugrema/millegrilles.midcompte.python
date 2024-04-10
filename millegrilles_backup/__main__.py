@@ -106,6 +106,7 @@ async def demarrer(args: argparse.Namespace):
     signal.signal(signal.SIGINT, main.exit_gracefully)
     signal.signal(signal.SIGTERM, main.exit_gracefully)
 
+    logger.info("Configurer millegrilles_backup")
     await main.configurer()
     logger.info("Run main millegrilles_backup")
     await main.run()
@@ -122,6 +123,7 @@ def main():
         logging.getLogger(log).setLevel(logging.INFO)
     args = parse()
     asyncio.run(demarrer(args))
+    logger.info("Arret main()")
 
 
 if __name__ == '__main__':
