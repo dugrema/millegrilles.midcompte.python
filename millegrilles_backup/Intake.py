@@ -320,7 +320,7 @@ class IntakeBackup(IntakeHandler):
         pending = [self.__event_attente_fichiers.wait()]
         while self.__event_attente_fichiers.is_set() is False:
             # Verifier si on a un timeout pour ce domaine
-            expiration = datetime.datetime.utcnow() - datetime.timedelta(seconds=90)
+            expiration = datetime.datetime.utcnow() - datetime.timedelta(seconds=180)
             if expiration > self.__dernier_evenement_domaine:
                 raise Exception("Echec backup domaine %s, timeout catalogues" % nom_domaine)
 
