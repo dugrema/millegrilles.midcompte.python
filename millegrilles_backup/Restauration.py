@@ -125,7 +125,7 @@ class HandlerRestauration:
         task_stop_event = asyncio.Task(self.__stop_event.wait())
 
         for catalogue in self.generateur_fichiers(rep_path):
-            self.__logger.debug("Traiter catalogue : %s" % catalogue)
+            # self.__logger.debug("Traiter catalogue : %s" % catalogue)
             self.__event_attendre_confirmation.clear()
 
             # Emettre le catalogue dans un wrapper pour encapsuler un message avec certificat potentiellement expire
@@ -135,7 +135,7 @@ class HandlerRestauration:
 
             # Attendre confirmation que le catalogue a ete traite
             await asyncio.wait([task_stop_event, self.__event_attendre_confirmation.wait()],
-                               return_when=asyncio.FIRST_COMPLETED, timeout=90)
+                               return_when=asyncio.FIRST_COMPLETED, timeout=300)
 
             if self.__stop_event.is_set():
                 raise Exception("uploader_domaine stopped")
