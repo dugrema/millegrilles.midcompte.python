@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import pathlib
+import multibase
 
 from typing import Optional
 
@@ -21,9 +22,12 @@ CONST_MAX_RETRIES_CLE = 3
 
 class IntakeJob:
 
-    def __init__(self, info: InformationFuuid, cle_chiffree):
+    def __init__(self, info: InformationFuuid, cle_dechiffree):
         self.info = info
-        self.cle_chiffree = cle_chiffree
+        if isinstance(cle_dechiffree, str):
+            self.cle_dechiffree = multibase.decode('m' + cle_dechiffree)
+        else:
+            self.cle_dechiffree = cle_dechiffree
 
     @property
     def fuuid(self):
@@ -96,7 +100,7 @@ class IntakeStreaming(IntakeHandler):
         path_download_json = pathlib.Path(self.get_path_download(), fuuid + '.json')
 
         params_dechiffrage = job.info.get_params_dechiffrage()
-        await self.__consignation_handler.download_fichier(fuuid, job.cle_chiffree, params_dechiffrage, path_download_fichier)
+        await self.__consignation_handler.download_fichier(fuuid, job.cle_dechiffree, params_dechiffrage, path_download_fichier)
 
         # Download reussi, deplacer les fichiers vers repertoire dechiffre
         path_dechiffre_fichier = pathlib.Path(self.get_path_dechiffre(), fuuid + '.dat')
@@ -178,12 +182,13 @@ class IntakeStreaming(IntakeHandler):
                     if i == CONST_MAX_RETRIES_CLE:
                         raise e
 
-            cle_chiffree = reponse_cle['cle']
+            cle_chiffree = reponse_cle['cle_secrete_base64']
 
             if info.format is None:
                 # On travaille avec le fichier original, copier info chiffrage
                 info.format = reponse_cle['format']
                 info.header = reponse_cle.get('header')
+                info.nonce = reponse_cle.get('nonce')
 
             self.__logger.debug('__ajouter_job Creer la job de download pour fuuid %s' % fuuid)
             job = IntakeJob(info, cle_chiffree)
@@ -213,15 +218,20 @@ class IntakeStreaming(IntakeHandler):
             domaine=domaine, action=action, exchange='2.prive', timeout=timeout)
         reponse_parsed = reponse_cle.parsed
 
-        if reponse_parsed['acces'] != '1.permis':
-            raise Exception('acces cle refuse : %s' % reponse_parsed['acces'])
+        if reponse_parsed.get('ok') is not True:
+            raise Exception('acces cle refuse : %s' % reponse_parsed['err'])
 
-        reponse_cle = reponse_parsed['cles'][fuuid]
+        # reponse_cle = reponse_parsed['cles'][fuuid]
+        cles = reponse_parsed['cles']
+        if len(cles) == 1:
+            reponse_cle = cles[0]
+        else:
+            raise Exception('recuperer_cle Le nombre de cles recues != 1')
 
         # Test pour voir si la cle est dechiffrable
-        clecertificat = self._etat_instance.clecertificat
-        cle_chiffree = reponse_cle['cle']
-        _cle_dechiffree = clecertificat.dechiffrage_asymmetrique(cle_chiffree)
+        # clecertificat = self._etat_instance.clecertificat
+        # cle_chiffree = reponse_cle['cle']
+        # _cle_dechiffree = clecertificat.dechiffrage_asymmetrique(cle_chiffree)
 
         return reponse_cle
 

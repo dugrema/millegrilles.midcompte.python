@@ -9,7 +9,7 @@ import os
 from typing import Optional
 
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
-from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher
+from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher_cle_secrete
 from millegrilles_streaming import Constantes
 from millegrilles_streaming.EtatStreaming import EtatStreaming
 
@@ -71,12 +71,13 @@ class ConsignationHandler:
         except Exception as e:
             self.__logger.exception("Erreur chargement URL consignation")
 
-    async def download_fichier(self, fuuid, cle_chiffree, params_dechiffrage, path_destination):
+    async def download_fichier(self, fuuid, cle_dechiffree, params_dechiffrage, path_destination):
         await self.ouvrir_sessions()  # S'assurer d'avoir une session ouverte
         url_fuuid = self.get_url_fuuid(fuuid)
 
-        clecert = self.__etat_instance.clecertificat
-        decipher = get_decipher(clecert, cle_chiffree, params_dechiffrage)
+        # clecert = self.__etat_instance.clecertificat
+        # decipher = get_decipher(clecert, cle_dechiffree, params_dechiffrage)
+        decipher = get_decipher_cle_secrete(cle_dechiffree, params_dechiffrage)
 
         timeout = aiohttp.ClientTimeout(connect=30, total=900)
         with path_destination.open(mode='wb') as output_file:

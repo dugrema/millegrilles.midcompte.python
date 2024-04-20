@@ -162,8 +162,11 @@ async def chiffrer_video(etat_media, job: dict, tmp_input: tempfile.NamedTempora
     info_video = await asyncio.to_thread(probe_video, tmp_input.name)
 
     clecert = etat_media.clecertificat
-    cle = job['cle']
-    cle_bytes = clecert.dechiffrage_asymmetrique(cle['cle'])
+    # cle = job['cle']
+    # cle_bytes = clecert.dechiffrage_asymmetrique(cle['cle'])
+    info_dechiffrage = job['cle']
+    cle_bytes: bytes = multibase.decode('m' + info_dechiffrage['cle_secrete_base64'])
+    cle_id = info_dechiffrage['cle_id']
 
     tmp_input.seek(0)
     info_chiffrage = await chiffrer_fichier(cle_bytes, tmp_input, tmp_output)
@@ -175,7 +178,8 @@ async def chiffrer_video(etat_media, job: dict, tmp_input: tempfile.NamedTempora
         'mimetype': mimetype,
         'taille_fichier': info_chiffrage['taille_chiffree'],
         'taille_originale': info_chiffrage['taille_dechiffree'],
-        'header': multibase.encode('base64', info_chiffrage['header']).decode('utf-8'),
+        'nonce': multibase.encode('base64', info_chiffrage['header']).decode('utf-8')[1:],  # Retirer 'm' multibase
+        'cle_id': cle_id,
         'format': 'mgs4',
     }
 
@@ -318,7 +322,9 @@ def preparer_commande_associer(job: dict, info_chiffrage: dict) -> dict:
 
         "taille_fichier": info_chiffrage['taille_fichier'],
         "hachage": info_chiffrage['hachage'],
-        "header": info_chiffrage['header'],
+        # "header": info_chiffrage['header'],
+        "nonce": info_chiffrage['nonce'],
+        "cle_id": info_chiffrage['cle_id'],
         "format": info_chiffrage['format'],
 
         "cle_conversion": job['cle_conversion'],  # Ajouter dans 2023.7.4

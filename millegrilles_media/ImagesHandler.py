@@ -25,9 +25,11 @@ async def traiter_image(job, tmp_file, etat_media: EtatMedia, info_video: Option
     """
     loop = asyncio.get_running_loop()
 
-    clecert = etat_media.clecertificat
-    cle = job['cle']
-    cle_bytes = clecert.dechiffrage_asymmetrique(cle['cle'])
+    # clecert = etat_media.clecertificat
+    info_dechiffrage = job['cle']
+    cle_bytes: bytes = multibase.decode('m' + info_dechiffrage['cle_secrete_base64'])
+    cle_id = info_dechiffrage['cle_id']
+    # cle_bytes = clecert.dechiffrage_asymmetrique(cle['cle'])
 
     dir_staging = etat_media.configuration.dir_staging
 
@@ -54,33 +56,33 @@ async def traiter_image(job, tmp_file, etat_media: EtatMedia, info_video: Option
                         img.alpha_channel = 'remove'
 
                     conversions = [
-                        loop.run_in_executor(None, convertir_thumbnail, img.clone(), cle_bytes),
-                        loop.run_in_executor(None, convertir_small, img.clone(), tmp_output_small, cle_bytes),
-                        loop.run_in_executor(None, convertir_large, original, tmp_output_large, cle_bytes),
+                        loop.run_in_executor(None, convertir_thumbnail, img.clone(), cle_bytes, cle_id),
+                        loop.run_in_executor(None, convertir_small, img.clone(), tmp_output_small, cle_bytes, cle_id),
+                        loop.run_in_executor(None, convertir_large, original, tmp_output_large, cle_bytes, cle_id),
                     ]
                     thumbnail, small, large = await asyncio.gather(*conversions)
 
             await uploader_images(etat_media, job, info_original, thumbnail, small, large, tmp_output_small, tmp_output_large, info_video)
 
 
-def convertir_thumbnail(img: Image, cle_bytes: bytes) -> dict:
+def convertir_thumbnail(img: Image, cle_bytes: bytes, cle_id: str) -> dict:
     taille = min(*img.size)
     img.compression_quality = 25
     img.crop(width=taille, height=taille, gravity='center')
     img.resize(128, 128)
     img.strip()
-    return chiffrer_image(img, cle_bytes)
+    return chiffrer_image(img, cle_bytes, cle_id)
 
 
-def convertir_small(img: Image, tmp_out: tempfile.TemporaryFile, cle_bytes: bytes) -> dict:
+def convertir_small(img: Image, tmp_out: tempfile.TemporaryFile, cle_bytes: bytes, cle_id: str) -> dict:
     taille = min(*img.size)
     img.crop(width=taille, height=taille, gravity='center')
     img.resize(200, 200)
     img.strip()
-    return chiffrer_image(img, cle_bytes, tmp_out)
+    return chiffrer_image(img, cle_bytes, cle_id, tmp_out)
 
 
-def convertir_large(img, tmp_out, cle_bytes: bytes):
+def convertir_large(img, tmp_out, cle_bytes: bytes, cle_id: str):
     width, height = img.size
     ratio_inverse = width < height
     operation_resize = '>'
@@ -98,13 +100,13 @@ def convertir_large(img, tmp_out, cle_bytes: bytes):
     img.transform(resize=geometrie)
     tmp_out.seek(0)
     with img.convert('webp') as converted:
-        info_fichier = chiffrer_image(converted, cle_bytes, tmp_out, mimetype='image/webp')
+        info_fichier = chiffrer_image(converted, cle_bytes, cle_id, tmp_out, mimetype='image/webp')
 
     tmp_out.seek(0)
     return info_fichier
 
 
-def chiffrer_image(img: Image, cle_bytes: bytes, tmp_out: Optional[tempfile.TemporaryFile] = None, mimetype='image/jpeg') -> Optional[dict]:
+def chiffrer_image(img: Image, cle_bytes: bytes, cle_id: str, tmp_out: Optional[tempfile.TemporaryFile] = None, mimetype='image/jpeg') -> Optional[dict]:
     jpeg_bin = img.make_blob()
 
     # Chiffrer bytes
@@ -121,8 +123,10 @@ def chiffrer_image(img: Image, cle_bytes: bytes, tmp_out: Optional[tempfile.Temp
         'mimetype': mimetype,
         'taille': len(jpeg_bin),
         'resolution': resolution,
-        'header': multibase.encode('base64', cipher.header).decode('utf-8'),
+        # 'header': multibase.encode('base64', cipher.header).decode('utf-8'),
+        'nonce': multibase.encode('base64', cipher.header).decode('utf-8')[1:],  # Retirer 'm' multibase
         'format': 'mgs4',
+        'cle_id': cle_id,
     }
 
     if tmp_out is not None:

@@ -3,13 +3,14 @@ import aiohttp
 import asyncio
 import logging
 import tempfile
+import multibase
 
 from typing import Optional
 from ssl import SSLContext
 
 from asyncio import Event, TimeoutError, wait, FIRST_COMPLETED, gather
 
-from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher
+from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher_cle_secrete
 from millegrilles_messages.Mimetypes import est_video
 from millegrilles_media.EtatMedia import EtatMedia
 from millegrilles_media.ImagesHandler import traiter_image, traiter_poster_video
@@ -112,10 +113,15 @@ class IntakeHandler:
         raise NotImplementedError('must override')
 
     async def downloader_dechiffrer_fichier(self, job, tmp_file):
-        cle = job['cle']['cle']
+        information_dechiffrage = job['cle']
+
+        # Ajuster format de cle pour multibase
+        cle: bytes = multibase.decode('m' + information_dechiffrage['cle_secrete_base64'])
+        information_dechiffrage['nonce'] = 'm' + information_dechiffrage['nonce']  # Ajouter 'm' multibase au nonce
+
         fuuid = job['fuuid']
-        clecert = self._etat_media.clecertificat
-        decipher = get_decipher(clecert, cle, job['cle'])
+        # clecert = self._etat_media.clecertificat
+        decipher = get_decipher_cle_secrete(cle, information_dechiffrage)
 
         url_consignation = self._etat_media.url_consignation
         url_fichier = f'{url_consignation}/fichiers_transfert/{fuuid}'

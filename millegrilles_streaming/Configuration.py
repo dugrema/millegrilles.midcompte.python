@@ -93,6 +93,7 @@ class InformationFuuid:
 
         self.ref: Optional[str] = None                  # Fuuid de reference (pour cle)
         self.header: Optional[str] = None               # Header de dechiffrage
+        self.nonce: Optional[str] = None                # Nonce de dechiffrage
         self.format: Optional[str] = None               # Format de dechiffrage
 
         self.event_pret: Optional[asyncio.Event] = None  # Set quand le download est pret
@@ -110,6 +111,7 @@ class InformationFuuid:
         self.user_id = params.get('userId') or params.get('user_id')
         self.ref = params.get('ref')
         self.header = params.get('header')
+        self.nonce = params.get('nonce')
         self.format = params.get('format')
 
 
@@ -120,7 +122,11 @@ class InformationFuuid:
         return self.path_complet is not None
 
     def get_params_dechiffrage(self):
+        if self.nonce is not None:
+            nonce = 'm' + self.nonce  # Ajouter 'm' multibase
+        else:
+            nonce = self.header
         return {
-            'header': self.header,
+            'nonce': nonce,
             'format': self.format,
         }
