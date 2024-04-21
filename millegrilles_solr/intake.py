@@ -3,6 +3,7 @@ import aiohttp
 import logging
 import json
 import tempfile
+import multibase
 
 from typing import Optional
 from ssl import SSLContext
@@ -11,7 +12,7 @@ from asyncio import Event, TimeoutError, wait, FIRST_COMPLETED, gather
 
 from millegrilles_messages.messages.Hachage import convertir_hachage_mb_hex
 from millegrilles_messages.messages.MessagesModule import MessageWrapper
-from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_document, get_decipher
+from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_document_secrete, get_decipher_cle_secrete
 from millegrilles_solr.EtatRelaiSolr import EtatRelaiSolr
 from millegrilles_solr.solrdao import SolrDao
 
@@ -181,17 +182,35 @@ class IntakeHandler:
         return None
 
     async def dechiffrer_metadata(self, job):
-        cle = job['cle']['cle']
+        # cle = job['cle']['cle']
+        information_dechiffrage = job['cle']
+        cle: bytes = multibase.decode('m' + information_dechiffrage['cle_secrete_base64'])
         metadata = job['metadata']
-        clecert = self._etat_relaisolr.clecertificat
-        doc_dechiffre = dechiffrer_document(clecert, cle, metadata)
+
+        doc_dechiffre = dechiffrer_document_secrete(cle, metadata)
         return doc_dechiffre
 
     async def downloader_dechiffrer_fichier(self, job, tmp_file):
-        cle = job['cle']['cle']
+        # cle = job['cle']['cle']
+        information_dechiffrage = job['cle']
+        cle: bytes = multibase.decode('m' + information_dechiffrage['cle_secrete_base64'])
+
+        if job.get('cle_id'):
+            # Ajouter encodage multibase pour ancien format
+            job['nonce'] = 'm' + job['nonce']
+
         fuuid = job['fuuid']
-        clecert = self._etat_relaisolr.clecertificat
-        decipher = get_decipher(clecert, cle, job['cle'])
+        # clecert = self._etat_relaisolr.clecertificat
+        # decipher = get_decipher(clecert, cle, job['cle'])
+
+        if job.get('cle_id'):
+            information_dechiffrage = job.copy()
+            # Ajouter encodage multibase pour ancien format
+            # information_dechiffrage['nonce'] = 'm' + information_dechiffrage['nonce']
+        else:
+            information_dechiffrage = job['cle']  # Supporter ancienne approche
+
+        decipher = get_decipher_cle_secrete(cle, information_dechiffrage)
 
         url_consignation = self._etat_relaisolr.url_consignation
         url_fichier = f'{url_consignation}/fichiers_transfert/{fuuid}'
