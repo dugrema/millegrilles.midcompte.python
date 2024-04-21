@@ -194,21 +194,7 @@ class IntakeHandler:
         # cle = job['cle']['cle']
         information_dechiffrage = job['cle']
         cle: bytes = multibase.decode('m' + information_dechiffrage['cle_secrete_base64'])
-
-        if job.get('cle_id'):
-            # Ajouter encodage multibase pour ancien format
-            job['nonce'] = 'm' + job['nonce']
-
         fuuid = job['fuuid']
-        # clecert = self._etat_relaisolr.clecertificat
-        # decipher = get_decipher(clecert, cle, job['cle'])
-
-        if job.get('cle_id'):
-            information_dechiffrage = job.copy()
-            # Ajouter encodage multibase pour ancien format
-            # information_dechiffrage['nonce'] = 'm' + information_dechiffrage['nonce']
-        else:
-            information_dechiffrage = job['cle']  # Supporter ancienne approche
 
         decipher = get_decipher_cle_secrete(cle, information_dechiffrage)
 
