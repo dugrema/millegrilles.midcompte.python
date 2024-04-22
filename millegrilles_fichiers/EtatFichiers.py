@@ -2,6 +2,7 @@ import asyncio
 import logging
 import pathlib
 import sqlite3
+import multibase
 
 from typing import Optional
 
@@ -9,7 +10,7 @@ from ssl import SSLContext
 
 from cryptography.hazmat.primitives import serialization as crypto_serialization
 
-from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_document
+from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_document_secrete
 from millegrilles_messages.MilleGrillesConnecteur import EtatInstance
 from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.Configuration import ConfigurationFichiers
@@ -78,15 +79,20 @@ class EtatFichiers(EtatInstance):
 
         try:
             data_chiffre = configuration_topologie['data_chiffre']
-            ref_hachage_bytes = data_chiffre['ref_hachage_bytes']
-            requete_cle = {'ref_hachage_bytes': ref_hachage_bytes}
-            reponse_cle = await producer.executer_requete(
-                requete_cle, 'CoreTopologie', 'getCleConfiguration', exchange="2.prive")
-            cle_secrete = reponse_cle.parsed['cles'][ref_hachage_bytes]['cle']
-            document_dechiffre = dechiffrer_document(self.clecertificat, cle_secrete, data_chiffre)
-            configuration_topologie.update(document_dechiffre)
-        except (TypeError, KeyError) as e:
-            self.__logger.debug("Aucune configuration chiffree ou erreur dechiffrage : %s" % e)
+            cle_id = data_chiffre.get('cle_id') or data_chiffre['ref_hachage_bytes']
+        except (TypeError, KeyError):
+            self.__logger.debug("Aucune configuration chiffree")
+        else:
+            try:
+                requete_cle = {'cle_ids': [cle_id]}
+                reponse_cle = await producer.executer_requete(
+                    requete_cle, 'CoreTopologie', 'getCleConfiguration', exchange="2.prive")
+                cle_dechiffree = reponse_cle.parsed['cles'].pop()
+                cle_secrete: bytes = multibase.decode('m' + cle_dechiffree['cle_secrete_base64'])
+                document_dechiffre = dechiffrer_document_secrete(cle_secrete, data_chiffre)
+                configuration_topologie.update(document_dechiffre)
+            except Exception :
+                self.__logger.exception("maj_topologie Erreur dechiffrage configuration")
         self.topologie = configuration_topologie
 
     @property
