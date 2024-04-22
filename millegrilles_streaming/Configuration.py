@@ -123,9 +123,9 @@ class InformationFuuid:
 
     def get_params_dechiffrage(self):
         if self.nonce is not None:
-            nonce = 'm' + self.nonce  # Ajouter 'm' multibase
+            nonce = self.nonce
         else:
-            nonce = self.header
+            nonce = self.header[1:]  # Retirer 'm' multibase
         return {
             'nonce': nonce,
             'format': self.format,
