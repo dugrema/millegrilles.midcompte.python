@@ -60,7 +60,7 @@ class EtatRelaiSolr:
                 await self.__validateur_certificats.valider(self.__clecertificat.enveloppe.chaine_pem())
 
                 signateur = SignateurTransactionSimple(self.__clecertificat)
-                self.__formatteur_message = FormatteurMessageMilleGrilles(idmg, signateur)
+                self.__formatteur_message = FormatteurMessageMilleGrilles(idmg, signateur, self.__certificat_millegrille)
                 self.__validateur_message = ValidateurMessage(self.__validateur_certificats)
             except Exception:
                 self.__logger.exception("Certificat invalide/expire")

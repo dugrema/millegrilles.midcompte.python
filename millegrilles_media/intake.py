@@ -113,11 +113,10 @@ class IntakeHandler:
         raise NotImplementedError('must override')
 
     async def downloader_dechiffrer_fichier(self, job, tmp_file):
-        information_dechiffrage = job['cle']
+        information_dechiffrage = job['cle'].copy()
 
         # Ajuster format de cle pour multibase
         cle: bytes = multibase.decode('m' + information_dechiffrage['cle_secrete_base64'])
-        information_dechiffrage['nonce'] = 'm' + information_dechiffrage['nonce']  # Ajouter 'm' multibase au nonce
 
         fuuid = job['fuuid']
         # clecert = self._etat_media.clecertificat
