@@ -37,10 +37,11 @@ CONST_FICHIERS_ACCEPTES_SYNC = frozenset([
 
 class JobVerifierParts:
 
-    def __init__(self, transaction, path_upload: pathlib.Path, hachage: str):
+    def __init__(self, transaction, path_upload: pathlib.Path, hachage: str, cles: Optional[dict] = None):
         self.transaction = transaction
         self.path_upload = path_upload
         self.hachage = hachage
+        self.cles = cles
         self.done = asyncio.Event()
         self.valide: Optional[bool] = None
         self.exception: Optional[Exception] = None
@@ -288,15 +289,27 @@ class WebServer:
 
                 try:
                     transaction = body['transaction']
-                    await self.__etat.validateur_message.verifier(transaction)  # Lance exception si echec verification
-                    path_transaction = pathlib.Path(path_upload, Constantes.FICHIER_TRANSACTION)
-                    with open(path_transaction, 'wt') as fichier:
-                        json.dump(transaction, fichier)
+                    if transaction is not None:
+                        await self.__etat.validateur_message.verifier(transaction)  # Lance exception si echec verification
+                        path_transaction = pathlib.Path(path_upload, Constantes.FICHIER_TRANSACTION)
+                        with open(path_transaction, 'wt') as fichier:
+                            json.dump(transaction, fichier)
                 except KeyError:
                     transaction = None
 
+                try:
+                    cles = body['cles']
+                    if cles is not None:
+                        await self.__etat.validateur_message.verifier(cles)  # Lance exception si echec verification
+                        path_cles = pathlib.Path(path_upload, Constantes.FICHIER_CLES)
+                        with open(path_cles, 'wt') as fichier:
+                            json.dump(cles, fichier)
+                except KeyError:
+                    cles = None
+
             else:
                 transaction = None
+                cles = None
                 # Sauvegarder etat.json sans body
                 etat = {'hachage': fuuid, 'retryCount': 0, 'created': int(datetime.datetime.utcnow().timestamp()*1000)}
                 hachage = fuuid
@@ -305,7 +318,7 @@ class WebServer:
 
             # Valider hachage du fichier complet (parties assemblees)
             try:
-                job_valider = JobVerifierParts(transaction, path_upload, hachage)
+                job_valider = JobVerifierParts(transaction, path_upload, hachage, cles)
                 await self.__queue_verifier_parts.put(job_valider)
                 await asyncio.wait_for(job_valider.done.wait(), timeout=20)
                 if job_valider.exception is not None:

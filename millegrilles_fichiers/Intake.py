@@ -251,10 +251,10 @@ class IntakeFichiers(IntakeHandler):
         else:
             # Emettre transaction
             routage = cles['routage']
-            producer.executer_commande(
+            await producer.executer_commande(
                 cles,
                 action=routage['action'], domaine=routage['domaine'], partition=routage.get('partition'),
-                exchange=ConstantesMillegrille.SECURITE_PRIVE,
+                exchange=ConstantesMillegrille.SECURITE_PUBLIC,
                 timeout=60,
                 noformat=True
             )
