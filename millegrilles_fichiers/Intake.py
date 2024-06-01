@@ -69,7 +69,8 @@ class IntakeFichiers(IntakeHandler):
             pass  # OK
 
         while self._stop_event.is_set() is False:
-            await self.trigger_traitement()
+            if self.__consignation_handler.sync_en_cours is False:
+                await self.trigger_traitement()
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=300)
             except asyncio.TimeoutError:
@@ -79,6 +80,10 @@ class IntakeFichiers(IntakeHandler):
         return await super().configurer()
 
     async def traiter_prochaine_job(self) -> Optional[dict]:
+        if self.__consignation_handler.sync_en_cours:
+            self.__logger.info("traiter_prochaine_job Sync en cours, on ignore traitement de jobs")
+            return None
+
         try:
             repertoires = repertoires_par_date(self.__path_intake)
             path_repertoire = repertoires[0].path_fichier
@@ -161,6 +166,10 @@ class IntakeFichiers(IntakeHandler):
         path_repertoire = job.path_job
         fuuid = job.fuuid
         path_fichier_retry = pathlib.Path(path_repertoire, 'retry.json')
+
+        if self.__consignation_handler.sync_en_cours:
+            self.__logger.info("Skip retry %s, sync en cours" % job.fuuid)
+            return
 
         # Conserver marqueur pour les retries en cas d'erreur
         try:
