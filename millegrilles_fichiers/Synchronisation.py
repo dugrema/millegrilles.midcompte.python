@@ -313,7 +313,7 @@ class SyncManager:
 
             self.__logger.info("__sequence_sync_primaire Debut reclamation (Progres 1/5)")
             reclamation_complete = await self.reclamer_fuuids()
-            self.__logger.info("__sequence_sync_primaire Debut fin reclamation (complet? %s)" % reclamation_complete)
+            self.__logger.info("__sequence_sync_primaire Fin reclamations (complet? %s)" % reclamation_complete)
 
             with SQLiteConnection(self.get_path_database_sync(), check_same_thread=False, timeout=30.0) as connection:
                 # Debloquer les visites (pour prochaine visite)

@@ -50,6 +50,13 @@ class ConsignationBackup:
             if self.__stop_event.is_set():
                 return  # Stopped
 
+            while self.__consignation_handler.sync_en_cours:
+                self.__logger.info("ConsignationBackup sync en cours, attente")
+                try:
+                    await asyncio.wait_for(self.__stop_event.wait(), 120)
+                except asyncio.TimeoutError:
+                    pass
+
             # Verifier si la synchronisation doit etre faite
             if self.__backup_store is not None:
                 try:
