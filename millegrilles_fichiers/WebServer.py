@@ -112,9 +112,13 @@ class WebServer:
 
             # Validation information SSL
             try:
-                common_name = get_common_name(request)
-            except Forbidden:
-                return web.HTTPForbidden()
+                jwt = request.headers['X-jwt']
+                # TODO : valider le JWT et verifier qu'il contient le role 'fichiers'
+            except KeyError:
+                try:
+                    common_name = get_common_name(request)
+                except Forbidden:
+                    return web.HTTPForbidden()
 
             # Streamer le fichier
             return await self.stream_reponse(request)
