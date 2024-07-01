@@ -84,6 +84,8 @@ class IntakeFichiers(IntakeHandler):
             self.__logger.info("traiter_prochaine_job Sync en cours, on ignore traitement de jobs")
             return None
 
+        await self.__consignation_handler.store_pret_wait()
+
         try:
             repertoires = repertoires_par_date(self.__path_intake)
             path_repertoire = repertoires[0].path_fichier
@@ -115,42 +117,49 @@ class IntakeFichiers(IntakeHandler):
         path_consignation = self._etat_instance.configuration.dir_consignation
         path_staging_consignation = pathlib.Path(path_consignation, Constantes.DIR_STAGING_INTAKE)
 
-        try:
-            args = [job]
-            argv = {'work_path': path_staging_consignation}
-            path_fichier = await asyncio.to_thread(reassembler_fichier, *args, **argv)
-        except ErreurHachage as e:
-            self.__logger.exception("traiter_job Erreur hachage pour le fichier reassemble %s" % job.fuuid)
-            await self.handle_retries(job, reject=True)  # Rejeter immediatement (vers repertoire reject)
-            raise e
-        except Exception as e:
-            self.__logger.exception("traiter_job Erreur reassemblage fichier %s" % job.fuuid)
-            await self.handle_retries(job)  # Incrementer le nombre de retries
-            raise e
-        else:
-            # Incrementer le nombre de retries
-            # Noter que le fichier est reassemble, valide et transfere vers le repertoire de consignation
-            await self.handle_retries(job)
-
-        # Consigner : deplacer fichier vers repertoire final
-        limit_retry = 5
-        for i in range(0, limit_retry):  # 5 essais, 5 a 10 secondes chaque
+        # Verifier si le fichier existe deja (e.g. retry pour transaction)
+        info_fichier_existant = await self.__consignation_handler.get_info_fichier(job.fuuid)
+        if info_fichier_existant is None:
             try:
-                await self.__consignation_handler.consigner(path_fichier, job.fuuid)
-                break  # Ok
-            except sqlite3.OperationalError as erreur:
-                self.__logger.info(
-                    "Erreur store DB locked sur intake - attendre 5 secondes et reessayer")
-                if i == limit_retry - 1:
-                    raise erreur
-            except StoreNonInitialise as erreur:
-                self.__logger.info("Erreur store non initialise sur intake - attendre 5 secondes et reessayer")
-                if i == limit_retry - 1:
-                    raise erreur
-            await asyncio.sleep(5)
+                args = [job]
+                argv = {'work_path': path_staging_consignation}
+                path_fichier = await asyncio.to_thread(reassembler_fichier, *args, **argv)
+            except ErreurHachage as e:
+                self.__logger.exception("traiter_job Erreur hachage pour le fichier reassemble %s" % job.fuuid)
+                await self.handle_retries(job, reject=True)  # Rejeter immediatement (vers repertoire reject)
+                raise e
+            except Exception as e:
+                self.__logger.exception("traiter_job Erreur reassemblage fichier %s" % job.fuuid)
+                await self.handle_retries(job)  # Incrementer le nombre de retries
+                raise e
+            else:
+                # Incrementer le nombre de retries
+                # Noter que le fichier est reassemble, valide et transfere vers le repertoire de consignation
+                await self.handle_retries(job)
 
-        # Charger transactions, cles. Emettre.
-        await self.emettre_transactions(job)
+            # Consigner : deplacer fichier vers repertoire final
+            limit_retry = 5
+            for i in range(0, limit_retry):  # 5 essais, 5 a 10 secondes chaque
+                try:
+                    await self.__consignation_handler.consigner(path_fichier, job.fuuid)
+                    break  # Ok
+                except sqlite3.OperationalError as erreur:
+                    self.__logger.info(
+                        "Erreur store DB locked sur intake - attendre 5 secondes et reessayer")
+                    if i == limit_retry - 1:
+                        raise erreur
+                except StoreNonInitialise as erreur:
+                    self.__logger.info("Erreur store non initialise sur intake - attendre 5 secondes et reessayer")
+                    if i == limit_retry - 1:
+                        raise erreur
+                await asyncio.sleep(5)
+
+        # Charger transactions/cles. Emettre.
+        try:
+            await self.emettre_transactions(job)
+        except ErreurTraitementTransaction as e:
+            # TODO : Marquer sauvegarde fichier OK, retry sera juste pour la transaction
+            raise e
 
         if self._etat_instance.est_primaire is False:
             self.__logger.debug("traiter_job Fichier consigne sur secondaire - s'assurer que le fichier existe sur primaire")
@@ -243,13 +252,16 @@ class IntakeFichiers(IntakeHandler):
         else:
             # Emettre transaction
             routage = transaction['routage']
-            await producer.executer_commande(
+            resultat_commande = await producer.executer_commande(
                 transaction,
                 action=routage['action'], domaine=routage['domaine'], partition=routage.get('partition'),
                 exchange=ConstantesMillegrille.SECURITE_PRIVE,
                 timeout=60,
                 noformat=True
             )
+            if resultat_commande.parsed.get('ok') is False:
+                self.__logger.error("Erreur sauvegarder transaction fichier : %s" % resultat_commande.parsed)
+                raise ErreurTraitementTransaction(resultat_commande.parsed)
 
         path_cles = pathlib.Path(job.path_job, Constantes.FICHIER_CLES)
         try:
@@ -260,16 +272,25 @@ class IntakeFichiers(IntakeHandler):
         else:
             # Emettre transaction
             routage = cles['routage']
-            await producer.executer_commande(
+            resultat_cle = await producer.executer_commande(
                 cles,
                 action=routage['action'], domaine=routage['domaine'], partition=routage.get('partition'),
                 exchange=ConstantesMillegrille.SECURITE_PUBLIC,
                 timeout=60,
                 noformat=True
             )
+            if resultat_cle.parsed.get('ok') is False:
+                raise ErreurTraitementTransaction(resultat_cle.parsed)
 
         # Re-emettre l'evenement de visite. Si le fichier n'etait pas deja initialise, l'evenement a ete perdu.
         await self.__consignation_handler.emettre_evenement_consigne(fuuid)
+
+
+class ErreurTraitementTransaction(Exception):
+
+    def __init__(self, message:dict, *args):
+        super().__init__(*args)
+        self.message = message
 
 
 class RepertoireStat:
