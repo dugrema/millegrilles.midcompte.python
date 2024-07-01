@@ -4,6 +4,7 @@ import errno
 import gzip
 import logging
 import json
+import os
 import tempfile
 import shutil
 
@@ -233,6 +234,7 @@ class WebServer:
                     if verificateur:
                         verificateur.update(chunk)
                     fichier.write(chunk)
+                os.fsync(fichier)
 
             # Verifier hachage de la partie
             if verificateur:
@@ -333,7 +335,10 @@ class WebServer:
                 return web.HTTPCreated()
             except Exception as e:
                 self.__logger.warning('handle_post_fuuid Erreur verification hachage fichier %s assemble : %s' % (fuuid, e))
-                shutil.rmtree(path_upload)
+                try:
+                    shutil.rmtree(path_upload)
+                except FileNotFoundError:
+                    self.__logger.info("Path upload %s deja supprime" % path_upload)
                 return web.HTTPFailedDependency()
 
         return web.HTTPAccepted()
