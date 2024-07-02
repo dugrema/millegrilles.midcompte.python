@@ -345,7 +345,7 @@ class SyncManager:
             if self.__stop_event.is_set():
                 return  # Stopped
 
-            with self.__etat_instance.sqlite_connection(check_same_thread=False) as connection:
+            with self.__etat_instance.sqlite_connection(check_same_thread=False, readonly=True) as connection:
                 # Generer la liste des reclamations en .jsonl.gz pour les secondaires
                 self.__logger.info("__sequence_sync_primaire generer_reclamations_sync (Progres: 4/5)")
                 await self.__consignation.generer_reclamations_sync(connection)

@@ -664,6 +664,7 @@ class SQLiteDetachedOperations(SQLiteCursor):
         try:
             if locks:
                 await asyncio.wait_for(locks.nomerge_event.wait(), timeout=180)
+                locks.nomerge_event.clear()  # Bloque tous les autres acces
             await self._transfer_data()
         finally:
             if locks:
@@ -816,13 +817,7 @@ class SQLiteDetachedSyncApply(SQLiteDetachedOperations):
 
     async def _transfer_data(self):
         await self.__transfert_actifs()
-        # await asyncio.to_thread(self._connection.commit)
-        # await asyncio.sleep(1)
-
         await self.__transfert_manquants()
-        # await asyncio.to_thread(self._connection.commit)
-        # await asyncio.sleep(1)
-
         await self.__transfert_orphelins()
         await self.__transfer_supprimes()
 
