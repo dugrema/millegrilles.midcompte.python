@@ -165,7 +165,7 @@ class IntakeFichiers(IntakeHandler):
         # Charger transactions/cles. Emettre.
         try:
             await self.emettre_transactions(job)
-        except ErreurTraitementTransaction as e:
+        except Exception as e:
             # Marquer consignation fichier OK, retry sera juste pour la transaction
             await self.marquer_contenu_consigne(job)
             raise e
