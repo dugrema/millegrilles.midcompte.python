@@ -331,7 +331,7 @@ class SyncManager:
 
                 # Transferer contenu de la base de donnes sync.sqlite version consignation.sqlite
                 async with SQLiteDetachedSyncApply(connection, debut_reclamation) as sync_dao:
-                    self.__logger.debug("__sequence_sync_primaire Sync vers base de donnee de fichiers")
+                    self.__logger.debug("__sequence_sync_primaire Sync vers base de donnee de fichiers (Progres: 3/5)")
 
                     # Attacher la database de fichiers (destination)
                     await sync_dao.attach_destination(path_database_fichiers, 'fichiers')

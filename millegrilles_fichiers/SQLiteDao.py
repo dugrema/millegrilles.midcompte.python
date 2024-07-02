@@ -647,16 +647,11 @@ class SQLiteDetachedOperations(SQLiteCursor):
         raise NotImplementedError('must implement')
 
     async def __aenter__(self):
-        locks = self._connection.locks
-        if locks:
-            await asyncio.wait_for(locks.nomerge_event.wait(), timeout=180)
         path_database = self._connection.path_database
 
         # Initialiser la base de donnees
         try:
             await super().__aenter__()
-            if locks:
-                locks.nomerge_event.clear()  # Bloquer tous les acces au fichier de DB
             await self._create()
         except:
             self.__logger.exception("__aenter__ Erreur ouverture db %s" % path_database)
@@ -665,11 +660,14 @@ class SQLiteDetachedOperations(SQLiteCursor):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        locks = self._connection.locks
         try:
+            if locks:
+                await asyncio.wait_for(locks.nomerge_event.wait(), timeout=180)
             await self._transfer_data()
         finally:
-            if self._connection.locks:
-                self._connection.locks.nomerge_event.set()  # Permettre les acces au fichier de DB
+            if locks:
+                locks.nomerge_event.set()  # Permettre les acces au fichier de DB
             await super().__aexit__(exc_type, exc_val, exc_tb)
         return False
 
