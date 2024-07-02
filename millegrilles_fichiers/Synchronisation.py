@@ -400,7 +400,8 @@ class SyncManager:
                 await transfert_dao.init_database()
 
         try:
-            with SQLiteConnection(path_database_sync, locks=self.__etat_instance.sqlite_locks, check_same_thread=False, timeout=30.0) as connection:
+            with SQLiteConnection(path_database_sync, locks=self.__etat_instance.sqlite_locks,
+                                  check_same_thread=False, timeout=30.0) as connection:
                 # Initialiser la base de donnees de synchronisation
                 async with SQLiteDetachedSyncCreate(connection):
                     # L'ouverture execute la creation de la db
@@ -439,7 +440,7 @@ class SyncManager:
                 self.__logger.info("__sequence_sync_secondaire merge reclamations+visites avec main db (Progres: 4/5)")
                 async with SQLiteDetachedSyncApply(connection, debut_reclamation) as sync_dao:
                     debut_transfert_data = datetime.datetime.utcnow()
-                    self.__logger.debug("__sequence_sync_primaire Sync vers base de donnee de fichiers")
+                    self.__logger.debug("__sequence_sync_secondaire Sync vers base de donnee de fichiers")
                     await sync_dao.attach_destination(path_database_fichiers, 'fichiers')
                     pass  # Fermer, la sync s'execute automatiquement
 
