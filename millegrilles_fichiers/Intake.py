@@ -118,8 +118,8 @@ class IntakeFichiers(IntakeHandler):
         path_staging_consignation = pathlib.Path(path_consignation, Constantes.DIR_STAGING_INTAKE)
 
         # Verifier si le fichier existe deja (e.g. retry pour transaction)
-        info_fichier_existant = await self.__consignation_handler.get_info_fichier(job.fuuid)
-        if info_fichier_existant is None:
+        info_retry = await self.charger_fichier_retry(job)
+        if info_retry.get('consigne') is not True:
             try:
                 args = [job]
                 argv = {'work_path': path_staging_consignation}
@@ -128,6 +128,9 @@ class IntakeFichiers(IntakeHandler):
                 self.__logger.exception("traiter_job Erreur hachage pour le fichier reassemble %s" % job.fuuid)
                 await self.handle_retries(job, reject=True)  # Rejeter immediatement (vers repertoire reject)
                 raise e
+            except FileNotFoundError:
+                # Aucunes parts a reassembler,
+                self.__logger.warning("Aucunes parts a reassembler, assumer fichier vide pour %s" % job.fuuid)
             except Exception as e:
                 self.__logger.exception("traiter_job Erreur reassemblage fichier %s" % job.fuuid)
                 await self.handle_retries(job)  # Incrementer le nombre de retries
@@ -139,9 +142,11 @@ class IntakeFichiers(IntakeHandler):
 
             # Consigner : deplacer fichier vers repertoire final
             limit_retry = 5
+            consignation_ok = False
             for i in range(0, limit_retry):  # 5 essais, 5 a 10 secondes chaque
                 try:
                     await self.__consignation_handler.consigner(path_fichier, job.fuuid)
+                    consignation_ok = True
                     break  # Ok
                 except sqlite3.OperationalError as erreur:
                     self.__logger.info(
@@ -154,11 +159,15 @@ class IntakeFichiers(IntakeHandler):
                         raise erreur
                 await asyncio.sleep(5)
 
+            if consignation_ok is not True:
+                raise Exception('Echec consignation fichier %s' % job.fuuid)
+
         # Charger transactions/cles. Emettre.
         try:
             await self.emettre_transactions(job)
         except ErreurTraitementTransaction as e:
-            # TODO : Marquer sauvegarde fichier OK, retry sera juste pour la transaction
+            # Marquer consignation fichier OK, retry sera juste pour la transaction
+            await self.marquer_contenu_consigne(job)
             raise e
 
         if self._etat_instance.est_primaire is False:
@@ -169,7 +178,37 @@ class IntakeFichiers(IntakeHandler):
                 self.__logger.exception("traiter_job Erreur ajout upload secondaire")
 
         # Supprimer le repertoire de la job
+        self.__logger.info("Job completee, suppression repertoire %s" % job.fuuid)
         shutil.rmtree(job.path_job)
+
+    async def charger_fichier_retry(self, job) -> dict:
+        # Marque le fichier comme etant pret sous la consignation
+        path_repertoire = job.path_job
+        path_fichier_retry = pathlib.Path(path_repertoire, 'retry.json')
+
+        try:
+            with open(path_fichier_retry, 'rt') as fichier:
+                info_retry = json.load(fichier)
+        except FileNotFoundError:
+            info_retry = {}
+
+        return info_retry
+
+    async def marquer_contenu_consigne(self, job):
+        # Marque le fichier comme etant pret sous la consignation
+        path_repertoire = job.path_job
+        path_fichier_retry = pathlib.Path(path_repertoire, 'retry.json')
+
+        try:
+            with open(path_fichier_retry, 'rt') as fichier:
+                info_retry = json.load(fichier)
+        except FileNotFoundError:
+            info_retry = {}
+
+        info_retry['consigne'] = True
+
+        with open(path_fichier_retry, 'wt') as fichier:
+            json.dump(info_retry, fichier)
 
     async def handle_retries(self, job: IntakeJob, reject=False):
         path_repertoire = job.path_job
@@ -187,7 +226,7 @@ class IntakeFichiers(IntakeHandler):
         except FileNotFoundError:
             info_retry = {'retry': -1}
 
-        if reject is True or info_retry['retry'] > 3:
+        if reject is True or info_retry['retry'] > 5:
             self.__logger.error("Job %s irrecuperable, trop de retries" % fuuid)
             # shutil.rmtree(path_repertoire)
             path_rejected = pathlib.Path(path_repertoire.parent.parent, 'rejected')
@@ -344,6 +383,10 @@ def reassembler_fichier(job: IntakeJob, work_path: Optional[pathlib.Path] = None
     LOGGER.info("reassembler_fichier Path : %s" % path_fuuid)
 
     parts = sort_parts(path_repertoire)
+
+    if len(parts) == 0:
+        raise FileNotFoundError()  # On n'a aucunes parts a reassembler
+
     verificateur = VerificateurHachage(fuuid)
     with open(path_workfile, 'wb') as output:
         for position in parts:
