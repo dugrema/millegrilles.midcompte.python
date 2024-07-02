@@ -320,7 +320,7 @@ class BackupStoreSftp(BackupStore):
 
         path_database_consignation = pathlib.Path(self._etat_instance.get_path_data(), ConstantesFichiers.FICHIER_DATABASE_FICHIERS)
         path_database_backup = pathlib.Path(self._etat_instance.get_path_data(), ConstantesFichiers.FICHIER_DATABASE_BACKUP)
-        with SQLiteConnection(path_database_backup, check_same_thread=False) as connection:
+        with SQLiteConnection(path_database_backup, locks=None, check_same_thread=False) as connection:
             async with SQLiteDetachedBackup(connection) as backup_dao:
                 try:
                     for item in sftp.parcours_fichiers_recursif(buckets_path):

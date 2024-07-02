@@ -170,3 +170,7 @@ class EtatFichiers(EtatInstance):
     @property
     def consignation_primaire_pret(self):
         return self.__event_consignation_primaire_pret
+
+    @property
+    def sqlite_locks(self):
+        return self.__sqlite_locks

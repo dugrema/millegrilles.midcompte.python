@@ -328,7 +328,8 @@ class ConsignationStore:
 
     async def reclamer_fuuids_database(self, fuuids: list, bucket: str):
         path_db_sync = pathlib.Path(self._etat.get_path_data(), Constantes.FICHIER_DATABASE_SYNC)
-        with SQLiteConnection(path_db_sync, check_same_thread=False, timeout=60.0) as connection:
+        locks = self._etat.sqlite_locks
+        with SQLiteConnection(path_db_sync, locks=locks, check_same_thread=False, timeout=60.0) as connection:
             async with SQLiteDetachedReclamationAppend(connection) as detached_dao:
                 await detached_dao.reclamer_fuuids(fuuids, bucket)
 

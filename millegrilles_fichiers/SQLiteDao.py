@@ -17,7 +17,9 @@ class SQLiteLocks:
 
     def __init__(self):
         self.__write_lock: Optional[asyncio.BoundedSemaphore] = None
-        self.__batch_job_lock: Optional[asyncio.BoundedSemaphore] = None
+        # self.__batch_job_lock: Optional[asyncio.BoundedSemaphore] = None
+        # Lock qui indique un merge en cours (empeche ecriture)
+        self.__event_merge: Optional[asyncio.Event] = None
 
     async def ainit(self):
         self.__write_lock = asyncio.BoundedSemaphore(value=1)
@@ -25,13 +27,21 @@ class SQLiteLocks:
         # Lock special conserve pour la duree d'une job. Faire un acquire avant write.
         self.__batch_job_lock = asyncio.BoundedSemaphore(value=1)
 
+        # Event qui indique un merge en cours (si clear, bloque read/write)
+        self.__event_nomerge = asyncio.Event()
+        self.__event_nomerge.set()  # Aucun merge en cours
+
     @property
     def write(self):
         return self.__write_lock
 
+    # @property
+    # def batch_job(self):
+    #     return self.__batch_job_lock
+
     @property
-    def batch_job(self):
-        return self.__batch_job_lock
+    def nomerge_event(self) -> asyncio.Event:
+        return self.__event_nomerge
 
 
 class SQLiteConnection:
@@ -129,6 +139,9 @@ class SQLiteCursor:
         self._cur = None
 
     async def __aenter__(self):
+        locks = self._connection.locks
+        if locks:
+            await asyncio.wait_for(locks.nomerge_event.wait(), 120)
         self.open()
         return self
 
@@ -634,14 +647,19 @@ class SQLiteDetachedOperations(SQLiteCursor):
         raise NotImplementedError('must implement')
 
     async def __aenter__(self):
+        locks = self._connection.locks
+        if locks:
+            await asyncio.wait_for(locks.nomerge_event.wait(), timeout=180)
         path_database = self._connection.path_database
 
         # Initialiser la base de donnees
         try:
             await super().__aenter__()
+            if locks:
+                locks.nomerge_event.clear()  # Bloquer tous les acces au fichier de DB
             await self._create()
         except:
-            self.__logger.exception("__aenter__ Erreur oouverture db %s" % path_database)
+            self.__logger.exception("__aenter__ Erreur ouverture db %s" % path_database)
             self._connection.close()
 
         return self
@@ -650,6 +668,8 @@ class SQLiteDetachedOperations(SQLiteCursor):
         try:
             await self._transfer_data()
         finally:
+            if self._connection.locks:
+                self._connection.locks.nomerge_event.set()  # Permettre les acces au fichier de DB
             await super().__aexit__(exc_type, exc_val, exc_tb)
         return False
 

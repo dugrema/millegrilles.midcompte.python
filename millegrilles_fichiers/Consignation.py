@@ -1,14 +1,10 @@
 import datetime
-import enum
 import pathlib
-import shutil
 import sqlite3
 
 import aiohttp
 import asyncio
 import logging
-import json
-import os
 import tempfile
 
 from aiohttp import web
@@ -21,12 +17,10 @@ from millegrilles_messages.messages.MessagesModule import MessageWrapper
 from millegrilles_messages.messages.MessagesModule import MessageProducerFormatteur
 
 from millegrilles_fichiers import Constantes
-from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_document
-from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.ConsignationStore import ConsignationStore, map_type
 from millegrilles_fichiers.Synchronisation import SyncManager
-from millegrilles_fichiers.SQLiteDao import SQLiteConnection, SQLiteReadOperations, SQLiteDetachedVisiteAppend
+from millegrilles_fichiers.SQLiteDao import SQLiteConnection, SQLiteDetachedVisiteAppend
 from millegrilles_fichiers.ConsignationBackup import ConsignationBackup
 
 

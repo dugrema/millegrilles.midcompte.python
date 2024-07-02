@@ -302,7 +302,12 @@ class SyncManager:
             # Supprimer base de donnees de sync
             path_database_sync.unlink(missing_ok=True)
 
-            with SQLiteConnection(self.get_path_database_sync(), check_same_thread=False, timeout=30.0) as connection:
+            with self.__etat_instance.sqlite_connection() as connection_fichiers:
+                path_database_fichiers = connection_fichiers.path_database
+
+            with SQLiteConnection(self.get_path_database_sync(),
+                                  locks=self.__etat_instance.sqlite_locks,
+                                  check_same_thread=False, timeout=30.0) as connection:
                 # Date debut utilise pour trouver les fichiers orphelins (si reclamation est complete)
                 debut_reclamation = datetime.datetime.utcnow()
 
@@ -311,11 +316,10 @@ class SyncManager:
                     # L'ouverture execute la creation de la db
                     self.__logger.debug("Nouvelle base de donnes de sync cree (%s)" % connection.path_database)
 
-            self.__logger.info("__sequence_sync_primaire Debut reclamation (Progres 1/5)")
-            reclamation_complete = await self.reclamer_fuuids()
-            self.__logger.info("__sequence_sync_primaire Fin reclamations (complet? %s)" % reclamation_complete)
+                self.__logger.info("__sequence_sync_primaire Debut reclamation (Progres 1/5)")
+                reclamation_complete = await self.reclamer_fuuids()
+                self.__logger.info("__sequence_sync_primaire Fin reclamations (complet? %s)" % reclamation_complete)
 
-            with SQLiteConnection(self.get_path_database_sync(), check_same_thread=False, timeout=30.0) as connection:
                 # Debloquer les visites (pour prochaine visite)
                 self.__consignation.timestamp_visite = datetime.datetime.utcnow()
                 # Ajouter visiter_fuuids dans les taches de sync
@@ -324,9 +328,6 @@ class SyncManager:
 
                 if self.__stop_event.is_set():
                     return  # Stopped
-
-                with self.__etat_instance.sqlite_connection() as connection_fichiers:
-                    path_database_fichiers = connection_fichiers.path_database
 
                 # Transferer contenu de la base de donnes sync.sqlite version consignation.sqlite
                 async with SQLiteDetachedSyncApply(connection, debut_reclamation) as sync_dao:
@@ -394,12 +395,12 @@ class SyncManager:
         path_database_fichiers = self.__etat_instance.sqlite_connection().path_database
         path_database_transferts = pathlib.Path(self.__etat_instance.get_path_data(),
                                                 Constantes.FICHIER_DATABASE_TRANSFERTS)
-        with SQLiteConnection(path_database_transferts, None, check_same_thread=False, reuse=False) as connection:
+        with SQLiteConnection(path_database_transferts, locks=None, check_same_thread=False, reuse=False) as connection:
             async with SQLiteTransfertOperations(connection) as transfert_dao:
                 await transfert_dao.init_database()
 
         try:
-            with SQLiteConnection(path_database_sync, check_same_thread=False, timeout=30.0) as connection:
+            with SQLiteConnection(path_database_sync, locks=self.__etat_instance.sqlite_locks, check_same_thread=False, timeout=30.0) as connection:
                 # Initialiser la base de donnees de synchronisation
                 async with SQLiteDetachedSyncCreate(connection):
                     # L'ouverture execute la creation de la db
