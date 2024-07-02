@@ -1,9 +1,7 @@
 import asyncio
-import datetime
 import errno
 import json
 import logging
-import os
 import pathlib
 import shutil
 import sqlite3
@@ -17,14 +15,12 @@ from millegrilles_messages.MilleGrillesConnecteur import EtatInstance
 from millegrilles_messages.FileLocking import FileLock, FileLockedException, is_locked
 
 from millegrilles_fichiers import Constantes
-from millegrilles_fichiers.Consignation import ConsignationHandler, InformationFuuid, StoreNonInitialise
+from millegrilles_fichiers.Consignation import ConsignationHandler, StoreNonInitialise
 
 LOGGER = logging.getLogger(__name__)
 
 CONST_INTAKE_LOCK_NAME = 'intake.lock'
 CONST_CHUNK_SIZE = 64 * 1024
-
-# CONST_MAX_RETRIES_CLE = 2
 
 
 class IntakeJob:
@@ -84,7 +80,11 @@ class IntakeFichiers(IntakeHandler):
             self.__logger.info("traiter_prochaine_job Sync en cours, on ignore traitement de jobs")
             return None
 
-        await self.__consignation_handler.store_pret_wait()
+        try:
+            await asyncio.wait_for(self.__consignation_handler.store_pret_wait(), 20)
+        except asyncio.TimeoutError:
+            self.__logger.warning("traiter_prochaine_job Store n'est pas pret, on arrete le traitement")
+            return None
 
         try:
             repertoires = repertoires_par_date(self.__path_intake)

@@ -37,7 +37,7 @@ class SQLiteLocks:
 class SQLiteConnection:
 
     def __init__(self, path_database: pathlib.Path, locks: Optional[SQLiteLocks] = None,
-                 check_same_thread=True, timeout=5.0, reuse=False):
+                 check_same_thread=True, timeout=5.0, reuse=False, readonly=False):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__path_database = path_database
         self.__path_data = path_database.parent
@@ -45,23 +45,25 @@ class SQLiteConnection:
         self.__check_same_thread = check_same_thread
         self.__timeout = timeout
         self.__reuse = reuse
+        self.__readonly = readonly
 
         self.__con: Optional[sqlite3.Connection] = None
 
-    # async def ainit(self):
-    #     if self.__sqlite_locks is None:
-    #         sqlite_locks = SQLiteLocks()
-    #         await sqlite_locks.ainit()
-    #         self.__sqlite_locks = sqlite_locks
-
     def open(self):
-        self.__con = sqlite3.connect(
-            self.__path_database,
-            timeout=self.__timeout, check_same_thread=self.__check_same_thread
-        )
+        if self.__readonly:
+            self.__con = sqlite3.connect(
+                f'file:%s?mode=ro' % self.__path_database,
+                timeout=self.__timeout, check_same_thread=self.__check_same_thread, uri=True
+            )
+        else:
+            self.__con = sqlite3.connect(
+                self.__path_database,
+                timeout=self.__timeout, check_same_thread=self.__check_same_thread
+            )
 
     def close(self):
-        self.__con.commit()
+        if self.__readonly is not True:
+            self.__con.commit()
         if self.__reuse is False:
             self.__con.close()
             self.__con = None
@@ -105,6 +107,10 @@ class SQLiteConnection:
     def path_data(self) -> pathlib.Path:
         return self.__path_data
 
+    @property
+    def read_only(self) -> bool:
+        return self.__readonly
+
 
 class SQLiteCursor:
 
@@ -117,7 +123,8 @@ class SQLiteCursor:
         self._cur = self._connection.cursor()
 
     def close(self):
-        self._connection.commit()
+        if self._connection.read_only is False:
+            self._connection.commit()
         self._cur.close()
         self._cur = None
 
@@ -184,7 +191,9 @@ class SQLiteReadOperations(SQLiteCursor):
         limite_nombre = 1000
 
         # La reverification permet de controler la frequence de verification d'un fichier (e.g. aux trois mois)
-        expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_REVERIFICATION)
+        # expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_REVERIFICATION)
+        expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(
+            seconds=120)
         params = {
             'expiration_verification': expiration,
             'limit': limite_nombre
@@ -393,78 +402,23 @@ class SQLiteWriteOperations(SQLiteCursor):
 
         return dict_fuuids.keys()
 
-    def get_info_fichiers_actif(self, fuuid_keys: list) -> list:
-        liste_fichiers_actifs = list()
-        requete = scripts_database.SELECT_INFO_FICHIERS_ACTIFS.replace('$fuuids', ','.join([':%s' % f for f in fuuid_keys]))
-        self._cur.execute(requete, fuuid_keys)
-
-        while True:
-            row = self._cur.fetchone()
-            if row is None:
-                break
-            fuuid = row[0]
-            liste_fichiers_actifs.append(fuuid)
-
-        return liste_fichiers_actifs
-
-
-class SQLiteBatchOperations(SQLiteCursor):
-
-    def __init__(self, connection: SQLiteConnection):
-        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-        super().__init__(connection)
-
-        self.__debut_job = datetime.datetime.now(tz=pytz.UTC)
-
-        self.__write_lock = connection.locks.write
-        self.__batch_lock = connection.locks.batch_job
-
-    async def __aenter__(self):
-        await self.__batch_lock.acquire()
-        try:
-            self.open()
-        except Exception as e:
-            self.__batch_lock.release()
-            raise e
-
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        try:
-            self.close()
-        finally:
-            self.__batch_lock.release()
-        return False
-
-    def close(self):
-        self._cur.close()
-        self._cur = None
-
     async def marquer_verification(self, fuuid: str, etat_fichier: str):
-        self.open()
-        async with self.__write_lock:
-            try:
-                if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
-                    # Mettre a jour la date de verification
-                    params = {
-                        'fuuid': fuuid,
-                        'date_verification': datetime.datetime.now(tz=pytz.UTC)
-                    }
-                    await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_DATE_VERIFICATION, params)
-                else:
-                    # Erreur - mettre a jour l'etat et resetter la presence
-                    params = {
-                        'fuuid': fuuid,
-                        'etat_fichier': etat_fichier,
-                        'date_verification': datetime.datetime.now(tz=pytz.UTC),
-                        'date_presence': datetime.datetime.fromtimestamp(0, tz=pytz.UTC),
-                    }
-                    await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_DATE_ETATFICHIER_PRESENCE, params)
-
-                # Pas de batch, on commit chaque fichier (verification fuuid est intensive, grand delai entre operations)
-                await asyncio.to_thread(self._connection.commit)
-            finally:
-                self.close()
+        if etat_fichier == Constantes.DATABASE_ETAT_ACTIF:
+            # Mettre a jour la date de verification
+            params = {
+                'fuuid': fuuid,
+                'date_verification': datetime.datetime.now(tz=pytz.UTC)
+            }
+            await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_DATE_VERIFICATION, params)
+        else:
+            # Erreur - mettre a jour l'etat et resetter la presence
+            params = {
+                'fuuid': fuuid,
+                'etat_fichier': etat_fichier,
+                'date_verification': datetime.datetime.now(tz=pytz.UTC),
+                'date_presence': datetime.datetime.fromtimestamp(0, tz=pytz.UTC),
+            }
+            await asyncio.to_thread(self._cur.execute, scripts_database.UPDATE_DATE_ETATFICHIER_PRESENCE, params)
 
     async def supprimer(self, fuuids: Union[set, list]):
         for fuuid in fuuids:

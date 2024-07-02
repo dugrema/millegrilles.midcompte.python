@@ -20,9 +20,12 @@ from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHa
 from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.UploadFichiersPrimaire import EtatUpload, feed_filepart2
-from millegrilles_fichiers.SQLiteDao import (SQLiteReadOperations, SQLiteWriteOperations, SQLiteBatchOperations,
+from millegrilles_fichiers.SQLiteDao import (SQLiteReadOperations, SQLiteWriteOperations,
                                              SQLiteDetachedReclamationAppend, SQLiteDetachedVisiteAppend,
                                              SQLiteTransfertOperations)
+
+
+CHUNK_SIZE = 1024 * 64
 
 
 class ConsignationStore:
@@ -138,76 +141,76 @@ class ConsignationStore:
 
     async def __verifier_fuuids(self, limite=Constantes.CONST_LIMITE_TAILLE_VERIFICATION):
         """ Visiter tous les fichiers presents, s'assurer qu'ils sont dans la base de donnees. """
-        with self._etat.sqlite_connection() as connection:
+        with self._etat.sqlite_connection(readonly=True) as connection:
             async with SQLiteReadOperations(connection) as dao_read:
                 liste_fichiers = await asyncio.to_thread(dao_read.charger_verifier_fuuids, limite)
 
-            async with SQLiteBatchOperations(connection) as dao:
-                # Verifier chaque fichier individuellement
-                # On conserve le lock sur operations de batch pour la duree du traitement
-                for fichier in liste_fichiers:
-                    await self.verifier_fichier(dao, **fichier)
+        # Verifier chaque fichier individuellement
+        # On conserve le lock sur operations de batch pour la duree du traitement
+        for fichier in liste_fichiers:
+            await self.verifier_fichier(**fichier)
 
     async def supprimer_orphelins(self):
-        with self._etat.sqlite_connection() as connection:
-            # Ouvrir l'operation de batch (lock)
-            async with SQLiteBatchOperations(connection) as dao:
-                producer = self._etat.producer
-                await asyncio.wait_for(producer.producer_pret().wait(), timeout=10)
+        producer = self._etat.producer
+        await asyncio.wait_for(producer.producer_pret().wait(), timeout=10)
 
-                est_primaire = self._etat.est_primaire
-                if est_primaire:
-                    expiration_secs = Constantes.CONST_EXPIRATION_ORPHELIN_PRIMAIRE
-                else:
-                    expiration_secs = Constantes.CONST_EXPIRATION_ORPHELIN_SECONDAIRE
-                expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=expiration_secs)
-                self.__logger.info("supprimer_orphelins Expires depuis %s" % expiration)
+        est_primaire = self._etat.est_primaire
+        if est_primaire:
+            expiration_secs = Constantes.CONST_EXPIRATION_ORPHELIN_PRIMAIRE
+        else:
+            expiration_secs = Constantes.CONST_EXPIRATION_ORPHELIN_SECONDAIRE
+        expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=expiration_secs)
+        self.__logger.info("supprimer_orphelins Expires depuis %s" % expiration)
 
-                # Operations de lectures
-                async with SQLiteReadOperations(connection) as dao_read:
-                    batch_orphelins = await asyncio.to_thread(dao_read.identifier_orphelins, expiration)
+        # Operations de lectures
+        with self._etat.sqlite_connection(readonly=True) as connection:
+            async with SQLiteReadOperations(connection) as dao_read:
+                batch_orphelins = await asyncio.to_thread(dao_read.identifier_orphelins, expiration)
 
-                fuuids = [f['fuuid'] for f in batch_orphelins]
-                fuuids_a_supprimer = set(fuuids)
+        fuuids = [f['fuuid'] for f in batch_orphelins]
+        fuuids_a_supprimer = set(fuuids)
 
-                if len(fuuids_a_supprimer) > 0:
-                    self.__logger.info("Supprimer fuuids %s" % fuuids_a_supprimer)
+        if len(fuuids_a_supprimer) > 0:
+            self.__logger.info("Supprimer fuuids %s" % fuuids_a_supprimer)
 
-                    if est_primaire:
-                        # Transmettre commande pour confirmer que la suppression finale peut avoir lieu
-                        commande = {'fuuids': fuuids}
-                        reponse = await producer.executer_commande(
-                            commande,
-                            domaine=Constantes.DOMAINE_GROSFICHIERS, action=Constantes.COMMANDE_SUPPRIMER_ORPHELINS,
-                            exchange=ConstantesMillegrilles.SECURITE_PRIVE, timeout=90
-                        )
-                        if reponse.parsed['ok'] is True:
-                            # Retirer tous les fuuids a conserver de la liste a supprimer
-                            fuuids_conserver = reponse.parsed.get('fuuids_a_conserver') or list()
-                            fuuids_a_supprimer = fuuids_a_supprimer.difference(fuuids_conserver)
+            if est_primaire:
+                # Transmettre commande pour confirmer que la suppression finale peut avoir lieu
+                commande = {'fuuids': fuuids}
+                reponse = await producer.executer_commande(
+                    commande,
+                    domaine=Constantes.DOMAINE_GROSFICHIERS, action=Constantes.COMMANDE_SUPPRIMER_ORPHELINS,
+                    exchange=ConstantesMillegrilles.SECURITE_PRIVE, timeout=90
+                )
+                if reponse.parsed['ok'] is True:
+                    # Retirer tous les fuuids a conserver de la liste a supprimer
+                    fuuids_conserver = reponse.parsed.get('fuuids_a_conserver') or list()
+                    fuuids_a_supprimer = fuuids_a_supprimer.difference(fuuids_conserver)
 
-                    for fichier in batch_orphelins:
-                        fuuid = fichier['fuuid']
-                        bucket = fichier['bucket']
-                        if fuuid in fuuids_a_supprimer:
-                            if bucket is not None:
-                                self.__logger.info("supprimer_orphelins Supprimer fichier orphelin expire %s" % fichier)
-                                try:
-                                    await self.supprimer(bucket, fuuid)
-                                except OSError as e:
-                                    if e.errno == errno.ENOENT:
-                                        self.__logger.warning("Erreur suppression fichier %s/%s - non trouve" % (bucket, fuuid))
-                                    else:
-                                        raise e
+            for fichier in batch_orphelins:
+                fuuid = fichier['fuuid']
+                bucket = fichier['bucket']
+                if fuuid in fuuids_a_supprimer:
+                    if bucket is not None:
+                        self.__logger.info("supprimer_orphelins Supprimer fichier orphelin expire %s" % fichier)
+                        try:
+                            await self.supprimer(bucket, fuuid)
+                        except OSError as e:
+                            if e.errno == errno.ENOENT:
+                                self.__logger.warning("Erreur suppression fichier %s/%s - non trouve" % (bucket, fuuid))
                             else:
-                                self.__logger.info("supprimer_orphelins Nettoyer DB pour fichier orphelin deja supprime %s" % fichier)
+                                raise e
+                    else:
+                        self.__logger.info("supprimer_orphelins Nettoyer DB pour fichier orphelin deja supprime %s" % fichier)
 
-                    # Supprimer de la base de donnes locale
+            # Supprimer de la base de donnes locale
+            with self._etat.sqlite_connection() as connection:
+                # Ouvrir l'operation de batch (lock)
+                async with SQLiteWriteOperations(connection) as dao:
                     await dao.supprimer(fuuids_a_supprimer)
 
         pass
 
-    async def verifier_fichier(self, batch_dao: SQLiteBatchOperations, fuuid: str, taille: int, bucket: str):
+    async def verifier_fichier(self, fuuid: str, taille: int, bucket: str):
         """ Verifie un fichier individuellement. Marque resultat dans la base de donnees. """
         raise NotImplementedError('must override')
 
@@ -272,12 +275,12 @@ class ConsignationStore:
         return liste_fichiers_actifs
 
     async def get_stats(self):
-        with self._etat.sqlite_connection() as connection:
+        with self._etat.sqlite_connection(readonly=True) as connection:
             async with SQLiteReadOperations(connection) as dao_read:
                 return await asyncio.to_thread(dao_read.get_stats_fichiers)
 
     async def get_info_fichier(self, fuuid: str) -> Optional[dict]:
-        with self._etat.sqlite_connection() as connection:
+        with self._etat.sqlite_connection(readonly=True) as connection:
             async with SQLiteReadOperations(connection) as dao_read:
                 return await asyncio.to_thread(dao_read.get_info_fichier, fuuid)
 
@@ -582,27 +585,32 @@ class ConsignationStoreMillegrille(ConsignationStore):
 
         return info
 
-    async def verifier_fichier(self, batch_dao: SQLiteBatchOperations, fuuid: str, taille: int, bucket: str):
+    async def verifier_fichier(self, fuuid: str, taille: int, bucket: str):
         path_fichier = self.get_path_fuuid(bucket, fuuid)
         verificateur = VerificateurHachage(fuuid)
 
         try:
             with open(path_fichier, 'rb') as fichier:
                 while True:
-                    chunk = fichier.read(64*1024)
+                    chunk = fichier.read(CHUNK_SIZE)
                     if not chunk:
                         break
                     verificateur.update(chunk)
-            try:
-                verificateur.verify()
-                await batch_dao.marquer_verification(fuuid, Constantes.DATABASE_ETAT_ACTIF)
-            except ErreurHachage:
-                self.__logger.error("verifier_fichier Fichier %s est corrompu, marquer manquant" % fuuid)
-                await batch_dao.marquer_verification(fuuid, Constantes.DATABASE_ETAT_MANQUANT)
-                path_fichier.unlink()  # Supprimer le fichier invalide
+
+            with self._etat.sqlite_connection() as connection:
+                async with SQLiteWriteOperations(connection) as dao_write:
+                    try:
+                        verificateur.verify()
+                        await dao_write.marquer_verification(fuuid, Constantes.DATABASE_ETAT_ACTIF)
+                    except ErreurHachage:
+                        self.__logger.error("verifier_fichier Fichier %s est corrompu, marquer manquant" % fuuid)
+                        await dao_write.marquer_verification(fuuid, Constantes.DATABASE_ETAT_MANQUANT)
+                        path_fichier.unlink()  # Supprimer le fichier invalide
         except FileNotFoundError:
             self.__logger.error("verifier_fichier Fichier %s est absent, marquer manquant" % fuuid)
-            await batch_dao.marquer_verification(fuuid, Constantes.DATABASE_ETAT_MANQUANT)
+            with self._etat.sqlite_connection() as connection:
+                async with SQLiteWriteOperations(connection) as dao_write:
+                    await dao_write.marquer_verification(fuuid, Constantes.DATABASE_ETAT_MANQUANT)
 
     async def generer_backup_sync(self):
         await asyncio.to_thread(self.__generer_backup_sync)

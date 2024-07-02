@@ -26,7 +26,7 @@ from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.ConsignationStore import ConsignationStore, map_type
 from millegrilles_fichiers.Synchronisation import SyncManager
-from millegrilles_fichiers.SQLiteDao import SQLiteConnection, SQLiteReadOperations, SQLiteBatchOperations, SQLiteDetachedVisiteAppend
+from millegrilles_fichiers.SQLiteDao import SQLiteConnection, SQLiteReadOperations, SQLiteDetachedVisiteAppend
 from millegrilles_fichiers.ConsignationBackup import ConsignationBackup
 
 
@@ -172,12 +172,6 @@ class ConsignationHandler:
     async def visiter_fuuids(self, connection: SQLiteConnection):
         async with SQLiteDetachedVisiteAppend(connection) as detached_dao:
             await self.__store_consignation.visiter_fuuids(detached_dao)
-
-        # path_data = self.etat_instance.get_path_data()
-        # path_db_sync = pathlib.Path(path_data, Constantes.FICHIER_DATABASE_SYNC)
-        # with self.__etat_instance.sqlite_connection() as connection:
-        #     async with SQLiteDetachedVisiteAppend(connection, path_db_sync) as detached_dao:
-        #         await self.__store_consignation.visiter_fuuids(detached_dao)
 
     async def traiter_cedule(self, producer: MessageProducerFormatteur, message: MessageWrapper):
         self.__traiter_cedule_event.set()

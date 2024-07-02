@@ -134,20 +134,12 @@ class EtatFichiers(EtatInstance):
     #     #     self.__lock_db_job = asyncio.BoundedSemaphore(value=1)
     #     # return self.__lock_db_job
 
-    def sqlite_connection(self, check_same_thread=False) -> SQLiteConnection:
-        # if not self.__sqlite_connection:
-        #     path_data = pathlib.Path(self.configuration.dir_consignation, Constantes.DIR_DATA)
-        #
-        #     # Creer une connexion reutilisable (qui ne se ferme pas apres chaque utilisation)
-        #     self.__sqlite_connection = SQLiteConnection(
-        #         path_data, self.__sqlite_locks, check_same_thread=check_same_thread, reuse=True)
-        #
-        # return self.__sqlite_connection
+    def sqlite_connection(self, check_same_thread=False, readonly=False) -> SQLiteConnection:
         path_database = pathlib.Path(self.get_path_data(), Constantes.FICHIER_DATABASE_FICHIERS)
 
         # Creer une connexion reutilisable (qui ne se ferme pas apres chaque utilisation)
         return SQLiteConnection(
-            path_database, self.__sqlite_locks, check_same_thread=check_same_thread, reuse=False)
+            path_database, self.__sqlite_locks, check_same_thread=check_same_thread, reuse=False, readonly=readonly)
 
     def get_path_data(self) -> pathlib.Path:
         return pathlib.Path(self.configuration.dir_data)

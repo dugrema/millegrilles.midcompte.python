@@ -16,7 +16,7 @@ from millegrilles_fichiers.Commandes import CommandHandler
 from millegrilles_fichiers.Intake import IntakeFichiers
 from millegrilles_fichiers.Consignation import ConsignationHandler
 from millegrilles_fichiers.WebServer import WebServer
-from millegrilles_fichiers.SQLiteDao import SQLiteConnection, SQLiteLocks
+from millegrilles_fichiers.SQLiteDao import SQLiteLocks
 
 logger = logging.getLogger(__name__)
 
