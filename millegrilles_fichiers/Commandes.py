@@ -227,7 +227,14 @@ class CommandHandler(CommandesAbstract):
         if now - datetime.timedelta(seconds=80) > date_cedule:
             return  # Vieux message de cedule
 
-        await self.__consignation.traiter_cedule(producer, message)
+        try:
+            await self.__intake.trigger_cedule(message)
+        except Exception:
+            self.__logger.exception("traiter_cedule Erreur intake trigger_cedule")
+        try:
+            await self.__consignation.traiter_cedule(producer, message)
+        except Exception:
+            self.__logger.exception("traiter_cedule Erreur consignation traiter_cedule")
 
     async def requete_cles_ssh(self):
         cles_ssh = self.__etat_instance.get_public_key_ssh()

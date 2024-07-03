@@ -10,6 +10,7 @@ from typing import Optional
 
 from millegrilles_messages.messages import Constantes as ConstantesMillegrille
 from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
+from millegrilles_messages.messages.MessagesModule import MessageWrapper
 from millegrilles_messages.jobs.Intake import IntakeHandler
 from millegrilles_messages.MilleGrillesConnecteur import EtatInstance
 from millegrilles_messages.FileLocking import FileLock, FileLockedException, is_locked
@@ -52,25 +53,34 @@ class IntakeFichiers(IntakeHandler):
     async def run(self):
         await asyncio.gather(
             super().run(),
-            self.trigger_regulier(),
+            # self.trigger_regulier(),
             # self.entretien_dechiffre_thread(),
             # self.entretien_download_thread()
         )
 
-    async def trigger_regulier(self):
-        # Declenchement initial du traitement (recovery)
-        try:
-            await asyncio.wait_for(self._stop_event.wait(), timeout=5)
-        except asyncio.TimeoutError:
-            pass  # OK
+    # async def trigger_regulier(self):
+    #     # Declenchement initial du traitement (recovery)
+    #     try:
+    #         await asyncio.wait_for(self._stop_event.wait(), timeout=5)
+    #     except asyncio.TimeoutError:
+    #         pass  # OK
+    #
+    #     while self._stop_event.is_set() is False:
+    #         if self.__consignation_handler.sync_en_cours is False:
+    #             await self.trigger_traitement()
+    #         try:
+    #             await asyncio.wait_for(self._stop_event.wait(), timeout=300)
+    #         except asyncio.TimeoutError:
+    #             pass  # OK
 
-        while self._stop_event.is_set() is False:
+    async def trigger_cedule(self, trigger: MessageWrapper):
+        # cedule_heure = datetime.datetime.fromtimestamp(trigger.parsed['estampille'], tz=pytz.UTC)
+        # cedule_minute = cedule_heure.minute
+
+        # if cedule_minute % 5 == 0:  # Redemarrer aux 5 minutes
+        if self._stop_event.is_set() is False:
             if self.__consignation_handler.sync_en_cours is False:
                 await self.trigger_traitement()
-            try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=300)
-            except asyncio.TimeoutError:
-                pass  # OK
 
     async def configurer(self):
         return await super().configurer()
@@ -205,6 +215,8 @@ class IntakeFichiers(IntakeHandler):
         except FileNotFoundError:
             info_retry = {}
 
+        # Reset retries : le fichier est bon et on attend de soumettre la transasction (incluant la cle)
+        info_retry['retry'] = -1
         info_retry['consigne'] = True
 
         with open(path_fichier_retry, 'wt') as fichier:

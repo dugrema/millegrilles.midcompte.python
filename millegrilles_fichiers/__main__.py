@@ -21,7 +21,7 @@ from millegrilles_fichiers.SQLiteDao import SQLiteLocks
 logger = logging.getLogger(__name__)
 
 
-class StreamingMain:
+class FichiersMain:
 
     def __init__(self, args: argparse.Namespace):
         self.__args = args
@@ -115,7 +115,7 @@ def adjust_logging(args: argparse.Namespace):
 
 
 async def demarrer(args: argparse.Namespace):
-    main_inst = StreamingMain(args)
+    main_inst = FichiersMain(args)
 
     signal.signal(signal.SIGINT, main_inst.exit_gracefully)
     signal.signal(signal.SIGTERM, main_inst.exit_gracefully)
