@@ -371,7 +371,7 @@ UPDATE_ACTIVER_SI_ORPHELIN = """
 SELECT_BATCH_VERIFIER = """
     SELECT fuuid, taille, bucket
     FROM FICHIERS
-    WHERE date_verification < :expiration_verification
+    WHERE (date_verification < :expiration_verification OR date_verification IS NULL)
       AND etat_fichier = 'actif'
       AND taille is NOT NULL
       AND bucket is NOT NULL

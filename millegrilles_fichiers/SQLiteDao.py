@@ -201,12 +201,11 @@ class SQLiteReadOperations(SQLiteCursor):
 
     def charger_verifier_fuuids(self, limite_taille: Constantes.CONST_LIMITE_TAILLE_VERIFICATION) -> list[dict]:
         # Generer une batch de fuuids a verifier
-        limite_nombre = 1000
+        limite_nombre = Constantes.CONST_LIMITE_FICHIERS_VERIFICATION
 
-        # La reverification permet de controler la frequence de verification d'un fichier (e.g. aux trois mois)
-        # expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_REVERIFICATION)
-        expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(
-            seconds=120)
+        # La reverification permet de controler la frequence de verification d'un fichier (e.g. au 2 semaines)
+        expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=Constantes.CONST_INTERVALLE_REVERIFICATION)
+        # expiration = datetime.datetime.now(tz=pytz.UTC) - datetime.timedelta(seconds=120)
         params = {
             'expiration_verification': expiration,
             'limit': limite_nombre

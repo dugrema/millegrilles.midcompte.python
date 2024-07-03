@@ -220,20 +220,6 @@ class ConsignationHandler:
 
         await asyncio.wait_for(self.__store_pret_event.wait(), timeout=10)
 
-        # if self.__timestamp_visite is not None and now - self.__intervalle_visites > self.__timestamp_visite:
-        #     # Note : si le timestamp est None, la visite initiale n'est pas completee (sync)
-        #     try:
-        #         # Demarrer la job si le semaphore n'est pas deja bloque
-        #         self.__logger.info("__traiter_cedule_local Visiter fuuids")
-        #         self.__timestamp_visite = datetime.datetime.utcnow()
-        #         # await self.__store_consignation.visiter_fuuids()
-        #         with self.etat_instance.sqlite_connection() as connection:
-        #             await self.visiter_fuuids(connection)
-        #         # Debloquer a la synchronisation (initiale)
-        #         # self.__sync_manager.set_visite_completee()
-        #     except Exception:
-        #         self.__logger.exception("__traiter_cedule_local Erreur visiter fuuids")
-
         if self.__sync_manager.sync_en_cours:
             self.__logger.debug("__traiter_cedule_local Sync en cours, skip reste du traitement")
             return
