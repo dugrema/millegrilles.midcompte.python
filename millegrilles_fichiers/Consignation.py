@@ -1,6 +1,7 @@
 import datetime
 import pathlib
 import sqlite3
+import pytz
 
 import aiohttp
 import asyncio
@@ -65,6 +66,7 @@ class ConsignationHandler:
         # self.__est_primaire: Optional[bool] = None
         self.__store_pret_event: Optional[asyncio.Event] = None
         self.__traiter_cedule_event: Optional[asyncio.Event] = None
+        self.__message_cedule: Optional[MessageWrapper] = None
 
         self.__timestamp_dernier_sync: Optional[datetime.datetime] = None
         self.__timestamp_visite: Optional[datetime.datetime] = None
@@ -129,19 +131,6 @@ class ConsignationHandler:
         if self.__stop_event.is_set() is True:
             return  # Stopped
 
-        # Premier entretien
-
-        # self.__timestamp_visite = datetime.datetime.utcnow()
-        # try:
-        #     self.__logger.info("entretien_store Visite initiale des fuuids (debut)")
-        #     await self.__store_consignation.visiter_fuuids()
-        #     self.__logger.info("entretien_store Visite initiale des fuuids (terminee)")
-        # except:
-        #     self.__logger.exception("entretien_store Erreur premiere execution de visite")
-
-        # Debloquer a la synchronisation (initiale)
-        # self.__sync_manager.set_visite_completee()
-
         if self.__etat_instance.est_primaire:
             self.__logger.info("Declencher sync initial (primaire)")
             self.__timestamp_dernier_sync = datetime.datetime.utcnow()
@@ -168,6 +157,7 @@ class ConsignationHandler:
             await self.__store_consignation.visiter_fuuids(detached_dao)
 
     async def traiter_cedule(self, producer: MessageProducerFormatteur, message: MessageWrapper):
+        self.__message_cedule = message
         self.__traiter_cedule_event.set()
 
     async def thread_traiter_cedule(self):
@@ -187,20 +177,22 @@ class ConsignationHandler:
                 break  # Termine
 
             self.__logger.debug("thread_traiter_cedule Debut")
+            trigger = self.__message_cedule
+            self.__message_cedule = None
             if self.__etat_instance.est_primaire:
                 try:
-                    await self.__traiter_cedule_primaire()
+                    await self.__traiter_cedule_primaire(trigger)
                 except Exception:
                     self.__logger.exception("thread_traiter_cedule Erreur __traiter_cedule_primaire")
             try:
-                await self.__traiter_cedule_local()
+                await self.__traiter_cedule_local(trigger)
             except Exception:
                 self.__logger.exception("thread_traiter_cedule Erreur __traiter_cedule_local")
 
             self.__logger.debug("thread_traiter_cedule Fin")
             self.__traiter_cedule_event.clear()
 
-    async def __traiter_cedule_primaire(self):
+    async def __traiter_cedule_primaire(self, trigger: MessageWrapper):
         self.__logger.debug("__traiter_cedule_primaire Debut")
 
         now = datetime.datetime.utcnow()
@@ -214,17 +206,24 @@ class ConsignationHandler:
 
         self.__logger.debug("__traiter_cedule_primaire Fin")
 
-    async def __traiter_cedule_local(self):
+    async def __traiter_cedule_local(self, trigger: MessageWrapper):
         self.__logger.debug("__traiter_cedule_local Debut")
-        now = datetime.datetime.utcnow()
+        # now = datetime.datetime.utcnow()
+        cedule_trigger = datetime.datetime.fromtimestamp(trigger.parsed['estampille'], tz=pytz.UTC)
+        cedule_minute = cedule_trigger.minute
 
-        await asyncio.wait_for(self.__store_pret_event.wait(), timeout=10)
+        try:
+            await asyncio.wait_for(self.__store_pret_event.wait(), timeout=10)
+        except asyncio.TimeoutError:
+            self.__logger.info("__traiter_cedule_local Timeout attente store pret - SKIP")
+            return
 
         if self.__sync_manager.sync_en_cours:
             self.__logger.debug("__traiter_cedule_local Sync en cours, skip reste du traitement")
             return
 
-        if self.__timestamp_verification is None or now - self.__intervalle_verification > self.__timestamp_verification:
+        # if self.__timestamp_verification is None or now - self.__intervalle_verification > self.__timestamp_verification:
+        if cedule_minute % 20 == 1:  # Aux 20 minutes
             try:
                 # Demarrer la job si le semaphore n'est pas deja bloque
                 if self.__sync_manager.sync_en_cours is False:
@@ -234,7 +233,8 @@ class ConsignationHandler:
             except Exception:
                 self.__logger.exception("__traiter_cedule_local Erreur verifier fuuids")
 
-        if self.__timestamp_orphelins is None or now - self.__intervalle_orphelins > self.__timestamp_orphelins:
+        # if self.__timestamp_orphelins is None or now - self.__intervalle_orphelins > self.__timestamp_orphelins:
+        if cedule_minute == 28:  # Une fois par heure
             try:
                 # Demarrer la job si le semaphore n'est pas deja bloque
                 self.__logger.info("__traiter_cedule_local Supprimer orphelins")
