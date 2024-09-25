@@ -210,7 +210,7 @@ class SyncManager:
                 pass  # OK
 
     async def thread_traiter_fuuids_reclames(self):
-        pending = {self.__stop_event.wait()}
+        pending = {asyncio.create_task(self.__stop_event.wait())}
         while self.__stop_event.is_set() is False:
             # Ajouter get queue (async block)
             pending.add(asyncio.create_task(self.__reception_fuuids_reclames.get()))
