@@ -103,6 +103,8 @@ class WebServer:
             web.get('/fichiers_transfert/backup_v2/{domaine}/archives', self.handle_get_backup_v2_liste_versions),
             web.get('/fichiers_transfert/backup_v2/{domaine}/final', self.handle_get_backup_v2_liste_archives),
             web.get('/fichiers_transfert/backup_v2/{domaine}/archives/{version}', self.handle_get_backup_v2_liste_archives),
+            web.get('/fichiers_transfert/backup_v2/{domaine}/final/{nomfichier}', self.handle_get_backup_v2),
+            web.get('/fichiers_transfert/backup_v2/{domaine}/archives/{version}/{nomfichier}', self.handle_get_backup_v2),
 
             # web.get('/fichiers_transfert/backup_v2/{domaine}/{nomfichier}', self.handle_get_backup_v2),
             # web.get('/fichiers_transfert/backup_v2/{domaine}/list', self.handle_get_backup_v2_liste),
@@ -797,37 +799,39 @@ class WebServer:
         async with self.__connexions_backup_sem:
             domaine: str = request.match_info['domaine']
             fichier_nom: str = request.match_info['nomfichier']
+            try:
+                version = request.match_info['version']
+            except KeyError:
+                version = None
 
-            self.__logger.debug("handle_put_backup_v2 %s/%s" % (domaine, fichier_nom))
-
-            #
-            # for key, value in request.headers.items():
-            #     self.__logger.debug('handle_put_backup key: %s, value: %s' % (key, value))
+            self.__logger.debug("handle_get_backup_v2 %s/%s/%s" % (domaine, version, fichier_nom))
 
             try:
                 common_name = get_common_name(request)
             except Forbidden:
                 return web.HTTPForbidden()
 
-            # TODO - Modifier webauth pour retourner le certificat ou liste d'exchanges et domaines.
-
-            return web.HTTPInternalServerError()  # TODO
-
-            # # Verifier si le fichier existe
-            # try:
-            #     info = await self.__consignation.get_info_fichier_backup(uuid_backup, domaine, fichier_nom)
-            # except FileNotFoundError:
-            #     return web.HTTPNotFound()
-            #
-            # headers_response = {
-            #     'Cache-Control': 'public, max-age=604800, immutable',
-            # }
-            # response = web.StreamResponse(status=200, headers=headers_response)
-            # response.content_length = info['taille']
-            # response.content_type = 'application/gzip'
-            # await response.prepare(request)
-            # await self.__consignation.stream_backup(response, uuid_backup, domaine, fichier_nom)
-            # await response.write_eof()
+            stream = None
+            try:
+                stream = await self.__consignation.get_backup_v2_fichier_stream(domaine, fichier_nom, version)
+                headers_response = {
+                    # 'Cache-Control': 'public, max-age=604800, immutable',
+                }
+                response = web.StreamResponse(status=200, headers=headers_response)
+                # response.content_length = info['taille']
+                response.content_type = 'application/octet-stream'
+                await response.prepare(request)
+                while True:
+                    chunk = stream.read(64 * 1024)
+                    if not chunk:
+                        break
+                    await response.write(chunk)
+                await response.write_eof()
+            except FileNotFoundError:
+                return web.HTTPNotFound()
+            finally:
+                if stream is not None:
+                    stream.close()
 
     async def handle_get_backup_v2_liste_versions(self, request: Request) -> StreamResponse:
         async with self.__connexions_backup_sem:

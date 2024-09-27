@@ -7,11 +7,11 @@ import logging
 import pathlib
 import shutil
 import tempfile
-from io import BufferedReader
+from io import BufferedReader, BufferedIOBase
 from os import makedirs
 
 from aiohttp import web, ClientSession
-from typing import Optional, Type, Union
+from typing import Optional, Type, Union, BinaryIO
 
 import pytz
 
@@ -408,7 +408,7 @@ class ConsignationStore:
         """
         raise NotImplementedError('must override')
 
-    async def get_backup_v2_fichier_stream(self, domaine: str, nom_fichier: str, version: Optional[str] = None):
+    async def get_backup_v2_fichier_stream(self, domaine: str, nom_fichier: str, version: Optional[str] = None) -> BufferedReader:
         """
         :param domaine:
         :param nom_fichier: Fichier .mgbak
@@ -847,6 +847,21 @@ class ConsignationStoreMillegrille(ConsignationStore):
             # except NotImplementedError:
             with open(path_fichier_info, 'rb') as src:
                 await asyncio.to_thread(copier_contenu_fichier_safe, src, path_fichier_courant)
+
+    async def get_backup_v2_fichier_stream(self, domaine: str, nom_fichier: str,
+                                           version: Optional[str] = None) -> BinaryIO:
+        if version is None:
+            # Lister les archives finales du domaine
+            path_archives = pathlib.Path(self._path_backup_v2, domaine, "final")
+        else:
+            path_archives = pathlib.Path(self._path_backup_v2, domaine, "archives", version)
+
+        path_fichier = pathlib.Path(path_archives, nom_fichier)
+        if path_fichier.exists() is False:
+            raise FileNotFoundError()
+
+        fichier = open(path_fichier, 'rb')
+        return fichier
 
 
 def map_type(type_store: str) -> Type[ConsignationStore]:
