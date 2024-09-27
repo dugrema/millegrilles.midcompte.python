@@ -558,6 +558,36 @@ class ConsignationHandler:
     def sync_en_cours(self):
         return self.__sync_manager.sync_en_cours
 
+    async def put_backup_v2_fichier(self, fichier_temp: tempfile.TemporaryFile,
+                                    domaine: str, nom_fichier: str, type_fichier: str, version: Optional[str] = None):
+        if self.__store_consignation is not None:
+            return await self.__store_consignation.put_backup_v2_fichier(fichier_temp, domaine, nom_fichier, type_fichier, version)
+        else:
+            raise StoreNonInitialise("Store non initialise")
+
+    async def get_backup_v2_fichier_stream(self, domaine: str, nom_fichier: str, version: Optional[str] = None):
+        if self.__store_consignation is not None:
+            return await self.__store_consignation.get_backup_v2_fichier_stream(domaine, nom_fichier, version)
+        else:
+            raise StoreNonInitialise("Store non initialise")
+
+    async def get_backup_v2_versions(self, domaine: str) -> dict:
+        if self.__store_consignation is not None:
+            return await self.__store_consignation.get_backup_v2_versions(domaine)
+        else:
+            raise StoreNonInitialise("Store non initialise")
+
+    async def get_backup_v2_list(self, domaine, version: Optional[str] = None) -> list[str]:
+        if self.__store_consignation is not None:
+            return await self.__store_consignation.get_backup_v2_list(domaine, version)
+        else:
+            raise StoreNonInitialise("Store non initialise")
+
+    async def get_backup_v2_headers(self, domaine, version: Optional[str] = None):
+        if self.__store_consignation is not None:
+            return await self.__store_consignation.get_backup_v2_headers(domaine, version)
+        else:
+            raise StoreNonInitialise("Store non initialise")
 
     # async def download_fichier(self, fuuid, cle_chiffree, params_dechiffrage, path_destination):
     #     await self.ouvrir_sessions()  # S'assurer d'avoir une session ouverte

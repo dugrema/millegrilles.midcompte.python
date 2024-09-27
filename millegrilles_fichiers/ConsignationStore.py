@@ -7,12 +7,15 @@ import logging
 import pathlib
 import shutil
 import tempfile
+from io import BufferedReader
+from os import makedirs
 
 from aiohttp import web, ClientSession
 from typing import Optional, Type, Union
 
 import pytz
 
+from millegrilles_fichiers.BackupV2 import lire_header_archive_backup
 from millegrilles_fichiers.SQLiteDao import SQLiteConnection
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
 from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
@@ -38,6 +41,8 @@ class ConsignationStore:
         path_database = pathlib.Path(
             self._etat.configuration.dir_data, Constantes.FICHIER_DATABASE_FICHIERS)
         self.__path_database = path_database
+        self._path_backup_v2 = path_backup_v2 = pathlib.Path(
+            self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP_V2)
 
         self._stop_store: Optional[asyncio.Event] = None
 
@@ -47,6 +52,8 @@ class ConsignationStore:
         path_backup = pathlib.Path(
             self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
         path_backup.mkdir(parents=True, exist_ok=True)
+
+        self._path_backup_v2.mkdir(parents=True, exist_ok=True)
 
         self.__path_database.parent.mkdir(parents=True, exist_ok=True)
         with self._etat.sqlite_connection() as connection:
@@ -385,6 +392,74 @@ class ConsignationStore:
         """ @:return Generateur par domaine des uuid de backups """
         raise NotImplementedError('must implement')
 
+    # *********
+    # Backup V2
+    # *********
+
+    async def put_backup_v2_fichier(self, fichier_temp: tempfile.TemporaryFile,
+                                    domaine: str, nom_fichier: str, type_fichier: str, version: Optional[str] = None):
+        """
+        :param fichier_temp:
+        :param domaine:
+        :param nom_fichier:
+        :param type_fichier: F pour final, C pour concatene, I pour incremental
+        :param version: Si absent, doit etre un fichier final. Pour C et I doit etre present.
+        :return:
+        """
+        raise NotImplementedError('must override')
+
+    async def get_backup_v2_fichier_stream(self, domaine: str, nom_fichier: str, version: Optional[str] = None):
+        """
+        :param domaine:
+        :param nom_fichier: Fichier .mgbak
+        :param version: Si absent, retourne un fichier final. Sinon utilise la version d'archive specifiee.
+        :return:
+        """
+        raise NotImplementedError('must override')
+
+    async def get_backup_v2_versions(self, domaine: str) -> dict:
+        """
+        :param domaine:
+        :return: Liste de version disponibles pour ce domaine en format JSON. Identifie le domaine courant.
+        """
+        raise NotImplementedError('must override')
+
+    async def get_backup_v2_list(self, domaine, version: Optional[str] = None) -> list[str]:
+        """
+        Retourne une liste de fichiers du domaine specifie. Seul le nom des fichiers et fourni (pas de repertoire).
+        :param domaine:
+        :param version: Si aucune version n'est fournie, retourne la liste des fichiers finaux du domaine.
+        :return: Liste texte utf-8 avec un fichier par ligne.
+        """
+        raise NotImplementedError('must override')
+
+    async def get_backup_v2_headers(self, domaine, version: Optional[str] = None):
+        """
+        Retourne les headers presents dans le backup sous forme de 1 header JSON par ligne.
+        :param domaine:
+        :param version: Si absent, utilise les fichiers finaux. Sinon charge toutes les archives de la version specifiee.
+        :return: Liste de headers json, 1 par ligne.
+        """
+        raise NotImplementedError('must override')
+
+    # Backup V2 sync consignation
+    # async def get_domaines_backups_v2(self):
+    #     raise NotImplementedError('must implement')
+    #
+    # async def rotation_backups_v2(self, uuid_backups_conserver: list[str]):
+    #     """ Supprime tous les backups qui ne sont pas dans la liste """
+    #     raise NotImplementedError('must override')
+    #
+    # async def generer_backup_sync_v2(self):
+    #     """ Genere le fichier backup.jsonl.gz """
+    #     raise NotImplementedError('must implement')
+    #
+    # async def upload_backups_primaire_v2(self, connection_transfert: SQLiteConnection, session: ClientSession):
+    #     raise NotImplementedError('must implement')
+    #
+    # async def upload_backup_primaire_v2(self, session: ClientSession, uuid_backup: str, domaine: str, nom_fichier: str, fichier):
+    #     raise NotImplementedError('must implement')
+
 
 class ConsignationStoreMillegrille(ConsignationStore):
 
@@ -692,6 +767,87 @@ class ConsignationStoreMillegrille(ConsignationStore):
                             with path_fichier.open('rb') as fichier:
                                 await self.upload_backup_primaire(session, uuid_backup, domaine, nom_fichier, fichier)
 
+    # Backup V2
+
+    async def get_backup_v2_versions(self, domaine: str) -> dict:
+        path_domaine = pathlib.Path(self._path_backup_v2, domaine)
+        path_archives = pathlib.Path(path_domaine, 'archives')
+        path_info_courante = pathlib.Path(path_domaine, 'courant.json')
+        versions = list()
+        courante = None
+        try:
+            with open(path_info_courante, 'rt') as fichier:
+                courante = json.load(fichier)
+            for path_uuid_backup in path_archives.iterdir():
+                if path_uuid_backup.is_dir():
+                    path_info = pathlib.Path(path_archives, path_uuid_backup, 'info.json')
+                    try:
+                        with open(path_info, 'rt') as fichier:
+                            info_version = json.load(fichier)
+                        versions.append(info_version)
+                    except FileNotFoundError:
+                        self.__logger.info("Version backup %s : aucun fichier info.json" % path_info)
+                    except json.JSONDecodeError:
+                        self.__logger.warning("Version backup %s : info.json corrompu" % path_info)
+        except FileNotFoundError:
+            # Le fichier courant.json ou le repertoire d'archives n'existe pas encore
+            pass  # Le domaine est nouveau ou le serveur de consignation a ete resette
+
+        return { "versions": versions, "version_courante": courante }
+
+    async def get_backup_v2_list(self, domaine, version: Optional[str] = None) -> list[str]:
+        if version is None:
+            # Lister les archives finales du domaine
+            path_archives = pathlib.Path(self._path_backup_v2, domaine, "final")
+        else:
+            path_archives = pathlib.Path(self._path_backup_v2, domaine, "archives", version)
+
+        fichiers = list()
+        try:
+            for fichier in path_archives.iterdir():
+                if fichier.is_file() and fichier.suffix == ".mgbak":
+                    fichiers.append(fichier.name)
+        except FileNotFoundError:
+            pass  # Le repertoire n'existe pas, aucuns fichiers a ajouter
+
+        return fichiers
+
+    async def put_backup_v2_fichier(self, fichier_temp: tempfile.TemporaryFile,
+                                    domaine: str, nom_fichier: str, type_fichier: str, version: Optional[str] = None):
+        if version is None:
+            # Lister les archives finales du domaine
+            path_archives = pathlib.Path(self._path_backup_v2, domaine, "final")
+        else:
+            path_archives = pathlib.Path(self._path_backup_v2, domaine, "archives", version)
+
+        # Copier le contenu du fichier temporaire vers le repertoire destination
+        fichier_temp.seek(0)
+        header_fichier = lire_header_archive_backup(fichier_temp)
+        fichier_temp.seek(0)
+        path_fichier = pathlib.Path(path_archives, nom_fichier)
+
+        if header_fichier['type_archive'] in ['C', 'F'] or version == 'NEW':
+            # S'assurer que le repertoire existe
+            path_archives.mkdir(parents=True, exist_ok=True)
+
+        await asyncio.to_thread(copier_contenu_fichier_safe, fichier_temp, path_fichier)
+
+        if header_fichier['type_archive'] == 'C':
+            # Nouveau fichier concatene, on met a jour la version courante
+            info_version = {'version': version, 'date': int(datetime.datetime.now(datetime.UTC).timestamp())}
+            path_fichier_info = pathlib.Path(path_archives, 'info.json')
+            with open(path_fichier_info, 'wt') as fichier:
+                json.dump(info_version, fichier)
+
+            # Remplacer le fichier courant.json
+            path_fichier_courant = pathlib.Path(self._path_backup_v2, domaine, 'courant.json')
+            path_fichier_courant.unlink(missing_ok=True)
+            # try:
+            #     path_fichier_info.symlink_to(path_fichier_courant)
+            # except NotImplementedError:
+            with open(path_fichier_info, 'rb') as src:
+                await asyncio.to_thread(copier_contenu_fichier_safe, src, path_fichier_courant)
+
 
 def map_type(type_store: str) -> Type[ConsignationStore]:
     if type_store == Constantes.TYPE_STORE_MILLEGRILLE:
@@ -702,3 +858,17 @@ def map_type(type_store: str) -> Type[ConsignationStore]:
         raise NotImplementedError()
     else:
         raise Exception('Type %s non supporte' % type_store)
+
+
+def copier_contenu_fichier_safe(src: BufferedReader, dest: pathlib.Path):
+    path_fichier_work = pathlib.Path(dest.parent, dest.name + '.work')
+    path_fichier_work.unlink(missing_ok=True)
+    with open(path_fichier_work, 'wb') as fichier:
+        while True:
+            chunk = src.read(64 * 1024)
+            if not chunk:
+                break
+            fichier.write(chunk)
+
+    # Renommer le fichier d'archive (retrirer .work)
+    path_fichier_work.rename(dest)

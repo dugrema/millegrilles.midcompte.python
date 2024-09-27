@@ -24,6 +24,7 @@ DIR_STAGING_INTAKE = 'staging/intake'
 DIR_SYNC_DOWNLOAD = 'staging/sync/download'
 DIR_SYNC_UPLOAD = 'staging/sync/upload'
 DIR_BACKUP = 'backup_transactions'
+DIR_BACKUP_V2 = 'backup_v2'
 
 FICHIER_DATABASE_FICHIERS = 'consignation.sqlite'
 FICHIER_DATABASE_SYNC = 'sync.sqlite'

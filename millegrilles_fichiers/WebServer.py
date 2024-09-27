@@ -18,8 +18,9 @@ from asyncio.exceptions import TimeoutError
 from ssl import SSLContext, VerifyMode
 from typing import Optional
 
+from millegrilles_fichiers.BackupV2 import lire_header_archive_backup
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
-from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
+from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage, Hacheur
 
 from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.Configuration import ConfigurationWeb
@@ -94,7 +95,17 @@ class WebServer:
             # /backup
             web.post('/fichiers_transfert/backup/verifierFichiers', self.handle_post_backup_verifierfichiers),
             web.put('/fichiers_transfert/backup/upload/{uuid_backup}/{domaine}/{nomfichier}', self.handle_put_backup),
-            web.get('/fichiers_transfert/backup/{uuid_backup}/{domaine}/{nomfichier}', self.handle_get_backup)
+            web.get('/fichiers_transfert/backup/{uuid_backup}/{domaine}/{nomfichier}', self.handle_get_backup),
+
+            # /backup_v2
+            web.put('/fichiers_transfert/backup_v2/{domaine}/{type_fichier}/{nomfichier}', self.handle_put_backup_v2),
+            web.put('/fichiers_transfert/backup_v2/{domaine}/{type_fichier}/{version}/{nomfichier}', self.handle_put_backup_v2),
+            web.get('/fichiers_transfert/backup_v2/{domaine}/archives', self.handle_get_backup_v2_liste_versions),
+            web.get('/fichiers_transfert/backup_v2/{domaine}/final', self.handle_get_backup_v2_liste_archives),
+            web.get('/fichiers_transfert/backup_v2/{domaine}/archives/{version}', self.handle_get_backup_v2_liste_archives),
+
+            # web.get('/fichiers_transfert/backup_v2/{domaine}/{nomfichier}', self.handle_get_backup_v2),
+            # web.get('/fichiers_transfert/backup_v2/{domaine}/list', self.handle_get_backup_v2_liste),
         ])
 
     def _charger_ssl(self):
@@ -716,6 +727,150 @@ class WebServer:
                     if not chunk:
                         break
                     await response.write(chunk)
+
+            await response.write_eof()
+
+    async def handle_put_backup_v2(self, request: Request) -> StreamResponse:
+        async with self.__connexions_backup_sem:
+            # /fichiers_transfert/backup_v2/{domaine}/{type_fichier}/{nomfichier}  -> final
+            # /fichiers_transfert/backup_v2/{domaine}/{type_fichier}/{version}/{nomfichier}  -> concatene ou incremental
+            domaine = request.match_info['domaine']
+            type_fichier = request.match_info['type_fichier']
+            try:
+                version = request.match_info['version']
+            except KeyError:
+                version = None
+            nom_fichier: str = request.match_info['nomfichier']
+
+            if type_fichier not in ['final', 'concatene', 'incremental']:
+                self.__logger.error("handle_put_backup_v2 Type de fichier non supporte : %s" % type_fichier)
+                return web.HTTPBadRequest()
+
+            self.__logger.debug("handle_put_backup_v2 %s/%s/%s/%s" % (domaine, type_fichier, version, nom_fichier))
+
+            suffix_digest_fichier = nom_fichier.split('.')[0].split('_').pop()
+
+            try:
+                common_name = get_common_name(request)
+            except Forbidden:
+                return web.HTTPForbidden()
+
+            # Conserver le fichier dans un tempfile
+            hacheur = Hacheur('blake2b-512', 'base58btc')
+            with tempfile.TemporaryFile() as fichier_temp:
+                async for chunk in request.content.iter_chunked(64*1024):
+                    fichier_temp.write(chunk)
+                    hacheur.update(chunk)
+
+                resultat_hachage = hacheur.finalize()
+                self.__logger.debug("handle_put_backup_v2 Resultat hachage fichier %s = %s" % (nom_fichier, resultat_hachage))
+                if resultat_hachage.endswith(suffix_digest_fichier) is False:
+                    self.__logger.error("handle_put_backup_v2 Digest du fichier mismatch : %s" % nom_fichier)
+                    return web.HTTPBadRequest()
+
+                fichier_temp.seek(0)
+
+                # Lire le header du fichier de backup
+                header_archive = lire_header_archive_backup(fichier_temp)
+                if domaine != header_archive['domaine']:
+                    self.__logger.error("handle_put_backup_v2 Mismatch de domaine fourni %s et celui du header : %s" % (domaine, nom_fichier))
+                    return web.HTTPBadRequest()
+
+                # Confirmer le type et domaine
+                char_type_archive = header_archive['type_archive']
+                if type_fichier == 'final' and char_type_archive != 'F':
+                    self.__logger.error("handle_put_backup_v2 Type de fichier doit etre F pour final : %s" % nom_fichier)
+                    return web.HTTPBadRequest()
+                elif type_fichier == 'concatene' and char_type_archive != 'C':
+                    self.__logger.error("handle_put_backup_v2 Type de fichier doit etre C pour final : %s" % nom_fichier)
+                    return web.HTTPBadRequest()
+                elif type_fichier == 'incremental' and char_type_archive != 'I':
+                    self.__logger.error("handle_put_backup_v2 Type de fichier doit etre I pour final : %s" % nom_fichier)
+                    return web.HTTPBadRequest()
+
+                # Consigner le fichier de backup
+                await self.__consignation.put_backup_v2_fichier(fichier_temp, domaine, nom_fichier, type_fichier, version)
+
+            return web.HTTPOk()
+
+    async def handle_get_backup_v2(self, request: Request) -> StreamResponse:
+        async with self.__connexions_backup_sem:
+            domaine: str = request.match_info['domaine']
+            fichier_nom: str = request.match_info['nomfichier']
+
+            self.__logger.debug("handle_put_backup_v2 %s/%s" % (domaine, fichier_nom))
+
+            #
+            # for key, value in request.headers.items():
+            #     self.__logger.debug('handle_put_backup key: %s, value: %s' % (key, value))
+
+            try:
+                common_name = get_common_name(request)
+            except Forbidden:
+                return web.HTTPForbidden()
+
+            # TODO - Modifier webauth pour retourner le certificat ou liste d'exchanges et domaines.
+
+            return web.HTTPInternalServerError()  # TODO
+
+            # # Verifier si le fichier existe
+            # try:
+            #     info = await self.__consignation.get_info_fichier_backup(uuid_backup, domaine, fichier_nom)
+            # except FileNotFoundError:
+            #     return web.HTTPNotFound()
+            #
+            # headers_response = {
+            #     'Cache-Control': 'public, max-age=604800, immutable',
+            # }
+            # response = web.StreamResponse(status=200, headers=headers_response)
+            # response.content_length = info['taille']
+            # response.content_type = 'application/gzip'
+            # await response.prepare(request)
+            # await self.__consignation.stream_backup(response, uuid_backup, domaine, fichier_nom)
+            # await response.write_eof()
+
+    async def handle_get_backup_v2_liste_versions(self, request: Request) -> StreamResponse:
+        async with self.__connexions_backup_sem:
+            domaine: str = request.match_info['domaine']
+            self.__logger.debug("handle_get_backup_v2_liste_versions domaine %s" % domaine)
+
+            try:
+                common_name = get_common_name(request)
+            except Forbidden:
+                return web.HTTPForbidden()
+
+            # Charger la liste de fichiers du repertoire de backup v2 pour le domaine
+            versions = await self.__consignation.get_backup_v2_versions(domaine)
+
+            return web.json_response(versions)
+
+    async def handle_get_backup_v2_liste_archives(self, request: Request) -> Optional[StreamResponse]:
+        async with self.__connexions_backup_sem:
+            domaine: str = request.match_info['domaine']
+            try:
+                version: Optional[str] = request.match_info['version']
+            except KeyError:
+                version = None
+
+            self.__logger.debug("handle_get_backup_v2_liste_archives domaine %s, version %s" % (domaine, version))
+
+            try:
+                common_name = get_common_name(request)
+            except Forbidden:
+                return web.HTTPForbidden()
+
+            # Charger la liste de fichiers du repertoire de backup v2 pour le domaine
+            liste_fichiers = await self.__consignation.get_backup_v2_list(domaine, version)
+
+            headers_response = {
+                # 'Cache-Control': 'public, max-age=604800, immutable',
+            }
+            response = web.StreamResponse(status=200, headers=headers_response)
+            await response.prepare(request)
+
+            newline = "\n".encode('utf-8')
+            for f in liste_fichiers:
+                await response.write(f.encode('utf-8') + newline)
 
             await response.write_eof()
 
