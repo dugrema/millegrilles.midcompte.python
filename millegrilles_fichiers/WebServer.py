@@ -12,11 +12,13 @@ import pathlib
 import re
 
 from aiohttp import web
+from aiohttp.web_exceptions import HTTPClientError
 from aiohttp.web_request import Request, StreamResponse
 from asyncio import Event
 from asyncio.exceptions import TimeoutError
 from ssl import SSLContext, VerifyMode
 from typing import Optional
+from urllib.parse import unquote
 
 from millegrilles_fichiers.BackupV2 import lire_header_archive_backup
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
@@ -28,6 +30,7 @@ from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.Commandes import CommandHandler
 from millegrilles_fichiers.Intake import IntakeFichiers
 from millegrilles_fichiers.Consignation import ConsignationHandler
+from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 
 
 CONST_FICHIERS_ACCEPTES_SYNC = frozenset([
@@ -736,6 +739,10 @@ class WebServer:
             await response.write_eof()
         return response
 
+    # *********
+    # Backup V2
+    # *********
+
     async def handle_put_backup_v2(self, request: Request) -> StreamResponse:
         async with self.__connexions_backup_sem:
             # /fichiers_transfert/backup_v2/{domaine}/{type_fichier}/{nomfichier}  -> final
@@ -748,18 +755,17 @@ class WebServer:
                 version = None
             nom_fichier: str = request.match_info['nomfichier']
 
+            self.__logger.debug("handle_put_backup_v2 %s" % nom_fichier)
+            error = self._verifier_domaine_backup_v2(request)
+            if error:
+                return error
+
             if type_fichier not in ['final', 'concatene', 'incremental']:
                 self.__logger.error("handle_put_backup_v2 Type de fichier non supporte : %s" % type_fichier)
                 return web.HTTPBadRequest()
 
             self.__logger.debug("handle_put_backup_v2 %s/%s/%s/%s" % (domaine, type_fichier, version, nom_fichier))
-
             suffix_digest_fichier = nom_fichier.split('.')[0].split('_').pop()
-
-            try:
-                common_name = get_common_name(request)
-            except Forbidden:
-                return web.HTTPForbidden()
 
             # Conserver le fichier dans un tempfile
             hacheur = Hacheur('blake2b-512', 'base58btc')
@@ -809,11 +815,9 @@ class WebServer:
                 version = None
 
             self.__logger.debug("handle_get_backup_v2 %s/%s/%s" % (domaine, version, fichier_nom))
-
-            try:
-                common_name = get_common_name(request)
-            except Forbidden:
-                return web.HTTPForbidden()
+            error = self._verifier_domaine_backup_v2(request)
+            if error:
+                return error
 
             stream = None
             try:
@@ -843,10 +847,9 @@ class WebServer:
             domaine: str = request.match_info['domaine']
             self.__logger.debug("handle_get_backup_v2_liste_versions domaine %s" % domaine)
 
-            try:
-                common_name = get_common_name(request)
-            except Forbidden:
-                return web.HTTPForbidden()
+            error = self._verifier_domaine_backup_v2(request)
+            if error:
+                return error
 
             # Charger la liste de fichiers du repertoire de backup v2 pour le domaine
             versions = await self.__consignation.get_backup_v2_versions(domaine)
@@ -862,11 +865,9 @@ class WebServer:
                 version = None
 
             self.__logger.debug("handle_get_backup_v2_liste_archives domaine %s, version %s" % (domaine, version))
-
-            try:
-                common_name = get_common_name(request)
-            except Forbidden:
-                return web.HTTPForbidden()
+            error = self._verifier_domaine_backup_v2(request)
+            if error:
+                return error
 
             # Charger la liste de fichiers du repertoire de backup v2 pour le domaine
             liste_fichiers = await self.__consignation.get_backup_v2_list(domaine, version)
@@ -883,6 +884,28 @@ class WebServer:
 
             await response.write_eof()
         return response
+
+    def _verifier_domaine_backup_v2(self, request) -> Optional[HTTPClientError]:
+        domaine: str = request.match_info['domaine']
+        self.__logger.debug("_verifier_domaine_backup_v2 domaine: %s" % domaine)
+
+        if request.headers['VERIFIED'] != 'SUCCESS':
+            self.__logger.error("_verifier_domaine_backup_v2 ssl VERIFIED != SUCCESS pour requete {}", request.url)
+            return web.HTTPForbidden()
+        try:
+            cert_pem = unquote(request.headers['X-SSL-CERT'])
+            enveloppe = EnveloppeCertificat.from_pem(cert_pem)
+            if ConstantesMillegrilles.SECURITE_PROTEGE not in enveloppe.get_exchanges:
+                self.__logger.error("_verifier_domaine_backup_v2 Certificat n'a pas la securite 3.protege", request.url)
+                return web.HTTPForbidden()
+            if domaine not in enveloppe.get_domaines:
+                self.__logger.error("_verifier_domaine_backup_v2 Certificat n'a pas le domaine demande {}", request.url)
+                return web.HTTPForbidden()
+        except KeyError:
+            self.__logger.error("_verifier_domaine_backup_v2 Certificat absent de la requete {}", request.url)
+            return web.HTTPForbidden()
+
+        return None
 
 
 def parse_range(range, taille_totale):
