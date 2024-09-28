@@ -113,6 +113,8 @@ class IntakeFichiers(IntakeHandler):
             return {'ok': False, 'err': 'job locked - traitement en cours'}
         except FileNotFoundError as e:
             raise e  # Erreur fatale
+        except ErreurTraitementTransaction:
+            return {'ok': False, 'err': 'Erreur temporaire de traitement de transaction'}
         except Exception as e:
             self.__logger.exception("traiter_prochaine_job Erreur traitement job download")
             return {'ok': False, 'err': str(e)}
@@ -316,7 +318,7 @@ class IntakeFichiers(IntakeHandler):
                     raise ErreurTraitementTransaction(resultat_cle.parsed)
             except asyncio.TimeoutError:
                 self.__logger.error("Timeout sur sauvegarde de cle pour la transaction fuuid : %s" % job.fuuid)
-                raise ErreurTraitementTransaction({"fuuid": fuuid, "err": "Cle non sauvegardee"})
+                raise ErreurTraitementTransaction({"fuuid": fuuid, "code": 2, "err": "Timeout, cle non sauvegardee"})
 
         # Emettre la transaction
         path_transaction = pathlib.Path(job.path_job, Constantes.FICHIER_TRANSACTION)
@@ -341,7 +343,7 @@ class IntakeFichiers(IntakeHandler):
                     raise ErreurTraitementTransaction(resultat_commande.parsed)
             except asyncio.TimeoutError:
                 self.__logger.error("Timeout sur sauvegarde de transaction fuuid : %s" % job.fuuid)
-                raise ErreurTraitementTransaction(transaction)
+                raise ErreurTraitementTransaction({"fuuid": fuuid, "code": 1, "err": "Timeout, transaction non sauvegardee"})
 
         # Re-emettre l'evenement de visite. Si le fichier n'etait pas deja initialise, l'evenement a ete perdu.
         await self.__consignation_handler.emettre_evenement_consigne(fuuid)
