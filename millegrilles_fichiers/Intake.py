@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import errno
 import json
 import logging
@@ -215,7 +216,7 @@ class IntakeFichiers(IntakeHandler):
             with open(path_fichier_retry, 'rt') as fichier:
                 info_retry = json.load(fichier)
         except FileNotFoundError:
-            info_retry = {}
+            info_retry = {'creation': datetime.datetime.now()}
 
         # Reset retries : le fichier est bon et on attend de soumettre la transasction (incluant la cle)
         info_retry['retry'] = -1
