@@ -294,6 +294,31 @@ class IntakeFichiers(IntakeHandler):
         fuuid = job.fuuid
         await asyncio.wait_for(producer.producer_pret().wait(), 20)
 
+        # Emettre les cles pour s'assurer qu'elles sont conservees
+        path_cles = pathlib.Path(job.path_job, Constantes.FICHIER_CLES)
+        try:
+            with open(path_cles, 'rb') as fichier:
+                cles = json.load(fichier)
+        except FileNotFoundError:
+            pass  # OK
+        else:
+            try:
+                # Emettre transaction
+                routage = cles['routage']
+                resultat_cle = await producer.executer_commande(
+                    cles,
+                    action=routage['action'], domaine=routage['domaine'], partition=routage.get('partition'),
+                    exchange=ConstantesMillegrille.SECURITE_PUBLIC,
+                    timeout=60,
+                    noformat=True
+                )
+                if resultat_cle.parsed.get('ok') is False:
+                    raise ErreurTraitementTransaction(resultat_cle.parsed)
+            except asyncio.TimeoutError:
+                self.__logger.error("Timeout sur sauvegarde de cle pour la transaction fuuid : %s" % job.fuuid)
+                raise ErreurTraitementTransaction({"fuuid": fuuid, "err": "Cle non sauvegardee"})
+
+        # Emettre la transaction
         path_transaction = pathlib.Path(job.path_job, Constantes.FICHIER_TRANSACTION)
         try:
             with open(path_transaction, 'rb') as fichier:
@@ -303,35 +328,20 @@ class IntakeFichiers(IntakeHandler):
         else:
             # Emettre transaction
             routage = transaction['routage']
-            resultat_commande = await producer.executer_commande(
-                transaction,
-                action=routage['action'], domaine=routage['domaine'], partition=routage.get('partition'),
-                exchange=ConstantesMillegrille.SECURITE_PRIVE,
-                timeout=60,
-                noformat=True
-            )
-            if resultat_commande.parsed.get('ok') is False:
-                self.__logger.error("Erreur sauvegarder transaction fichier : %s" % resultat_commande.parsed)
-                raise ErreurTraitementTransaction(resultat_commande.parsed)
-
-        path_cles = pathlib.Path(job.path_job, Constantes.FICHIER_CLES)
-        try:
-            with open(path_cles, 'rb') as fichier:
-                cles = json.load(fichier)
-        except FileNotFoundError:
-            pass  # OK
-        else:
-            # Emettre transaction
-            routage = cles['routage']
-            resultat_cle = await producer.executer_commande(
-                cles,
-                action=routage['action'], domaine=routage['domaine'], partition=routage.get('partition'),
-                exchange=ConstantesMillegrille.SECURITE_PUBLIC,
-                timeout=60,
-                noformat=True
-            )
-            if resultat_cle.parsed.get('ok') is False:
-                raise ErreurTraitementTransaction(resultat_cle.parsed)
+            try:
+                resultat_commande = await producer.executer_commande(
+                    transaction,
+                    action=routage['action'], domaine=routage['domaine'], partition=routage.get('partition'),
+                    exchange=ConstantesMillegrille.SECURITE_PRIVE,
+                    timeout=60,
+                    noformat=True
+                )
+                if resultat_commande.parsed.get('ok') is False:
+                    self.__logger.error("Erreur sauvegarder transaction fichier : %s" % resultat_commande.parsed)
+                    raise ErreurTraitementTransaction(resultat_commande.parsed)
+            except asyncio.TimeoutError:
+                self.__logger.error("Timeout sur sauvegarde de transaction fuuid : %s" % job.fuuid)
+                raise ErreurTraitementTransaction(transaction)
 
         # Re-emettre l'evenement de visite. Si le fichier n'etait pas deja initialise, l'evenement a ete perdu.
         await self.__consignation_handler.emettre_evenement_consigne(fuuid)

@@ -565,12 +565,14 @@ class WebServer:
 
         await response.prepare(request)
         if method == 'HEAD':
-            return await response.write_eof()
+            await response.write_eof()
+            return response
 
         try:
             await self.__consignation.stream_fuuid(fuuid, response, start, end)
         finally:
             await response.write_eof()
+        return response
 
     async def handle_post_backup_verifierfichiers(self, request: Request) -> StreamResponse:
         async with self.__connexions_backup_sem:
@@ -676,6 +678,7 @@ class WebServer:
             await response.prepare(request)
             await self.__consignation.stream_backup(response, uuid_backup, domaine, fichier_nom)
             await response.write_eof()
+        return response
 
     async def handle_get_fichier_sync(self, request: Request) -> StreamResponse:
         async with self.__connexions_backup_sem:
@@ -731,6 +734,7 @@ class WebServer:
                     await response.write(chunk)
 
             await response.write_eof()
+        return response
 
     async def handle_put_backup_v2(self, request: Request) -> StreamResponse:
         async with self.__connexions_backup_sem:
@@ -793,7 +797,7 @@ class WebServer:
                 # Consigner le fichier de backup
                 await self.__consignation.put_backup_v2_fichier(fichier_temp, domaine, nom_fichier, type_fichier, version)
 
-            return web.HTTPOk()
+        return web.HTTPOk()
 
     async def handle_get_backup_v2(self, request: Request) -> StreamResponse:
         async with self.__connexions_backup_sem:
@@ -827,6 +831,7 @@ class WebServer:
                         break
                     await response.write(chunk)
                 await response.write_eof()
+                return response
             except FileNotFoundError:
                 return web.HTTPNotFound()
             finally:
@@ -877,6 +882,7 @@ class WebServer:
                 await response.write(f.encode('utf-8') + newline)
 
             await response.write_eof()
+        return response
 
 
 def parse_range(range, taille_totale):
