@@ -889,20 +889,42 @@ class WebServer:
         domaine: str = request.match_info['domaine']
         self.__logger.debug("_verifier_domaine_backup_v2 domaine: %s" % domaine)
 
-        if request.headers['VERIFIED'] != 'SUCCESS':
-            self.__logger.error("_verifier_domaine_backup_v2 ssl VERIFIED != SUCCESS pour requete {}", request.url)
+        # Charger certificat peer du transport aiohttp
+        peercert_dict = request.get_extra_info('peercert')
+        subject_info = [v[0] for v in peercert_dict['subject']]
+        cert_ou = [v[1] for v in subject_info if v[0] == 'organizationalUnitName'].pop()
+
+        if cert_ou == 'nginx':
+            # Le certificat est celui du reverse-proxy (nginx)
+            if request.headers['VERIFIED'] != 'SUCCESS':
+                self.__logger.error("_verifier_domaine_backup_v2 ssl VERIFIED != SUCCESS pour requete {}", request.url)
+                return web.HTTPForbidden()
+
+            # Verifier le certificat client externe qui a deja ete verifie par nginx
+            try:
+                cert_pem = unquote(request.headers['X-SSL-CERT'])
+                enveloppe = EnveloppeCertificat.from_pem(cert_pem)
+            except KeyError:
+                self.__logger.error("_verifier_domaine_backup_v2 Certificat absent de la requete {}", request.url)
+                return web.HTTPForbidden()
+
+        else:
+            # Connexion interne - recuperer certificat valide via aiohttp
+            try:
+                ssl_object = request.get_extra_info('ssl_object')
+                peercert_der = ssl_object.getpeercert(binary_form=True)
+                enveloppe = EnveloppeCertificat.from_der(peercert_der)
+            except:
+                self.__logger.exception("Erreur chargement certificat SSL connexion interne")
+                return web.HTTPForbidden()
+
+        # S'assurer que le certificat client correspond au bon domaine et a le niveau de securite 3.protege
+        if ConstantesMillegrilles.SECURITE_PROTEGE not in enveloppe.get_exchanges:
+            self.__logger.error("_verifier_domaine_backup_v2 Certificat n'a pas la securite 3.protege", request.url)
             return web.HTTPForbidden()
-        try:
-            cert_pem = unquote(request.headers['X-SSL-CERT'])
-            enveloppe = EnveloppeCertificat.from_pem(cert_pem)
-            if ConstantesMillegrilles.SECURITE_PROTEGE not in enveloppe.get_exchanges:
-                self.__logger.error("_verifier_domaine_backup_v2 Certificat n'a pas la securite 3.protege", request.url)
-                return web.HTTPForbidden()
-            if domaine not in enveloppe.get_domaines:
-                self.__logger.error("_verifier_domaine_backup_v2 Certificat n'a pas le domaine demande {}", request.url)
-                return web.HTTPForbidden()
-        except KeyError:
-            self.__logger.error("_verifier_domaine_backup_v2 Certificat absent de la requete {}", request.url)
+
+        if domaine not in enveloppe.get_domaines:
+            self.__logger.error("_verifier_domaine_backup_v2 Certificat n'a pas le domaine demande {}", request.url)
             return web.HTTPForbidden()
 
         return None
