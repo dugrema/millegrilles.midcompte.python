@@ -7,8 +7,10 @@ import logging
 import pathlib
 import shutil
 import tempfile
+
 from io import BufferedReader, BufferedIOBase
 from os import makedirs
+from math import floor
 
 from aiohttp import web, ClientSession
 from typing import Optional, Type, Union, BinaryIO
@@ -420,7 +422,7 @@ class ConsignationStore:
     async def get_backup_v2_versions(self, domaine: str) -> dict:
         """
         :param domaine:
-        :return: Liste de version disponibles pour ce domaine en format JSON. Identifie le domaine courant.
+        :return: Liste de version disponibles pour ce domaine en format JSON. Identifie la versions courante.
         """
         raise NotImplementedError('must override')
 
@@ -439,6 +441,17 @@ class ConsignationStore:
         :param domaine:
         :param version: Si absent, utilise les fichiers finaux. Sinon charge toutes les archives de la version specifiee.
         :return: Liste de headers json, 1 par ligne.
+        """
+        raise NotImplementedError('must override')
+
+    async def get_backup_v2_domaines(self, domaines: Optional[list[str]] = None, courant=True, stats=False, cles=False):
+        """
+        Retourne une liste des domaines avec information
+        :param domaines: Liste optionnelle de domaines a charger. Si None, retourne tous les domaines.
+        :param courant: Si True, retourne uniquement les backup courants.
+        :param comptes: Si True, inclue le nombre de transactions total par backup
+        :param cles: Si True, inclue un dict de cles sous format: {cle_id: DomaineSignature}
+        :return: Liste de domaines format: {domaine, date, version, nombre_transactions}
         """
         raise NotImplementedError('must override')
 
@@ -862,6 +875,61 @@ class ConsignationStoreMillegrille(ConsignationStore):
 
         fichier = open(path_fichier, 'rb')
         return fichier
+
+    async def get_backup_v2_domaines(self, domaines: Optional[list[str]] = None, courant=True, stats=False, cles=False):
+        domaines_reponse = []
+
+        for rep_domaine in self._path_backup_v2.iterdir():
+            nom_domaine = rep_domaine.name
+            if domaines is not None:
+                if nom_domaine not in domaines:
+                    continue  # Skip, ce domaine n'a pas ete demande
+
+            if rep_domaine.is_dir():
+                self.__logger.debug("Domaine ", nom_domaine)
+                domaine = {'domaine': nom_domaine}
+                domaines_reponse.append(domaine)
+
+                path_courant = pathlib.Path(rep_domaine, 'courant.json')
+                try:
+                    with open(path_courant, 'rt') as fichier:
+                        info_courant = json.load(fichier)
+                except FileNotFoundError:
+                    # Pas d'information sur le backup courant
+                    info_courant = {'version': 'NEW'}
+
+                domaine['concatene'] = info_courant
+
+                if courant is not True:
+                    raise NotImplementedError('todo')
+
+                if stats is not False or cles is not False:
+                    version_courante = info_courant['version']
+                    path_version = pathlib.Path(rep_domaine, 'archives', version_courante)
+                    # Parcourir tous les fichiers de la version
+                    compteur_transactions = 0
+                    date_plus_recent = 0
+                    cles_dict = {}
+                    for archive_backup in path_version.iterdir():
+                        if archive_backup.name.endswith('.mgbak'):
+                            # Charger le header
+                            with open(archive_backup, 'rb') as fichier:
+                                header = lire_header_archive_backup(fichier)
+                            compteur_transactions += header['nombre_transactions']
+                            if header['fin_backup'] > date_plus_recent:
+                                date_plus_recent = header['fin_backup']
+                            cle_id = header['cle_id']
+                            if cle_id not in cles_dict:
+                                cles_dict[cle_id] = header['cle_dechiffrage']
+
+                    if stats:
+                        domaine['nombre_transactions'] = compteur_transactions
+                        domaine['transaction_plus_recente'] = floor(date_plus_recent / 1000)  # To epoch seconds
+
+                    if cles:
+                        domaine['cles'] = cles_dict
+
+        return domaines_reponse
 
 
 def map_type(type_store: str) -> Type[ConsignationStore]:

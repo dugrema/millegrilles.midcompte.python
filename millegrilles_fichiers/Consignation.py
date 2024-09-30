@@ -589,6 +589,14 @@ class ConsignationHandler:
         else:
             raise StoreNonInitialise("Store non initialise")
 
+    async def get_backup_v2_domaines(self, domaines: Optional[list[str]] = None, courant=True, stats=False,
+                                     cles=False):
+        if self.__store_consignation is not None:
+            return await self.__store_consignation.get_backup_v2_domaines(domaines, courant, stats, cles)
+        else:
+            raise StoreNonInitialise("Store non initialise")
+
+
     # async def download_fichier(self, fuuid, cle_chiffree, params_dechiffrage, path_destination):
     #     await self.ouvrir_sessions()  # S'assurer d'avoir une session ouverte
     #     url_fuuid = self.get_url_fuuid(fuuid)

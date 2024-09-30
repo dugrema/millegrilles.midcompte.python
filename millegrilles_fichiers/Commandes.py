@@ -50,6 +50,10 @@ class CommandHandler(CommandesAbstract):
         res_primaire.ajouter_rk(
             ConstantesMilleGrilles.SECURITE_PRIVE,
             f'requete.{Constantes.DOMAINE_FICHIERS}.{Constantes.REQUETE_FUUID_VERIFIER_EXISTANCE}',)
+        # requete.fichiers.domainesBackupV2
+        res_primaire.ajouter_rk(
+            ConstantesMilleGrilles.SECURITE_PRIVE,
+            f'requete.{Constantes.DOMAINE_FICHIERS}.{Constantes.REQUETE_BACKUP_V2_DOMAINES}',)
         # commande.fichiers.declencherSync
         res_primaire.ajouter_rk(
             ConstantesMilleGrilles.SECURITE_PRIVE,
@@ -189,6 +193,8 @@ class CommandHandler(CommandesAbstract):
                 return await self.requete_cles_ssh()
             elif action == Constantes.REQUETE_FUUID_VERIFIER_EXISTANCE:
                 return await self.verifier_existance(message.parsed)
+            elif action == Constantes.REQUETE_BACKUP_V2_DOMAINES:
+                return await self.domaines_backup_v2(message.parsed)
             else:
                 self.__logger.warning(
                     "Requete non supportee (action %s) - SKIP" % action)
@@ -263,3 +269,17 @@ class CommandHandler(CommandesAbstract):
                 info_fuuids[fuuid] = info['etat_fichier'] != Constantes.DATABASE_ETAT_MANQUANT
 
         return reponse
+
+    async def domaines_backup_v2(self, requete: dict):
+        print("Requete domaines_backup_v2: %s", requete)
+
+        stats = requete.get('stats') or False
+        cles = requete.get('cles') or False
+        backups = await self.__consignation.get_backup_v2_domaines(stats=stats, cles=cles)
+
+        return {"ok": True, "backups": backups}
+
+        # await self.__etat_instance.producer_wait()
+        # producer = self.__etat_instance.producer
+        # message, uuid_message = await producer.signer(response, ConstantesMilleGrilles.KIND_REPONSE)
+        # return message

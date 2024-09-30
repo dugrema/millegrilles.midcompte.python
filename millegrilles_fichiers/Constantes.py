@@ -71,6 +71,7 @@ REQUETE_PUBLIC_KEY_SSH = 'getPublicKeySsh'
 REQUETE_LISTE_DOMAINES = 'listeDomaines'
 # REQUETE_VERIFIER_EXISTANCE = 'verifierExistance'
 REQUETE_FUUID_VERIFIER_EXISTANCE = 'fuuidVerifierExistance'
+REQUETE_BACKUP_V2_DOMAINES = 'domainesBackupV2'
 
 CONST_CHAMPS_CONFIG = ['type_store', 'url_download', 'consignation_url']
 
