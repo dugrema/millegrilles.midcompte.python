@@ -275,7 +275,8 @@ class CommandHandler(CommandesAbstract):
 
         stats = requete.get('stats') or False
         cles = requete.get('cles') or False
-        backups = await self.__consignation.get_backup_v2_domaines(stats=stats, cles=cles)
+        domaines = requete.get('domaines')
+        backups = await self.__consignation.get_backup_v2_domaines(domaines=domaines, stats=stats, cles=cles)
 
         return {"ok": True, "backups": backups}
 
