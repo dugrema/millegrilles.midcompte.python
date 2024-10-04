@@ -837,6 +837,13 @@ class ConsignationStoreMillegrille(ConsignationStore):
         fichier_temp.seek(0)
         header_fichier = lire_header_archive_backup(fichier_temp)
         fichier_temp.seek(0)
+
+        # S'assurer que le fichier de backup est pour le system courant (idmg)
+        idmg = self._etat.clecertificat.enveloppe.idmg
+        if header_fichier['idmg'] != idmg:
+            self.__logger.error("put_backup_v2_fichier Fichier upload pour le mauvais IDMG")
+            return web.HTTPExpectationFailed()
+
         path_fichier = pathlib.Path(path_archives, nom_fichier)
 
         if header_fichier['type_archive'] in ['C', 'F'] or version == 'NEW':
