@@ -80,8 +80,8 @@ class EtatFichiers(EtatInstance):
         try:
             data_chiffre = configuration_topologie['data_chiffre']
             cle_id = data_chiffre.get('cle_id') or data_chiffre['ref_hachage_bytes']
-        except (TypeError, KeyError):
-            self.__logger.debug("Aucune configuration chiffree")
+        except (TypeError, KeyError, AttributeError):
+            self.__logger.debug("maj_topologie Aucune configuration chiffree")
         else:
             try:
                 requete_cle = {'cle_ids': [cle_id]}
