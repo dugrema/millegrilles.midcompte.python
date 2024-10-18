@@ -343,6 +343,9 @@ class ConsignationHandler:
             # Conserver configuration topologie - dechiffrer partie chiffree
             configuration_topologie = reponse.parsed
             await self.modifier_topologie(configuration_topologie)
+        elif self.etat_instance.topologie is not None:
+            # Conserver la configuration courante
+            self.__logger.warning("charger_topologie Erreur chargement configuration de consignation: %s" % reponse.parsed)
         else:
             # Aucune configuration connue pour l'instance
             # Mettre configuration par defaut et sauvegarder aupres de CoreTopologie
@@ -386,7 +389,7 @@ class ConsignationHandler:
     async def initialiser_nouvelle_consignation(self):
         configuration_topologie_defaut = {
             'type_store': 'millegrille',
-            'consignation_url': 'https://fichiers:443',
+            # 'consignation_url': 'https://fichiers:1443',
         }
         await self.modifier_topologie(configuration_topologie_defaut)
 
