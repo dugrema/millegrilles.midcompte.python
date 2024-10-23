@@ -5,6 +5,7 @@ import gzip
 import json
 import logging
 import pathlib
+import math
 import shutil
 import tempfile
 
@@ -868,7 +869,9 @@ class ConsignationStoreMillegrille(ConsignationStore):
 
         if header_fichier['type_archive'] == 'C':
             # Nouveau fichier concatene, on met a jour la version courante
-            info_version = {'version': version, 'date': int(datetime.datetime.now(datetime.UTC).timestamp())}
+            # info_version = {'version': version, 'date': int(datetime.datetime.now(datetime.UTC).timestamp())}
+            fin_backup_secs = math.floor(header_fichier['fin_backup'] / 1000)
+            info_version = {'version': version, 'date': fin_backup_secs}
             path_fichier_info = pathlib.Path(path_archives, 'info.json')
             with open(path_fichier_info, 'wt') as fichier:
                 json.dump(info_version, fichier)

@@ -20,6 +20,8 @@ from ssl import SSLContext, VerifyMode
 from typing import Optional
 from urllib.parse import unquote
 
+from cryptography.x509 import ExtensionNotFound
+
 from millegrilles_fichiers.BackupV2 import lire_header_archive_backup
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
 from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage, Hacheur
@@ -36,7 +38,7 @@ from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertific
 CONST_FICHIERS_ACCEPTES_SYNC = frozenset([
     Constantes.FICHIER_RECLAMATIONS_PRIMAIRES,
     Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES,
-    Constantes.FICHIER_BACKUP
+    Constantes.FICHIER_BACKUP_V2
 ])
 
 
@@ -96,13 +98,14 @@ class WebServer:
             web.get('/fichiers_transfert/sync/{fichier}', self.handle_get_fichier_sync),
 
             # /backup
-            web.post('/fichiers_transfert/backup/verifierFichiers', self.handle_post_backup_verifierfichiers),
-            web.put('/fichiers_transfert/backup/upload/{uuid_backup}/{domaine}/{nomfichier}', self.handle_put_backup),
-            web.get('/fichiers_transfert/backup/{uuid_backup}/{domaine}/{nomfichier}', self.handle_get_backup),
+            #web.post('/fichiers_transfert/backup/verifierFichiers', self.handle_post_backup_verifierfichiers),
+            #web.put('/fichiers_transfert/backup/upload/{uuid_backup}/{domaine}/{nomfichier}', self.handle_put_backup),
+            #web.get('/fichiers_transfert/backup/{uuid_backup}/{domaine}/{nomfichier}', self.handle_get_backup),
 
             # /backup_v2
             web.put('/fichiers_transfert/backup_v2/{domaine}/{type_fichier}/{nomfichier}', self.handle_put_backup_v2),
             web.put('/fichiers_transfert/backup_v2/{domaine}/{type_fichier}/{version}/{nomfichier}', self.handle_put_backup_v2),
+            web.get('/fichiers_transfert/backup_v2/domaines', self.handle_get_backup_v2_liste_domaines),
             web.get('/fichiers_transfert/backup_v2/{domaine}/archives', self.handle_get_backup_v2_liste_versions),
             web.get('/fichiers_transfert/backup_v2/{domaine}/final', self.handle_get_backup_v2_liste_archives),
             web.get('/fichiers_transfert/backup_v2/{domaine}/archives/{version}', self.handle_get_backup_v2_liste_archives),
@@ -842,6 +845,15 @@ class WebServer:
                 if stream is not None:
                     stream.close()
 
+    async def handle_get_backup_v2_liste_domaines(self, request: Request) -> StreamResponse:
+        async with self.__connexions_backup_sem:
+            self.__logger.debug("handle_get_backup_v2_liste_domaines")
+
+            # Charger la liste des domaines
+            domaines = await self.__consignation.get_backup_v2_domaines()
+
+            return web.json_response({'domaines': domaines})
+
     async def handle_get_backup_v2_liste_versions(self, request: Request) -> StreamResponse:
         async with self.__connexions_backup_sem:
             domaine: str = request.match_info['domaine']
@@ -918,13 +930,22 @@ class WebServer:
                 self.__logger.exception("Erreur chargement certificat SSL connexion interne")
                 return web.HTTPForbidden()
 
-        # S'assurer que le certificat client correspond au bon domaine et a le niveau de securite 3.protege
-        if ConstantesMillegrilles.SECURITE_PROTEGE not in enveloppe.get_exchanges:
-            self.__logger.error("_verifier_domaine_backup_v2 Certificat n'a pas la securite 3.protege", request.url)
-            return web.HTTPForbidden()
-
-        if domaine not in enveloppe.get_domaines:
-            self.__logger.error("_verifier_domaine_backup_v2 Certificat n'a pas le domaine demande {}", request.url)
+        try:
+            if ConstantesMillegrilles.SECURITE_PROTEGE in enveloppe.get_exchanges:
+                # S'assurer que le certificat client correspond au bon domaine et a le niveau de securite 3.protege
+                if domaine not in enveloppe.get_domaines:
+                    self.__logger.error("_verifier_domaine_backup_v2 Certificat n'a pas le domaine demande {}", request.url)
+                    return web.HTTPForbidden()
+            elif ConstantesMillegrilles.SECURITE_PRIVE in enveloppe.get_exchanges:
+                # Prive -> consignation fichiers pour backup secondaires
+                if 'fichiers' not in enveloppe.get_roles:
+                    self.__logger.error("_verifier_domaine_backup_v2 Certificat 2.prive n'a pas le role fichiers {}", request.url)
+                    return web.HTTPForbidden()
+            else:
+                self.__logger.error("_verifier_domaine_backup_v2 Certificat n'a pas la securite 3.protege", request.url)
+                return web.HTTPForbidden()
+        except ExtensionNotFound:
+            # Extension manquante (get_domaines ou get_roles)
             return web.HTTPForbidden()
 
         return None
