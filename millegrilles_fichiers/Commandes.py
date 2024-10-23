@@ -248,8 +248,7 @@ class CommandHandler(CommandesAbstract):
             # Trigger backup secondaire
             self.__etat_instance.backup_event.set()
 
-        #if hours == 19 and minutes == 21:
-        if True:
+        if hours == 19 and minutes == 21:
             # Nettoyage des fichiers de backup v2
             try:
                 await self.__consignation.rotation_backups_v2()
