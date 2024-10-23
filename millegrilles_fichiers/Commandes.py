@@ -242,6 +242,11 @@ class CommandHandler(CommandesAbstract):
         except Exception:
             self.__logger.exception("traiter_cedule Erreur consignation traiter_cedule")
 
+        minutes = date_cedule.minute
+        if minutes == 14:
+            # Trigger backup secondaire
+            self.__etat_instance.backup_event.set()
+
     async def requete_cles_ssh(self):
         cles_ssh = self.__etat_instance.get_public_key_ssh()
 
