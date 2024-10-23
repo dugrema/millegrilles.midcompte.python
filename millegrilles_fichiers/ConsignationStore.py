@@ -225,11 +225,11 @@ class ConsignationStore:
 
     async def conserver_backup(self, fichier_temp: tempfile.TemporaryFile, uuid_backup: str, domaine: str,
                                nom_fichier: str):
-        raise NotImplementedError('must override')
+        raise NotImplementedError('obsolete')
 
     async def rotation_backups(self, uuid_backups_conserver: list[str]):
         """ Supprime tous les backups qui ne sont pas dans la liste """
-        raise NotImplementedError('must override')
+        raise NotImplementedError('obsolete')
 
     async def get_stat_fichier(self, fuuid: str, bucket: Optional[str] = None) -> Optional[dict]:
         """
@@ -367,7 +367,7 @@ class ConsignationStore:
         raise NotImplementedError('must implement')
 
     async def upload_backups_primaire(self, connection_transfert: SQLiteConnection, session: ClientSession):
-        raise NotImplementedError('must implement')
+        raise NotImplementedError('obsolete')
 
     async def upload_backup_primaire(self, session: ClientSession, uuid_backup: str, domaine: str, nom_fichier: str, fichier):
         url_consignation_primaire = await self._etat.charger_consignation_primaire()
@@ -615,36 +615,6 @@ class ConsignationStoreMillegrille(ConsignationStore):
                     liste_fuuids = [f['fuuid'] for f in batch]
                     await self.emettre_batch_visites(liste_fuuids, False)
 
-    async def conserver_backup(self, fichier_temp: tempfile.TemporaryFile, uuid_backup: str, domaine: str,
-                               nom_fichier: str):
-        path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP, uuid_backup, domaine)
-        # Utiliser thread separee pour processus de copie (blocking)
-        await asyncio.to_thread(self.__conserver_backup, fichier_temp, path_backup, nom_fichier)
-
-    def __conserver_backup(self, fichier_temp: tempfile.TemporaryFile, repertoire: pathlib.Path, nom_fichier):
-        fichier_temp.seek(0)
-        path_fichier_backup = pathlib.Path(repertoire, nom_fichier)
-        path_fichier_work = pathlib.Path(repertoire, '%s.work' % nom_fichier)
-        repertoire.mkdir(parents=True, exist_ok=True)
-        with open(path_fichier_work, 'wb') as fichier:
-            while True:
-                chunk = fichier_temp.read(64*1024)
-                if not chunk:
-                    break
-                fichier.write(chunk)
-
-        # Renommer fichier (retrirer .work)
-        path_fichier_work.rename(path_fichier_backup)
-
-    async def rotation_backups(self, uuid_backups_conserver: list[str]):
-        """ Supprime tous les backups qui ne sont pas dans la liste """
-        dir_consignation = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
-        for item in dir_consignation.iterdir():
-            if item.is_dir():
-                if item.name not in uuid_backups_conserver:
-                    self.__logger.info("Supprimer repertoire de backup %s" % item.name)
-                    shutil.rmtree(item)
-
     async def get_stat_fichier(self, fuuid: str, bucket: Optional[str] = None) -> Optional[dict]:
         stat = None
         if bucket is None:
@@ -702,7 +672,8 @@ class ConsignationStoreMillegrille(ConsignationStore):
                     await dao_write.marquer_verification(fuuid, Constantes.DATABASE_ETAT_MANQUANT)
 
     async def generer_backup_sync(self):
-        await asyncio.to_thread(self.__generer_backup_sync)
+        # await asyncio.to_thread(self.__generer_backup_sync)
+        await asyncio.to_thread(self.__generer_backup_v2_sync)
 
     async def get_domaines_backups(self):
         path_backups = self.get_path_backups()
@@ -723,30 +694,72 @@ class ConsignationStoreMillegrille(ConsignationStore):
                     'fichiers': fichiers,
                 }
 
-    def __generer_backup_sync(self):
-        path_data = pathlib.Path(self._etat.configuration.dir_data)
-        path_output = pathlib.Path(path_data, Constantes.FICHIER_BACKUP)
-        path_output_work = pathlib.Path('%s.work' % path_output)
+    # def __generer_backup_sync(self):
+    #     path_data = pathlib.Path(self._etat.configuration.dir_data)
+    #     path_output = pathlib.Path(path_data, Constantes.FICHIER_BACKUP)
+    #     path_output_work = pathlib.Path('%s.work' % path_output)
+    #
+    #     path_backup = self.get_path_backups()
+    #
+    #     with gzip.open(path_output_work, 'wt') as output:
+    #         for backup_uuid_path in path_backup.iterdir():
+    #             backup_uuid = backup_uuid_path.name
+    #             for domaine_path in backup_uuid_path.iterdir():
+    #                 domaine = domaine_path.name
+    #                 for fichier_backup in domaine_path.iterdir():
+    #                     # path_backup_str = '%s/%s/%s' % (backup_uuid, domaine, fichier_backup.name)
+    #                     stat_fichier = fichier_backup.stat()
+    #                     taille_fichier = stat_fichier.st_size
+    #                     info_fichier = {
+    #                         'uuid_backup': backup_uuid,
+    #                         'domaine': domaine,
+    #                         'nom_fichier': fichier_backup.name,
+    #                         'taille': taille_fichier
+    #                     }
+    #                     json.dump(info_fichier, output)
+    #                     output.write('\n')
+    #
+    #     # Renommer fichier .work
+    #     path_output.unlink(missing_ok=True)
+    #     path_output_work.rename(path_output)
 
-        path_backup = self.get_path_backups()
+    def __generer_backup_v2_sync(self):
+        path_data = pathlib.Path(self._etat.configuration.dir_data)
+        path_output = pathlib.Path(path_data, Constantes.FICHIER_BACKUP_V2)
+        path_output_work = pathlib.Path('%s.work' % path_output)
+        path_backup = self._path_backup_v2
 
         with gzip.open(path_output_work, 'wt') as output:
-            for backup_uuid_path in path_backup.iterdir():
-                backup_uuid = backup_uuid_path.name
-                for domaine_path in backup_uuid_path.iterdir():
+            for domaine_path in path_backup.iterdir():
+                if domaine_path.is_dir():
                     domaine = domaine_path.name
-                    for fichier_backup in domaine_path.iterdir():
-                        # path_backup_str = '%s/%s/%s' % (backup_uuid, domaine, fichier_backup.name)
-                        stat_fichier = fichier_backup.stat()
-                        taille_fichier = stat_fichier.st_size
-                        info_fichier = {
-                            'uuid_backup': backup_uuid,
-                            'domaine': domaine,
-                            'nom_fichier': fichier_backup.name,
-                            'taille': taille_fichier
-                        }
-                        json.dump(info_fichier, output)
-                        output.write('\n')
+                    try:
+                        with open(pathlib.Path(domaine_path, 'courant.json')) as fp:
+                            version_courante = json.load(fp)
+                    except FileNotFoundError:
+                        self.__logger.warning("__generer_backup_v2_sync Aucune version courante pour backup_v2 domaine %s, SKIP" % domaine)
+                        continue
+
+                    path_archives_courantes = pathlib.Path(domaine_path, 'archives', version_courante['version'])
+                    fichiers_version = list()
+                    header_concatene = None
+                    for backup_file in path_archives_courantes.iterdir():
+                        if backup_file.is_file():
+                            fichiers_version.append(backup_file.name)
+                            try:
+                                if backup_file.name.index('_C_') > 0:
+                                    with open(backup_file, 'rb') as archive:
+                                        header_concatene = lire_header_archive_backup(archive)
+                            except ValueError:
+                                pass
+
+                    with open(pathlib.Path(path_archives_courantes, 'info.json')) as fp:
+                        info_version = json.load(fp)
+
+                    info_domaine = {'domaine': domaine, 'info': info_version, 'concatene': header_concatene, 'fichiers': fichiers_version}
+
+                    json.dump(info_domaine, output)
+                    output.write('\n')  # Newline for record separation
 
         # Renommer fichier .work
         path_output.unlink(missing_ok=True)
@@ -763,22 +776,23 @@ class ConsignationStoreMillegrille(ConsignationStore):
         }
 
     async def upload_backups_primaire(self, connection_transfert: SQLiteConnection, session: ClientSession):
-        path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
-        async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
-            for path_uuid_backup in path_backup.iterdir():
-                uuid_backup = path_uuid_backup.name
-                for path_domaine in path_uuid_backup.iterdir():
-                    domaine = path_domaine.name
-                    for path_fichier in path_domaine.iterdir():
-                        nom_fichier = path_fichier.name
-
-                        info = await asyncio.to_thread(
-                            transfert_dao.get_info_backup_primaire, uuid_backup, domaine, nom_fichier)
-
-                        if info is None:
-                            self.__logger.info("Fichier backup %s/%s/%s absent du primaire, on upload" % (uuid_backup, domaine, nom_fichier))
-                            with path_fichier.open('rb') as fichier:
-                                await self.upload_backup_primaire(session, uuid_backup, domaine, nom_fichier, fichier)
+        raise NotImplementedError('obsolete')
+        # path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
+        # async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
+        #     for path_uuid_backup in path_backup.iterdir():
+        #         uuid_backup = path_uuid_backup.name
+        #         for path_domaine in path_uuid_backup.iterdir():
+        #             domaine = path_domaine.name
+        #             for path_fichier in path_domaine.iterdir():
+        #                 nom_fichier = path_fichier.name
+        #
+        #                 info = await asyncio.to_thread(
+        #                     transfert_dao.get_info_backup_primaire, uuid_backup, domaine, nom_fichier)
+        #
+        #                 if info is None:
+        #                     self.__logger.info("Fichier backup %s/%s/%s absent du primaire, on upload" % (uuid_backup, domaine, nom_fichier))
+        #                     with path_fichier.open('rb') as fichier:
+        #                         await self.upload_backup_primaire(session, uuid_backup, domaine, nom_fichier, fichier)
 
     # Backup V2
 

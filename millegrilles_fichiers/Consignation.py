@@ -430,20 +430,21 @@ class ConsignationHandler:
         return await self.__store_consignation.stream_backup(response, uuid_backup, domaine, fichier_nom)
 
     async def rotation_backup(self, commande: dict):
-        self.__logger.debug("Rotation backup %s" % commande)
-
-        # Verifier que la commande vient d'un module de backup
-        enveloppe = await self.__etat_instance.validateur_message.verifier(commande['__original'])
-        if ConstantesMillegrilles.ROLE_BACKUP not in enveloppe.get_roles:
-            return {'ok': False, 'err': 'rotation_backup acces refuse (role invalide)'}
-
-        # Supprimer les backups qui ne sont pas dans la liste
-        uuid_backups = commande['uuid_backups']
-        if self.__store_consignation is not None:
-            await self.__store_consignation.rotation_backups(uuid_backups)
-            return {'ok': True}
-        else:
-            return {'ok': False, 'err': 'Consignation non prete'}
+        raise NotImplementedError('obsolete')
+        # self.__logger.debug("Rotation backup %s" % commande)
+        #
+        # # Verifier que la commande vient d'un module de backup
+        # enveloppe = await self.__etat_instance.validateur_message.verifier(commande['__original'])
+        # if ConstantesMillegrilles.ROLE_BACKUP not in enveloppe.get_roles:
+        #     return {'ok': False, 'err': 'rotation_backup acces refuse (role invalide)'}
+        #
+        # # Supprimer les backups qui ne sont pas dans la liste
+        # uuid_backups = commande['uuid_backups']
+        # if self.__store_consignation is not None:
+        #     await self.__store_consignation.rotation_backups(uuid_backups)
+        #     return {'ok': True}
+        # else:
+        #     return {'ok': False, 'err': 'Consignation non prete'}
 
     async def declencher_sync_primaire(self, commande: Optional[dict] = None):
         if self.__store_consignation is None:

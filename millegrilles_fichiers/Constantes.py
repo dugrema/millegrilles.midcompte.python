@@ -34,6 +34,7 @@ FICHIER_DATABASE_TRANSFERTS = 'transferts.sqlite'
 FICHIER_RECLAMATIONS_PRIMAIRES = 'reclamations.jsonl.gz'
 FICHIER_RECLAMATIONS_INTERMEDIAIRES = 'reclamations.jsonl'
 FICHIER_BACKUP = 'backup.jsonl.gz'
+FICHIER_BACKUP_V2 = 'backupv2.jsonl.gz'
 
 FICHIER_ETAT = 'etat.json'
 FICHIER_TRANSACTION = 'transaction.json'
