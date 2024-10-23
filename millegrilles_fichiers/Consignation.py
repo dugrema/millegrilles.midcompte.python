@@ -602,6 +602,12 @@ class ConsignationHandler:
         else:
             raise StoreNonInitialise("Store non initialise")
 
+    async def rotation_backups_v2(self):
+        if self.__store_consignation is not None:
+            return await self.__store_consignation.rotation_backups_v2()
+        else:
+            raise StoreNonInitialise("Store non initialise")
+
     async def thread_sync_backups_v2_secondaire(self):
         while self.__stop_event.is_set() is False:
             try:

@@ -243,9 +243,18 @@ class CommandHandler(CommandesAbstract):
             self.__logger.exception("traiter_cedule Erreur consignation traiter_cedule")
 
         minutes = date_cedule.minute
+        hours = date_cedule.hour
         if minutes == 14:
             # Trigger backup secondaire
             self.__etat_instance.backup_event.set()
+
+        #if hours == 19 and minutes == 21:
+        if True:
+            # Nettoyage des fichiers de backup v2
+            try:
+                await self.__consignation.rotation_backups_v2()
+            except:
+                self.__logger.exception("Erreur rotation fichiers backups v2")
 
     async def requete_cles_ssh(self):
         cles_ssh = self.__etat_instance.get_public_key_ssh()

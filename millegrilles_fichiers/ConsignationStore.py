@@ -19,7 +19,7 @@ from typing import Optional, Type, Union, BinaryIO
 
 import pytz
 
-from millegrilles_fichiers.BackupV2 import lire_header_archive_backup, sync_backups_v2_primaire
+from millegrilles_fichiers.BackupV2 import lire_header_archive_backup, sync_backups_v2_primaire, rotation_backups_v2
 from millegrilles_fichiers.SQLiteDao import SQLiteConnection
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
 from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
@@ -458,6 +458,9 @@ class ConsignationStore:
         :param cles: Si True, inclue un dict de cles sous format: {cle_id: DomaineSignature}
         :return: Liste de domaines format: {domaine, date, version, nombre_transactions}
         """
+        raise NotImplementedError('must override')
+
+    async def rotation_backups_v2(self, nombre_archives=3):
         raise NotImplementedError('must override')
 
     # Backup V2 sync consignation
@@ -924,7 +927,7 @@ class ConsignationStoreMillegrille(ConsignationStore):
                     continue  # Skip, ce domaine n'a pas ete demande
 
             if rep_domaine.is_dir():
-                self.__logger.debug("Domaine ", nom_domaine)
+                self.__logger.debug("Domaine %s" % nom_domaine)
                 domaine = {'domaine': nom_domaine}
                 domaines_reponse.append(domaine)
 
@@ -969,6 +972,8 @@ class ConsignationStoreMillegrille(ConsignationStore):
 
         return domaines_reponse
 
+    async def rotation_backups_v2(self, nombre_archives=3):
+        await rotation_backups_v2(self._path_backup_v2, nombre_archives)
 
 def map_type(type_store: str) -> Type[ConsignationStore]:
     if type_store == Constantes.TYPE_STORE_MILLEGRILLE:

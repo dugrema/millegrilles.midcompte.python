@@ -18,22 +18,22 @@ def lire_header_archive_backup(fp: BufferedReader) -> dict:
 
     version_header_info = fp.read(4)
     version, header_len = struct.unpack("HH", version_header_info)
-    LOGGER.debug("Version %d, Header length %d", version, header_len)
+    # LOGGER.debug("Version %d, Header length %d", version, header_len)
 
     header_bytes = fp.read(header_len)
     pos_end = header_bytes.find(0x0)
     header_str = header_bytes[0:pos_end].decode('utf-8')
 
-    LOGGER.info("Header\n*%s*" % header_str)
+    # LOGGER.info("Header\n*%s*" % header_str)
     return json.loads(header_str)
 
 
 def extraire_headers(archive_path: pathlib.Path) -> list[dict]:
     headers = list()
-    for fichier in archive_path:
-        if fichier.is_file() is False:
+    for fichier in archive_path.iterdir():
+        if fichier.is_file() is False or fichier.name.endswith('.mgbak') is False:
             continue  # Skip
-        with open(fichier, 'rt') as fp:
+        with open(fichier, 'rb') as fp:
             header = lire_header_archive_backup(fp)
         headers.append(header)
     return headers
@@ -67,7 +67,7 @@ async def rotation_backups_v2_domaine(domaine_path: pathlib.Path, nombre_archive
         nombre_transactions = 0
         fin_backup = 0
 
-        headers = extraire_headers(path_archives)
+        headers = extraire_headers(version_path)
         for h in headers:
             nombre_transactions = nombre_transactions + h['nombre_transactions']
             if fin_backup < h['fin_backup']:
@@ -93,7 +93,7 @@ async def rotation_backups_v2_domaine(domaine_path: pathlib.Path, nombre_archive
     for supprimer_version in versions_supprimer:
         version_path = supprimer_version['version_path']
         LOGGER.info("Supprimer backup_v2 domaine %s version %s" % (domaine_path.name, supprimer_version['version']))
-        # shutil.rmtree(version_path)
+        shutil.rmtree(version_path)
 
 
 async def sync_backups_v2_primaire(path_backups: pathlib.Path, session: ClientSession, ssl_context: SSLContext, url_backup: str):
