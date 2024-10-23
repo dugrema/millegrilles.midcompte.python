@@ -12,13 +12,14 @@ import tempfile
 from io import BufferedReader, BufferedIOBase
 from os import makedirs
 from math import floor
+from ssl import SSLContext
 
 from aiohttp import web, ClientSession
 from typing import Optional, Type, Union, BinaryIO
 
 import pytz
 
-from millegrilles_fichiers.BackupV2 import lire_header_archive_backup
+from millegrilles_fichiers.BackupV2 import lire_header_archive_backup, sync_backups_v2_primaire
 from millegrilles_fichiers.SQLiteDao import SQLiteConnection
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
 from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage
@@ -27,8 +28,7 @@ from millegrilles_fichiers import Constantes
 from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.UploadFichiersPrimaire import EtatUpload, feed_filepart2
 from millegrilles_fichiers.SQLiteDao import (SQLiteReadOperations, SQLiteWriteOperations,
-                                             SQLiteDetachedReclamationAppend, SQLiteDetachedVisiteAppend,
-                                             SQLiteTransfertOperations)
+                                             SQLiteDetachedReclamationAppend, SQLiteDetachedVisiteAppend)
 
 
 CHUNK_SIZE = 1024 * 64
@@ -67,6 +67,7 @@ class ConsignationStore:
 
     async def stop(self):
         self._stop_store.set()
+        self._etat.backup_event.set()
 
     def get_path_fuuid(self, bucket: str, fuuid: str) -> pathlib.Path:
         raise NotImplementedError('must override')
@@ -144,7 +145,7 @@ class ConsignationStore:
 
     async def get_info_fichier_backup(self, uuid_backup: str, domaine: str, nom_fichier: str) -> dict:
         """ Retourne l'information d'un fichier de backup ou FileNotFoundError si non trouve. """
-        raise NotImplementedError('must override')
+        raise NotImplementedError('obsolete')
 
     async def verifier_fuuids(self, limite=Constantes.CONST_LIMITE_TAILLE_VERIFICATION):
         await self.__verifier_fuuids(limite)
@@ -370,26 +371,29 @@ class ConsignationStore:
     async def upload_backups_primaire(self, connection_transfert: SQLiteConnection, session: ClientSession):
         raise NotImplementedError('obsolete')
 
-    async def upload_backup_primaire(self, session: ClientSession, uuid_backup: str, domaine: str, nom_fichier: str, fichier):
-        url_consignation_primaire = await self._etat.charger_consignation_primaire()
-        url_backup = '%s/fichiers_transfert/backup/upload' % url_consignation_primaire
-        url_fichier = f"{url_backup}/{uuid_backup}/{domaine}/{nom_fichier}"
+    async def sync_backups_v2_primaire(self, session: ClientSession, url_backup: str, ssl_context: SSLContext):
+        raise NotImplementedError('must implement')
 
-        etat_upload = EtatUpload('', fichier, self._stop_store, 0)
-
-        feeder = feed_filepart2(etat_upload, limit=10_000_000)
-        session_coro = session.put(url_fichier, ssl=self._etat.ssl_context, data=feeder)
-
-        # Uploader chunk
-        session_response = None
-        try:
-            session_response = await session_coro
-            if etat_upload.done is False:
-                raise Exception('Erreur upload fichier backup - feeder not done')
-        finally:
-            if session_response is not None:
-                session_response.release()
-                session_response.raise_for_status()
+    # async def upload_backup_primaire(self, session: ClientSession, uuid_backup: str, domaine: str, nom_fichier: str, fichier):
+    #     url_consignation_primaire = await self._etat.charger_consignation_primaire()
+    #     url_backup = '%s/fichiers_transfert/backup/upload' % url_consignation_primaire
+    #     url_fichier = f"{url_backup}/{uuid_backup}/{domaine}/{nom_fichier}"
+    #
+    #     etat_upload = EtatUpload('', fichier, self._stop_store, 0)
+    #
+    #     feeder = feed_filepart2(etat_upload, limit=10_000_000)
+    #     session_coro = session.put(url_fichier, ssl=self._etat.ssl_context, data=feeder)
+    #
+    #     # Uploader chunk
+    #     session_response = None
+    #     try:
+    #         session_response = await session_coro
+    #         if etat_upload.done is False:
+    #             raise Exception('Erreur upload fichier backup - feeder not done')
+    #     finally:
+    #         if session_response is not None:
+    #             session_response.release()
+    #             session_response.raise_for_status()
 
     async def get_domaines_backups(self):
         """ @:return Generateur par domaine des uuid de backups """
@@ -766,36 +770,46 @@ class ConsignationStoreMillegrille(ConsignationStore):
         path_output.unlink(missing_ok=True)
         path_output_work.rename(path_output)
 
-    async def get_info_fichier_backup(self, uuid_backup: str, domaine: str, nom_fichier: str) -> dict:
-        path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
-        path_fichier = pathlib.Path(path_backup, uuid_backup, domaine, nom_fichier)
+    # async def get_info_fichier_backup(self, uuid_backup: str, domaine: str, nom_fichier: str) -> dict:
+    #     path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
+    #     path_fichier = pathlib.Path(path_backup, uuid_backup, domaine, nom_fichier)
+    #
+    #     info = path_fichier.stat()
+    #
+    #     return {
+    #         'taille': info.st_size
+    #     }
 
-        info = path_fichier.stat()
-
-        return {
-            'taille': info.st_size
-        }
-
-    async def upload_backups_primaire(self, connection_transfert: SQLiteConnection, session: ClientSession):
-        raise NotImplementedError('obsolete')
-        # path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
-        # async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
-        #     for path_uuid_backup in path_backup.iterdir():
-        #         uuid_backup = path_uuid_backup.name
-        #         for path_domaine in path_uuid_backup.iterdir():
-        #             domaine = path_domaine.name
-        #             for path_fichier in path_domaine.iterdir():
-        #                 nom_fichier = path_fichier.name
-        #
-        #                 info = await asyncio.to_thread(
-        #                     transfert_dao.get_info_backup_primaire, uuid_backup, domaine, nom_fichier)
-        #
-        #                 if info is None:
-        #                     self.__logger.info("Fichier backup %s/%s/%s absent du primaire, on upload" % (uuid_backup, domaine, nom_fichier))
-        #                     with path_fichier.open('rb') as fichier:
-        #                         await self.upload_backup_primaire(session, uuid_backup, domaine, nom_fichier, fichier)
+    # async def upload_backups_primaire(self, connection_transfert: SQLiteConnection, session: ClientSession):
+    #     path_backup = pathlib.Path(self._etat.configuration.dir_consignation, Constantes.DIR_BACKUP)
+    #     async with SQLiteTransfertOperations(connection_transfert) as transfert_dao:
+    #         for path_uuid_backup in path_backup.iterdir():
+    #             uuid_backup = path_uuid_backup.name
+    #             for path_domaine in path_uuid_backup.iterdir():
+    #                 domaine = path_domaine.name
+    #                 for path_fichier in path_domaine.iterdir():
+    #                     nom_fichier = path_fichier.name
+    #
+    #                     info = await asyncio.to_thread(
+    #                         transfert_dao.get_info_backup_primaire, uuid_backup, domaine, nom_fichier)
+    #
+    #                     if info is None:
+    #                         self.__logger.info("Fichier backup %s/%s/%s absent du primaire, on upload" % (uuid_backup, domaine, nom_fichier))
+    #                         with path_fichier.open('rb') as fichier:
+    #                             await self.upload_backup_primaire(session, uuid_backup, domaine, nom_fichier, fichier)
 
     # Backup V2
+
+    async def sync_backups_v2_primaire(self, session: ClientSession, url_backup: str, ssl_context: SSLContext):
+        path_backup_lock = pathlib.Path(self._path_backup_v2, 'sync.lock')
+        try:
+            with open(path_backup_lock, 'w') as lock_file:
+                try:
+                    await sync_backups_v2_primaire(self._path_backup_v2, session, ssl_context, url_backup)
+                except:
+                    self.__logger.exception("sync_backups_v2_primaire Erreur sync backup files avec primaire")
+        finally:
+            path_backup_lock.unlink(missing_ok=True)
 
     async def get_backup_v2_versions(self, domaine: str) -> dict:
         path_domaine = pathlib.Path(self._path_backup_v2, domaine)

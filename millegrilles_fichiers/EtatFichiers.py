@@ -39,6 +39,9 @@ class EtatFichiers(EtatInstance):
         self.__sqlite_locks = sqlite_locks
         self.__sqlite_connection: Optional[sqlite3.Connection] = None
 
+        # Declenche thread de sync backup secondaire
+        self.__backup_event = asyncio.Event()
+
     async def ainit(self):
         self.__event_consignation_primaire_pret = asyncio.Event()
         await self.__sqlite_locks.ainit()
@@ -174,3 +177,7 @@ class EtatFichiers(EtatInstance):
     @property
     def sqlite_locks(self):
         return self.__sqlite_locks
+
+    @property
+    def backup_event(self):
+        return self.__backup_event
