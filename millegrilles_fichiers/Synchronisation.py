@@ -25,7 +25,7 @@ from millegrilles_fichiers.EtatFichiers import EtatFichiers
 from millegrilles_fichiers.UploadFichiersPrimaire import uploader_fichier, EtatUpload
 from millegrilles_fichiers.SQLiteDao import (SQLiteConnection, SQLiteWriteOperations,
                                              SQLiteDetachedSyncCreate, SQLiteDetachedSyncApply,
-                                             SQLiteDetachedBackupAppend, SQLiteDetachedTransferApply,
+                                             SQLiteDetachedTransferApply,
                                              SQLiteDetachedReclamationFichierAppend, SQLiteTransfertOperations)
 
 CONST_LIMITE_SAMPLES_DOWNLOAD = 50  # Utilise pour calcul taux de transfert
@@ -48,8 +48,6 @@ class SyncManager:
 
         self.__upload_event: Optional[asyncio.Event] = None
         self.__download_event: Optional[asyncio.Event] = None
-        self.__backup_event: Optional[asyncio.Event] = None
-        # self.__event_attendre_visite: Optional[asyncio.Event] = None
 
         self.__nombre_fuuids_reclames_domaine = 0
         self.__total_fuuids_reclames_domaine: Optional[int] = None
@@ -78,7 +76,6 @@ class SyncManager:
         self.__reception_fuuids_reclames = asyncio.Queue(maxsize=3)
         self.__upload_event = asyncio.Event()
         self.__download_event = asyncio.Event()
-        self.__backup_event = asyncio.Event()
 
         await asyncio.gather(
             self.thread_sync_primaire(),
@@ -595,14 +592,14 @@ class SyncManager:
         url_primaire_reclamations_intermediaires = parse_url(
             '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert/sync', Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES))
         url_primaire_backup = parse_url(
-            '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert/sync', Constantes.FICHIER_BACKUP))
+            '%s/%s/%s' % (url_primaire.url, 'fichiers_transfert/sync', Constantes.FICHIER_BACKUP_V2))
 
         path_data = pathlib.Path(self.__etat_instance.configuration.dir_data)
         path_reclamations = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_PRIMAIRES)
         path_reclamations_work = pathlib.Path('%s.work' % path_reclamations)
         path_reclamations_intermediaire = pathlib.Path(path_data, Constantes.FICHIER_RECLAMATIONS_INTERMEDIAIRES)
         path_reclamations_intermediaire_work = pathlib.Path('%s.work' % path_reclamations_intermediaire)
-        path_backup = pathlib.Path(path_data, Constantes.FICHIER_BACKUP)
+        path_backup = pathlib.Path(path_data, Constantes.FICHIER_BACKUP_V2)
         path_backup_work = pathlib.Path('%s.work' % path_backup)
 
         timeout = aiohttp.ClientTimeout(connect=20, total=600)
@@ -710,26 +707,26 @@ class SyncManager:
             await reclamation_dao.commit_batch()
 
         # Charger fichier de backup (si present)
-        path_backup = pathlib.Path(path_data, Constantes.FICHIER_BACKUP)
-        try:
-            with gzip.open(str(path_backup), 'rt') as fichier:
-                async with SQLiteDetachedBackupAppend(connection) as backup_dao:
-                    while True:
-                        row_str = await asyncio.to_thread(fichier.readline, 1024)
-                        if not row_str:
-                            break
-                        if self.__stop_event.is_set():
-                            raise Exception('stopped')  # Stopped
-                        row = json.loads(row_str)
-                        await backup_dao.ajouter_backup_primaire(row['uuid_backup'], row['domaine'], row['nom_fichier'], row['taille'])
-
-                    # Commit derniere batch
-                    await backup_dao.commit_batch()
-        except OSError as e:
-            if e.errno == errno.ENOENT:
-                pass  # OK, fichier absent
-            else:
-                raise e
+        # path_backup = pathlib.Path(path_data, Constantes.FICHIER_BACKUP)
+        # try:
+        #     with gzip.open(str(path_backup), 'rt') as fichier:
+        #         async with SQLiteDetachedBackupAppend(connection) as backup_dao:
+        #             while True:
+        #                 row_str = await asyncio.to_thread(fichier.readline, 1024)
+        #                 if not row_str:
+        #                     break
+        #                 if self.__stop_event.is_set():
+        #                     raise Exception('stopped')  # Stopped
+        #                 row = json.loads(row_str)
+        #                 await backup_dao.ajouter_backup_primaire(row['uuid_backup'], row['domaine'], row['nom_fichier'], row['taille'])
+        #
+        #             # Commit derniere batch
+        #             await backup_dao.commit_batch()
+        # except OSError as e:
+        #     if e.errno == errno.ENOENT:
+        #         pass  # OK, fichier absent
+        #     else:
+        #         raise e
 
     async def run_upload(self):
         path_database_transferts = pathlib.Path(self.__etat_instance.get_path_data(), Constantes.FICHIER_DATABASE_TRANSFERTS)
@@ -1219,69 +1216,71 @@ class SyncManager:
 
     async def run_sync_backup(self):
         if self.__etat_instance.est_primaire is False:
-            path_database_transferts = pathlib.Path(self.__etat_instance.get_path_data(),
-                                                    Constantes.FICHIER_DATABASE_TRANSFERTS)
-
-            with SQLiteConnection(path_database_transferts, check_same_thread=False) as connection_transfert:
-                timeout = aiohttp.ClientTimeout(connect=20, total=900)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    await self.__consignation.upload_backups_primaire(connection_transfert, session)
-                    await self.download_backups_primaire(connection_transfert, session)
+            self.__etat_instance.backup_event.set()
+            # path_database_transferts = pathlib.Path(self.__etat_instance.get_path_data(),
+            #                                         Constantes.FICHIER_DATABASE_TRANSFERTS)
+            #
+            # with SQLiteConnection(path_database_transferts, check_same_thread=False) as connection_transfert:
+            #     timeout = aiohttp.ClientTimeout(connect=20, total=900)
+            #     async with aiohttp.ClientSession(timeout=timeout) as session:
+            #         #await self.__consignation.upload_backups_primaire(connection_transfert, session)
+            #         #await self.download_backups_primaire(connection_transfert, session)
 
     async def download_backups_primaire(self, connection_transfert: SQLiteConnection, session: aiohttp.ClientSession):
         """ Downloader les fichiers de backup qui sont manquants localement """
-
-        while True:
-            async with SQLiteTransfertOperations(connection_transfert) as dao:
-                backups = await asyncio.to_thread(dao.get_batch_backups_primaire)
-            if len(backups) == 0:
-                break  # Done
-
-            # Verifier si le backup existe localement
-            for backup in backups:
-                try:
-                    info = await self.__consignation.get_info_fichier_backup(
-                        backup['uuid_backup'], backup['domaine'], backup['nom_fichier'])
-                except FileNotFoundError:
-                    # Downloader le backup
-                    try:
-                        await self.download_backup(session, backup)
-                    except ClientResponseError as e:
-                        if 500 <= e.status < 600:
-                            self.__logger.warning("download_backups_primaire Erreur serveur - on arrete le transfert")
-                            raise e
-                        self.__logger.info("download_backups_primaire Backup a downloader %s %s n'est pas disponible (%d)" % (backup['uuid_backup'], backup['nom_fichier'], e.status))
-                    except (InvalidSignature, PathValidationError, X509StoreContextError) as ve:
-                        self.__logger.error("download_backups_primaire Erreur validation backup %s : %s - SKIP" % (backup['nom_fichier'], ve))
-                    except:
-                        self.__logger.exception('download_backups_primaire Erreur download backup %s' % backup['nom_fichier'])
+        raise NotImplementedError('obsolete')
+        # while True:
+        #     async with SQLiteTransfertOperations(connection_transfert) as dao:
+        #         backups = await asyncio.to_thread(dao.get_batch_backups_primaire)
+        #     if len(backups) == 0:
+        #         break  # Done
+        #
+        #     # Verifier si le backup existe localement
+        #     for backup in backups:
+        #         try:
+        #             info = await self.__consignation.get_info_fichier_backup(
+        #                 backup['uuid_backup'], backup['domaine'], backup['nom_fichier'])
+        #         except FileNotFoundError:
+        #             # Downloader le backup
+        #             try:
+        #                 await self.download_backup(session, backup)
+        #             except ClientResponseError as e:
+        #                 if 500 <= e.status < 600:
+        #                     self.__logger.warning("download_backups_primaire Erreur serveur - on arrete le transfert")
+        #                     raise e
+        #                 self.__logger.info("download_backups_primaire Backup a downloader %s %s n'est pas disponible (%d)" % (backup['uuid_backup'], backup['nom_fichier'], e.status))
+        #             except (InvalidSignature, PathValidationError, X509StoreContextError) as ve:
+        #                 self.__logger.error("download_backups_primaire Erreur validation backup %s : %s - SKIP" % (backup['nom_fichier'], ve))
+        #             except:
+        #                 self.__logger.exception('download_backups_primaire Erreur download backup %s' % backup['nom_fichier'])
 
     async def download_backup(self, session: aiohttp.ClientSession, backup: dict):
-        uuid_backup = backup['uuid_backup']
-        domaine = backup['domaine']
-        nom_fichier = backup['nom_fichier']
-
-        url_consignation_primaire = self.__etat_instance.url_consignation_primaire
-        url_backup = '%s/fichiers_transfert/backup' % url_consignation_primaire
-        url_fichier = f"{url_backup}/{uuid_backup}/{domaine}/{nom_fichier}"
-
-        with tempfile.TemporaryFile() as output:
-            resp = await session.get(url_fichier, ssl=self.__etat_instance.ssl_context)
-            resp.raise_for_status()
-
-            # Conserver le contenu
-            async for chunk in resp.content.iter_chunked(64 * 1024):
-                output.write(chunk)
-
-            # Verifier le fichier (signature)
-            output.seek(0)
-            with gzip.open(output, 'rt') as fichier:
-                contenu_backup = json.load(fichier)
-
-            await self.__etat_instance.validateur_message.verifier(contenu_backup, utiliser_date_message=True)
-
-            output.seek(0)
-            await self.__consignation.conserver_backup(output, uuid_backup, domaine, nom_fichier)
+        raise NotImplementedError('obsolete')
+        # uuid_backup = backup['uuid_backup']
+        # domaine = backup['domaine']
+        # nom_fichier = backup['nom_fichier']
+        #
+        # url_consignation_primaire = self.__etat_instance.url_consignation_primaire
+        # url_backup = '%s/fichiers_transfert/backup' % url_consignation_primaire
+        # url_fichier = f"{url_backup}/{uuid_backup}/{domaine}/{nom_fichier}"
+        #
+        # with tempfile.TemporaryFile() as output:
+        #     resp = await session.get(url_fichier, ssl=self.__etat_instance.ssl_context)
+        #     resp.raise_for_status()
+        #
+        #     # Conserver le contenu
+        #     async for chunk in resp.content.iter_chunked(64 * 1024):
+        #         output.write(chunk)
+        #
+        #     # Verifier le fichier (signature)
+        #     output.seek(0)
+        #     with gzip.open(output, 'rt') as fichier:
+        #         contenu_backup = json.load(fichier)
+        #
+        #     await self.__etat_instance.validateur_message.verifier(contenu_backup, utiliser_date_message=True)
+        #
+        #     output.seek(0)
+        #     await self.__consignation.conserver_backup(output, uuid_backup, domaine, nom_fichier)
 
 
 def read_into_verificateur(file_path: pathlib.Path, verificateur: VerificateurHachage):

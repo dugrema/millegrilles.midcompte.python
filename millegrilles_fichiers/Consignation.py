@@ -93,7 +93,8 @@ class ConsignationHandler:
             self.thread_emettre_etat(),
             self.__sync_manager.run(),
             self.__store_backup.run(),
-            self.thread_traiter_cedule()
+            self.thread_traiter_cedule(),
+            self.thread_sync_backups_v2_secondaire(),
         )
 
         self.__logger.info("Fin run")
@@ -475,7 +476,8 @@ class ConsignationHandler:
 
     async def upload_backups_primaire(self, connection_transfert: SQLiteConnection, session: aiohttp.ClientSession):
         await self.__store_pret_event.wait()
-        await self.__store_consignation.upload_backups_primaire(connection_transfert, session)
+        # await self.__store_consignation.upload_backups_primaire(connection_transfert, session)
+        await self.__store_consignation.upload_backups_v2_primaire(connection_transfert, session)
 
     async def reset_transferts_secondaires(self, commande: dict):
         await self.__sync_manager.run_entretien_transferts(reset=True)
@@ -600,6 +602,24 @@ class ConsignationHandler:
         else:
             raise StoreNonInitialise("Store non initialise")
 
+    async def thread_sync_backups_v2_secondaire(self):
+        while self.__stop_event.is_set() is False:
+            try:
+                await asyncio.wait_for(self.etat_instance.backup_event.wait(), 5)
+
+                url_consignation_primaire = await self.__etat_instance.charger_consignation_primaire()
+                url_backup = '%s/fichiers_transfert/backup_v2' % url_consignation_primaire
+
+                self.etat_instance.backup_event.clear()  # Clear backup flag
+                timeout = aiohttp.ClientTimeout(connect=5, total=600)
+                ssl_context = self.__etat_instance.ssl_context
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    await self.__store_consignation.sync_backups_v2_primaire(session, url_backup, ssl_context)
+            except TimeoutError:
+                pass
+
+            if self.__stop_event.is_set():
+                return  # Done
 
     # async def download_fichier(self, fuuid, cle_chiffree, params_dechiffrage, path_destination):
     #     await self.ouvrir_sessions()  # S'assurer d'avoir une session ouverte

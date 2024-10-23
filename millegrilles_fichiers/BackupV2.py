@@ -5,7 +5,8 @@ import struct
 import pathlib
 
 from io import BufferedReader
-
+from aiohttp import ClientSession
+from ssl import SSLContext
 
 LOGGER = logging.getLogger(__name__)
 
@@ -91,3 +92,176 @@ async def rotation_backups_v2_domaine(domaine_path: pathlib.Path, nombre_archive
         version_path = supprimer_version['version_path']
         LOGGER.info("Supprimer backup_v2 domaine %s version %s" % (domaine_path.name, supprimer_version['version']))
         # shutil.rmtree(version_path)
+
+
+async def sync_backups_v2_primaire(path_backups: pathlib.Path, session: ClientSession, ssl_context: SSLContext, url_backup: str):
+    info = await _compare_info_domaines_primaire(path_backups, session, ssl_context, url_backup)
+
+    for domaine, info_domaine in info.items():
+        if info_domaine.get('download') is True:
+            # Download nouveau domaine courant
+            await download_backups_v2(path_backups, session, ssl_context, url_backup, domaine, info_domaine)
+        elif info_domaine.get('upload') is True:
+            # Download domaine comme nouveau courant pour primaire
+            await upload_backups_v2(path_backups, session, ssl_context, url_backup, domaine, info_domaine)
+        elif info_domaine.get('sync') is True:
+            # Sync fichiers pour meme version courante
+            await sync_backups_v2(path_backups, session, ssl_context, url_backup, domaine, info_domaine)
+        else:
+            LOGGER.warning("sync_backups_v2_primaire Aucune action determinee pour domaine %s" % domaine)
+
+
+async def _compare_info_domaines_primaire(path_backups: pathlib.Path, session: ClientSession, ssl_context: SSLContext, url_backup: str) -> dict:
+    # Requete pour domaines, reponse
+    domaines_query = '%s/domaines' % url_backup
+    response_domaines = await session.get(domaines_query, ssl_context=ssl_context)
+    domaines_info = await response_domaines.json()
+
+    # Map domaines par nom
+    domaines_dict = dict()
+    for domaine_info in domaines_info['domaines']:
+        domaines_dict[domaine_info['domaine']] = domaine_info
+
+    # Faire l'inventaire local et combiner a la liste remote
+    for local_domaine_path in path_backups.iterdir():
+        if local_domaine_path.is_dir():
+            nom_domaine = local_domaine_path.name
+            info_courant_path = pathlib.Path(local_domaine_path, 'courant.json')
+            try:
+                with open(info_courant_path, 'rt') as fichier:
+                    info_courant = json.load(fichier)
+            except FileNotFoundError:
+                # Download incomplet, ne compte pas
+                continue
+            try:
+                remote_info = domaines_dict[nom_domaine]
+                remote_info['local'] = info_courant
+            except KeyError:
+                # Domaine manquant sur primaire, on va l'uploader
+                domaines_dict[nom_domaine] = {'domaine': nom_domaine, 'upload': True, 'local': info_courant}
+
+    # Determiner les domaines qui ont des versions differentes entre distant et local
+    for domaine, domaine_info in domaines_dict.items():
+        if domaine_info.get('upload') is True:
+            pass    # Le domaine n'existe pas sur le primaire, on va l'uploader
+        elif domaine_info.get('local') is None:
+            # Le domaine n'existe pas localement, on va le downloader
+            domaine_info['download'] = True
+        elif domaine_info['concatene']['version'] == domaine_info['local']['version']:
+            domaine_info['sync'] = True  # Meme version, sync fichiers
+        else:
+            # Determiner quelle version "courante" est la plus recente
+            date_remote = domaine_info['concatene']['date']
+            date_locale = domaine_info['local']['date']
+            if date_remote >= date_locale:
+                domaine_info['download'] = True
+            else:
+                domaine_info['upload'] = True
+
+    return domaines_dict
+
+
+async def download_backups_v2(path_backups: pathlib.Path, session: ClientSession, ssl_context: SSLContext, url_backup: str, domaine: str, info_domaine: dict):
+    try:
+        version = info_domaine['concatene']['version']
+    except KeyError:
+        version = info_domaine['local']['version']
+
+    path_version = pathlib.Path(path_backups, domaine, 'archives', version)
+    path_version.mkdir(parents=True, exist_ok=True)
+
+    await sync_backups_v2(path_backups, session, ssl_context, url_backup, domaine, info_domaine)
+
+    # Mettre info.json comme nouveau courant.json pour le domaine
+    path_courant = pathlib.Path(path_backups, domaine, 'courant.json')
+    path_info = pathlib.Path(path_version, 'info.json')
+    with open(path_info, 'rb') as fichier:
+        with open(path_courant, 'wb') as output:
+            output.write(fichier.read())
+
+
+async def upload_backups_v2(path_backups: pathlib.Path, session: ClientSession, ssl_context: SSLContext, url_backup: str, domaine: str, info_domaine: dict):
+    # Synchroniser les fichiers. Le fichier Concatene va declencher la nouvelle version sur le primaire.
+    await sync_backups_v2(path_backups, session, ssl_context, url_backup, domaine, info_domaine)
+
+
+async def sync_backups_v2(path_backups: pathlib.Path, session: ClientSession, ssl_context: SSLContext, url_backup: str, domaine: str, info_domaine: dict):
+    try:
+        version = info_domaine['concatene']['version']
+    except KeyError:
+        version = info_domaine['local']['version']
+
+    fichiers_download, fichiers_upload = await backup_v2_listes_fichiers(path_backups, session, ssl_context, url_backup, domaine, version)
+
+    for fichier_download in fichiers_download:
+        url_fichier = '%s/%s/archives/%s/%s' % (url_backup, domaine, version, fichier_download)
+        path_version = pathlib.Path(path_backups, domaine, 'archives', version)
+        path_fichier_backup = pathlib.Path(path_version, fichier_download)
+        path_fichier_backup_work = pathlib.Path(path_version, fichier_download + '.work')
+        try:
+            with open(path_fichier_backup_work, 'wb') as output_file:
+                async with session.get(url_fichier, ssl=ssl_context) as resp:
+                    resp.raise_for_status()  # Arreter sur toute erreur
+                    async for chunk in resp.content.iter_chunked(64 * 1024):
+                        output_file.write(chunk)
+            path_fichier_backup_work.rename(path_fichier_backup)
+            LOGGER.info("sync_backups_v2 Download backup_v2 fichier OK: %s" % fichiers_download)
+        finally:
+            path_fichier_backup_work.unlink(missing_ok=True)
+    else:
+        LOGGER.info("sync_backups_v2 Backups sync domaine %s OK, aucuns changements sur version %s" % (domaine, version))
+
+    for fichier_upload in fichiers_upload:
+        path_fichier_backup = pathlib.Path(path_backups, domaine, 'archives', version, fichier_upload)
+        with open(path_fichier_backup, 'rb') as fichier:
+            header = lire_header_archive_backup(fichier)
+
+        if header['type_archive'] == 'I':
+            type_fichier = 'incremental'
+        elif header['type_archive'] == 'C':
+            type_fichier = 'concatene'
+        elif header['type_archive'] == 'F':
+            type_fichier = 'final'
+        else:
+            raise Exception("Unsupported archive type: %s" % header['type_archive'])
+
+        url_fichier = '%s/%s/%s/%s/%s' % (url_backup, domaine, type_fichier, version, fichier_upload)
+        with open(path_fichier_backup, 'rb') as fichier:
+            async with session.put(url_fichier, ssl=ssl_context, data=fichier) as resp:
+                resp.raise_for_status()  # Arreter sur toute erreur
+
+    path_local = pathlib.Path(path_backups, domaine, 'archives', version)
+    path_local.mkdir(parents=True, exist_ok=True)
+
+
+async def backup_v2_listes_fichiers(path_backups: pathlib.Path, session: ClientSession, ssl_context: SSLContext, url_backup: str, domaine: str, version: str):
+    # Recuperer liste distante
+    url_info_domaine = '%s/%s/archives/%s' % (url_backup, domaine, version)
+    reponse_remote = await session.get(url_info_domaine, ssl_context=ssl_context)
+    fichiers_distant = await reponse_remote.text()
+
+    # Split en set pour retirer fichiers communs avec local
+    fichiers_distant = set(fichiers_distant.split('\n'))
+    fichiers_distant.add('info.json')
+    try:
+        fichiers_distant.remove('')  # Cleanup
+    except KeyError:
+        pass
+
+    fichiers_manquants_remote = list()
+
+    path_archives_domaine = pathlib.Path(path_backups, domaine, 'archives', version)
+    try:
+        for fichier_local in path_archives_domaine.iterdir():
+            nom_fichier = fichier_local.name
+            try:
+                fichiers_distant.remove(nom_fichier)
+            except KeyError:
+                fichiers_manquants_remote.append(nom_fichier)
+    except FileNotFoundError:
+        # Nouveau backup
+        fichiers_distant.add('info.json')
+
+    LOGGER.debug("Fichiers manquants: %s\nFichiers a uploader: %s" % (fichiers_distant, fichiers_manquants_remote))
+
+    return list(fichiers_distant), fichiers_manquants_remote
