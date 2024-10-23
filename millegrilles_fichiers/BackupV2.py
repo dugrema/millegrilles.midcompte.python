@@ -8,6 +8,8 @@ from io import BufferedReader
 from aiohttp import ClientSession
 from ssl import SSLContext
 
+from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage, Hacheur
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -194,18 +196,32 @@ async def sync_backups_v2(path_backups: pathlib.Path, session: ClientSession, ss
     fichiers_download, fichiers_upload = await backup_v2_listes_fichiers(path_backups, session, ssl_context, url_backup, domaine, version)
 
     for fichier_download in fichiers_download:
+        if fichier_download.endswith('.mgbak'):
+            suffix_digest_fichier = fichier_download.split('.')[0].split('_').pop()
+        else:
+            suffix_digest_fichier = None
         url_fichier = '%s/%s/archives/%s/%s' % (url_backup, domaine, version, fichier_download)
         path_version = pathlib.Path(path_backups, domaine, 'archives', version)
         path_fichier_backup = pathlib.Path(path_version, fichier_download)
         path_fichier_backup_work = pathlib.Path(path_version, fichier_download + '.work')
         try:
+            hacheur = Hacheur('blake2b-512', 'base58btc')
+
             with open(path_fichier_backup_work, 'wb') as output_file:
                 async with session.get(url_fichier, ssl=ssl_context) as resp:
                     resp.raise_for_status()  # Arreter sur toute erreur
                     async for chunk in resp.content.iter_chunked(64 * 1024):
+                        hacheur.update(chunk)
                         output_file.write(chunk)
+
+            resultat_hachage = hacheur.finalize()
+            LOGGER.debug("handle_put_backup_v2 Resultat hachage fichier %s = %s" % (fichier_download, resultat_hachage))
+            if suffix_digest_fichier and resultat_hachage.endswith(suffix_digest_fichier) is False:
+                LOGGER.error("handle_put_backup_v2 Erreur verification hachage fichier download: %s, skip" % fichiers_download)
+                continue
+
             path_fichier_backup_work.rename(path_fichier_backup)
-            LOGGER.info("sync_backups_v2 Download backup_v2 fichier OK: %s" % fichiers_download)
+            LOGGER.info("sync_backups_v2 Download backup_v2 fichier OK: %s" % fichier_download)
         finally:
             path_fichier_backup_work.unlink(missing_ok=True)
     else:
