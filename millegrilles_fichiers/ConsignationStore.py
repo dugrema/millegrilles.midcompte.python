@@ -463,6 +463,9 @@ class ConsignationStore:
     async def rotation_backups_v2(self, nombre_archives=3):
         raise NotImplementedError('must override')
 
+    def get_path_backup_v2(self) -> pathlib.Path:
+        raise NotImplementedError('must override')
+
     # Backup V2 sync consignation
     # async def get_domaines_backups_v2(self):
     #     raise NotImplementedError('must implement')
@@ -974,6 +977,10 @@ class ConsignationStoreMillegrille(ConsignationStore):
 
     async def rotation_backups_v2(self, nombre_archives=3):
         await rotation_backups_v2(self._path_backup_v2, nombre_archives)
+
+    def get_path_backup_v2(self) -> pathlib.Path:
+        return self._path_backup_v2
+
 
 def map_type(type_store: str) -> Type[ConsignationStore]:
     if type_store == Constantes.TYPE_STORE_MILLEGRILLE:

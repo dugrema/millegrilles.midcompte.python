@@ -627,6 +627,12 @@ class ConsignationHandler:
             if self.__stop_event.is_set():
                 return  # Done
 
+    def get_path_backup_v2(self):
+        if self.__store_consignation is not None:
+            return self.__store_consignation.get_path_backup_v2()
+        else:
+            raise StoreNonInitialise("Store non initialise")
+
     # async def download_fichier(self, fuuid, cle_chiffree, params_dechiffrage, path_destination):
     #     await self.ouvrir_sessions()  # S'assurer d'avoir une session ouverte
     #     url_fuuid = self.get_url_fuuid(fuuid)

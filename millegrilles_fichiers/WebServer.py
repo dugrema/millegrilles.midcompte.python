@@ -22,7 +22,7 @@ from urllib.parse import unquote
 
 from cryptography.x509 import ExtensionNotFound
 
-from millegrilles_fichiers.BackupV2 import lire_header_archive_backup
+from millegrilles_fichiers.BackupV2 import lire_header_archive_backup, extraire_headers
 from millegrilles_messages.messages import Constantes as ConstantesMillegrilles
 from millegrilles_messages.messages.Hachage import VerificateurHachage, ErreurHachage, Hacheur
 
@@ -33,7 +33,7 @@ from millegrilles_fichiers.Commandes import CommandHandler
 from millegrilles_fichiers.Intake import IntakeFichiers
 from millegrilles_fichiers.Consignation import ConsignationHandler
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
-
+from millegrilles_messages.utils.TarStream import stream_path_to_tar_async
 
 CONST_FICHIERS_ACCEPTES_SYNC = frozenset([
     Constantes.FICHIER_RECLAMATIONS_PRIMAIRES,
@@ -97,11 +97,6 @@ class WebServer:
             # /sync
             web.get('/fichiers_transfert/sync/{fichier}', self.handle_get_fichier_sync),
 
-            # /backup
-            #web.post('/fichiers_transfert/backup/verifierFichiers', self.handle_post_backup_verifierfichiers),
-            #web.put('/fichiers_transfert/backup/upload/{uuid_backup}/{domaine}/{nomfichier}', self.handle_put_backup),
-            #web.get('/fichiers_transfert/backup/{uuid_backup}/{domaine}/{nomfichier}', self.handle_get_backup),
-
             # /backup_v2
             web.put('/fichiers_transfert/backup_v2/{domaine}/{type_fichier}/{nomfichier}', self.handle_put_backup_v2),
             web.put('/fichiers_transfert/backup_v2/{domaine}/{type_fichier}/{version}/{nomfichier}', self.handle_put_backup_v2),
@@ -111,9 +106,7 @@ class WebServer:
             web.get('/fichiers_transfert/backup_v2/{domaine}/archives/{version}', self.handle_get_backup_v2_liste_archives),
             web.get('/fichiers_transfert/backup_v2/{domaine}/final/{nomfichier}', self.handle_get_backup_v2),
             web.get('/fichiers_transfert/backup_v2/{domaine}/archives/{version}/{nomfichier}', self.handle_get_backup_v2),
-
-            # web.get('/fichiers_transfert/backup_v2/{domaine}/{nomfichier}', self.handle_get_backup_v2),
-            # web.get('/fichiers_transfert/backup_v2/{domaine}/list', self.handle_get_backup_v2_liste),
+            web.get('/fichiers_transfert/backup_v2/tar/{domaine}', self.handle_get_backup_v2_tar),
         ])
 
     def _charger_ssl(self):
@@ -949,6 +942,57 @@ class WebServer:
             return web.HTTPForbidden()
 
         return None
+
+    async def handle_get_backup_v2_tar(self, request) -> Optional[StreamResponse]:
+        domaine: Optional[str] = request.match_info.get('domaine')
+        self.__logger.debug("handle_get_backup_v2_tar domaine: %s" % domaine)
+
+        if not domaine:
+            self.__logger.error("Full backup download not implemented")
+            return web.HTTPInternalServerError()
+
+        async with self.__connexions_backup_sem:
+            headers_response = {
+                # 'Cache-Control': 'public, max-age=604800, immutable',
+            }
+
+            path_backup_v2 = self.__consignation.get_path_backup_v2()
+            idmg = self.__etat.formatteur_message.clecert.enveloppe.idmg
+
+            if domaine:
+                # Trouver path du backup courant
+                fichier_courant_path = pathlib.Path(path_backup_v2, domaine, 'courant.json')
+                try:
+                    with open(fichier_courant_path) as fichier:
+                        info_courant = json.load(fichier)
+                    version_courante = info_courant['version']
+                    version_courante_path = pathlib.Path(path_backup_v2, domaine, 'archives', version_courante)
+                except FileNotFoundError:
+                    return web.HTTPNotFound()
+
+                if version_courante_path.exists() is False:
+                    return web.HTTPNotFound()
+
+                date_transactions_epochms = 0
+                headers = extraire_headers(version_courante_path)
+                for h in headers:
+                    if date_transactions_epochms < h['fin_backup']:
+                        date_transactions_epochms = h['fin_backup']
+                date_transactions = datetime.datetime.fromtimestamp(date_transactions_epochms / 1000)
+                date_transactions_formattee = date_transactions.strftime("%Y%m%d%H%M%S")
+
+                # Content-Disposition: attachment; filename="file name.jpg"
+                nom_fichier = f"backup_{idmg}_{domaine}_{date_transactions_formattee}_{version_courante}.tar"
+                headers_response['Content-Disposition'] = f'attachment; filename="{nom_fichier}"'
+                response = web.StreamResponse(status=200, headers=headers_response)
+                await response.prepare(request)
+
+                await stream_path_to_tar_async(version_courante_path, response)
+
+            # Selectionner backup plus recent
+
+            await response.write_eof()
+        return response
 
 
 def parse_range(range, taille_totale):
