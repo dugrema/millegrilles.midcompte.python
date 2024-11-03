@@ -1,4 +1,5 @@
 import logging
+from asyncio import create_task
 
 import aiohttp
 import asyncio
@@ -15,8 +16,7 @@ import ffmpeg
 import multibase
 
 from millegrilles_media.EtatMedia import EtatMedia
-from millegrilles_media.TransfertFichiers import uploader_fichier, chiffrer_fichier
-
+from millegrilles_media.TransfertFichiers import uploader_fichier, chiffrer_fichier, filehost_authenticate
 
 LOGGER = logging.getLogger(__name__)
 
@@ -297,8 +297,10 @@ async def uploader_video(etat_media, job, info_chiffrage, tmp_output_chiffre):
     # Uploader les fichiers temporaires
     tmp_output_chiffre.seek(0)
     timeout = aiohttp.ClientTimeout(connect=5, total=600)
+    taille_fichier: int = info_chiffrage['taille_fichier']
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        await uploader_fichier(session, etat_media, commande_associer['fuuid_video'], tmp_output_chiffre)
+        await filehost_authenticate(etat_media, session)
+        await uploader_fichier(session, etat_media, commande_associer['fuuid_video'], taille_fichier, tmp_output_chiffre)
 
     # Transmettre commande associer
     producer = etat_media.producer
@@ -442,7 +444,7 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
 
     LOGGER.debug("convertir_progress executer probe")
     # probe_info = await loop.run_in_executor(None, probe_video, src_file.name)
-    probe_info_coroutine = [asyncio.to_thread(probe_video, src_file.name)]
+    probe_info_coroutine = [create_task(asyncio.to_thread(probe_video, src_file.name))]
 
     probe_info = None
     while probe_info is None:
@@ -494,7 +496,7 @@ async def convertir_progress(etat_media: EtatMedia, job: dict,
             ffmpeg_process = stream.run_async(pipe_stdout=True, pipe_stderr=True)
             try:
                 run_ffmpeg = loop.run_in_executor(None, run_stream, ffmpeg_process)
-                watcher = _do_watch_progress(sock1, progress_handler.traiter_event)
+                watcher = asyncio.create_task(_do_watch_progress(sock1, progress_handler.traiter_event))
                 jobs = [run_ffmpeg, watcher]
                 if cancel_event is not None:
                     jobs.append(asyncio.create_task(cancel_event.wait()))

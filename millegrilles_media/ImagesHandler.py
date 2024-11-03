@@ -11,7 +11,7 @@ from wand.color import Color
 
 from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4WithSecret
 from millegrilles_media.EtatMedia import EtatMedia
-from millegrilles_media.TransfertFichiers import uploader_fichier
+from millegrilles_media.TransfertFichiers import uploader_fichier, filehost_authenticate
 
 
 async def traiter_image(job, tmp_file, etat_media: EtatMedia, info_video: Optional[dict] = None):
@@ -186,9 +186,11 @@ async def uploader_images(
 
     # Uploader les fichiers temporaires
     timeout = aiohttp.ClientTimeout(connect=5, total=240)
+    filehost_url = etat_media.filehost_url
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        await uploader_fichier(session, etat_media, large['hachage'], tmpfile_large)
-        await uploader_fichier(session, etat_media, small['hachage'], tmpfile_small)
+        await filehost_authenticate(etat_media, session)
+        await uploader_fichier(session, etat_media, large['hachage'], large['taille'], tmpfile_large)
+        await uploader_fichier(session, etat_media, small['hachage'], small['taille'], tmpfile_small)
 
     # Transmettre commande associer
     producer = etat_media.producer

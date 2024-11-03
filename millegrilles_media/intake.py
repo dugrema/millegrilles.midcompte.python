@@ -8,8 +8,11 @@ import multibase
 from typing import Optional
 from ssl import SSLContext
 
-from asyncio import Event, TimeoutError, wait, FIRST_COMPLETED, gather
+from asyncio import Event, TimeoutError, wait, FIRST_COMPLETED, gather, TaskGroup
 
+from millegrilles_media.TransfertFichiers import filehost_authenticate
+from millegrilles_messages.messages import Constantes
+from millegrilles_messages.bus.BusContext import ForceTerminateExecution
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher_cle_secrete
 from millegrilles_messages.Mimetypes import est_video
 from millegrilles_media.EtatMedia import EtatMedia
@@ -40,17 +43,23 @@ class IntakeHandler:
 
     async def run(self):
         self.__logger.info('IntakeHandler running')
-        await gather(self.traiter_fichiers())
+        try:
+            async with TaskGroup() as group:
+                group.create_task(self.traiter_fichiers())
+                group.create_task(self.__wait_stop())
+        except* ForceTerminateExecution:
+            pass
+
+    async def __wait_stop(self):
+        await self.__stop_event.wait()
+        raise ForceTerminateExecution()  # Stopping
 
     async def traiter_fichiers(self):
 
         while not self.__stop_event.is_set():
             try:
                 if self.__event_fichiers.is_set() is False:
-                    await wait(
-                        [self.__stop_event.wait(), self.__event_fichiers.wait()],
-                        timeout=20, return_when=FIRST_COMPLETED
-                    )
+                    await asyncio.wait_for(self.__event_fichiers.wait(), timeout=20)
                     self.__event_fichiers.set()
             except TimeoutError:
                 self.__logger.debug("Verifier si fichier disponible pour indexation")
@@ -119,14 +128,14 @@ class IntakeHandler:
         cle: bytes = multibase.decode('m' + information_dechiffrage['cle_secrete_base64'])
 
         fuuid = job['fuuid']
-        # clecert = self._etat_media.clecertificat
         decipher = get_decipher_cle_secrete(cle, information_dechiffrage)
-
-        url_consignation = self._etat_media.url_consignation
-        url_fichier = f'{url_consignation}/fichiers_transfert/{fuuid}'
 
         timeout = aiohttp.ClientTimeout(connect=5, total=600)
         async with aiohttp.ClientSession(timeout=timeout) as session:
+            await filehost_authenticate(self._etat_media, session)
+
+            filehost_url = self._etat_media.filehost_url
+            url_fichier = f'{filehost_url}filehost/files/{fuuid}'
             async with session.get(url_fichier, ssl=self.__ssl_context) as resp:
                 resp.raise_for_status()
 
@@ -145,7 +154,8 @@ class IntakeJobImage(IntakeHandler):
     async def get_prochain_fichier(self) -> Optional[dict]:
         try:
             producer = self._etat_media.producer
-            requete = {'instance_id': self._etat_media.instance_id_consignation}
+            filehost_id = self._etat_media.filehost['filehost_id']
+            requete = {'filehost_id': filehost_id}
             job = await producer.executer_commande(
                 requete, 'GrosFichiers', 'getJobImage', exchange="4.secure")
 
@@ -197,8 +207,9 @@ class IntakeJobVideo(IntakeHandler):
     async def get_prochain_fichier(self) -> Optional[dict]:
         try:
             producer = self._etat_media.producer
+            filehost_id = self._etat_media.filehost['filehost_id']
             requete = {
-                'instance_id': self._etat_media.instance_id_consignation,
+                'filehost_id': filehost_id,
                 'fallback': self._etat_media.configuration.fallback_only,
             }
             job = await producer.executer_commande(

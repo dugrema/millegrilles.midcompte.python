@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import signal
+from asyncio import TaskGroup
 
 from typing import Optional
 
@@ -55,17 +56,14 @@ class ESMain:
 
     async def run(self):
 
-        threads = [
-            self.__rabbitmq_dao.run(),
-            self.__intake_images.run(),
-            self._etat_media.run(self._stop_event, self.__rabbitmq_dao),
-        ]
+        async with TaskGroup() as group:
+            group.create_task(self.__rabbitmq_dao.run())
+            group.create_task(self.__intake_images.run())
+            group.create_task(self._etat_media.run(self._stop_event, self.__rabbitmq_dao))
 
-        # Video processing est optionnel
-        if self.__intake_videos is not None:
-            threads.append(self.__intake_videos.run(), )
-
-        await asyncio.gather(*threads)
+            # Video processing est optionnel
+            if self.__intake_videos is not None:
+                group.create_task(self.__intake_videos.run())
 
         logger.info("run() stopping")
 
