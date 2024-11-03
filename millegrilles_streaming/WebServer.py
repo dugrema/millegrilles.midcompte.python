@@ -41,6 +41,7 @@ class WebServer:
     def _preparer_routes(self):
         self.__app.add_routes([
             web.get('/stream_transfert/{fuuid}', self.handle_path_fuuid),
+            web.get('/streams/{fuuid}', self.handle_path_fuuid),
         ])
 
     def _charger_ssl(self):

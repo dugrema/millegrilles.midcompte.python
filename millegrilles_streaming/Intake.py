@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import pathlib
+from asyncio import TaskGroup
+
 import multibase
 
 from typing import Optional
@@ -50,31 +52,35 @@ class IntakeStreaming(IntakeHandler):
         self.__events_fuuids = dict()
 
     async def run(self):
-        await asyncio.gather(
-            super().run(),
-            self.entretien_dechiffre_thread(),
-            self.entretien_download_thread()
-        )
+        async with TaskGroup() as group:
+            group.create_task(super().run())
+            group.create_task(self.entretien_dechiffre_thread())
+            group.create_task(self.entretien_download_thread())
+
 
     async def configurer(self):
         self.__jobs = asyncio.Queue(maxsize=5)
         return await super().configurer()
 
     async def entretien_download_thread(self):
-        wait_coro = self._stop_event.wait()
         while self._stop_event.is_set() is False:
             self.__logger.debug("Entretien download")
             path_download = pathlib.Path(self.get_path_download())
             fuuids_supprimes = entretien_download(path_download, self.__events_fuuids)
-            await asyncio.wait([wait_coro], timeout=20)
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=300)
+            except asyncio.TimeoutError:
+                pass
 
     async def entretien_dechiffre_thread(self):
-        wait_coro = self._stop_event.wait()
         while self._stop_event.is_set() is False:
             self.__logger.debug("Entretien dechiffre")
             path_dechiffre = pathlib.Path(self.get_path_dechiffre())
             fuuids_supprimes = entretien_dechiffre(path_dechiffre)
-            await asyncio.wait([wait_coro], timeout=300)
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=300)
+            except asyncio.TimeoutError:
+                pass
 
     async def traiter_prochaine_job(self) -> Optional[dict]:
         try:
@@ -320,11 +326,10 @@ class IntakeStreaming(IntakeHandler):
                     return info
 
         if event_attente is not None and timeout is not None:
-            done, pending = await asyncio.wait(
-                [self._stop_event.wait(), event_attente.wait()],
-                timeout=timeout, return_when=asyncio.tasks.FIRST_COMPLETED)
-            for task in pending:
-                task.cancel()
+            try:
+                await asyncio.wait_for(event_attente.wait(), timeout)
+            except asyncio.TimeoutError:
+                pass
             if self._stop_event.is_set():
                 raise Exception('thread stopped')
         elif timeout is not None:
