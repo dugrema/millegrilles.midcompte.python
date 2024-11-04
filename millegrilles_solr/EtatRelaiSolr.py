@@ -1,8 +1,10 @@
 import asyncio
 import logging
+import ssl
 
-from asyncio import wait
 from typing import Optional
+from ssl import SSLContext
+from urllib.parse import urljoin
 
 from millegrilles_messages.messages.CleCertificat import CleCertificat
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
@@ -37,7 +39,12 @@ class EtatRelaiSolr:
         self.__producer: Optional[MessageProducerFormatteur] = None
         self.__partition: Optional[str] = None
 
+        self.__stop_event: Optional[asyncio.Event] = None
+
+        self.__filehost: Optional[dict] = None
         self.__url_consignation = None
+        self.__filehost_url: Optional[str] = None
+        self.__tls_method: Optional[str] = None
 
     async def reload_configuration(self):
         self.__logger.info("Reload configuration sur disque ou dans docker")
@@ -67,37 +74,48 @@ class EtatRelaiSolr:
                 self.__formatteur_message = None
                 self.__validateur_message = None
 
+        self.__configure_ssl()  # Reload TLS certificates
+
         for listener in self.__listeners_actions:
             await listener()
 
-    async def run(self, stop_event, rabbitmq_dao):
+    async def run(self, stop_event):
+        self.__stop_event = stop_event
         while stop_event.is_set() is False:
 
             # Charger configuration consignation via topologie
-            await self.charger_url_consignation(rabbitmq_dao)
+            await self.charger_filehost()
 
-            await wait([stop_event.wait()], timeout=30)
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=30)
+            except asyncio.TimeoutError:
+                pass
 
-    async def charger_url_consignation(self, rabbitmq_dao):
-        producer = rabbitmq_dao.get_producer()
+    async def charger_filehost(self):
+        producer = None
+        for i in range(0, 6):
+            producer = self.producer
+            if producer is not None:
+                break
+            try:
+                await asyncio.wait_for(self.__stop_event.wait(), 0.5)
+                return  # Stopping
+            except asyncio.TimeoutError:
+                pass
+
         if producer is None:
-            self.__logger.warning("charger_url_consignation Producer mq n'est pas encore charge - skip")
-            return
+            raise Exception('producer pas pret')
+
+        await asyncio.wait_for(producer.producer_pret().wait(), 30)
+
+        reponse = await producer.executer_requete(
+            dict(), 'CoreTopologie', 'getFilehostForInstance', exchange="1.public")
 
         try:
-            await wait([producer.producer_pret().wait()], timeout=60)
-        except [asyncio.CancelledError, asyncio.TimeoutError]:
-            self.__logger.info("Producer job cancelled - tenter de recharger")
-
-        # Recharger producer en cas de reconnexion
-        producer = rabbitmq_dao.get_producer()
-        if not producer.producer_pret().is_set():
-            raise Exception('producer deconnecte (MQ) - arreter relai_solr')
-
-        try:
-            reponse = await producer.executer_requete(
-                dict(), 'CoreTopologie', 'getConsignationFichiers', exchange="2.prive")
-            self.__url_consignation = reponse.parsed['consignation_url']
+            filehost_response = reponse.parsed
+            filehost = filehost_response['filehost']
+            self.preparer_filehost_url_context(filehost)
+            self.__filehost = filehost
         except Exception as e:
             self.__logger.exception("Erreur chargement URL consignation")
 
@@ -116,6 +134,38 @@ class EtatRelaiSolr:
         except:
             self.__logger.warning("Le certificat local est expire")
             return True
+
+    def preparer_filehost_url_context(self, filehost: dict):
+        if filehost.get('instance_id') == self.instance_id and filehost.get('url_internal') is not None:
+            self.__filehost_url = urljoin(filehost['url_internal'], '/filehost')
+            # Connecter avec certificat interne
+        elif filehost.get('url_external') is not None and filehost.get('tls_external') is not None:
+            self.__filehost_url = urljoin(filehost['url_external'], '/filehost')
+            self.__tls_method = filehost['tls_external']
+        else:
+            raise ValueError('No acceptable URL')
+
+        # Apply configuration
+        self.__configure_ssl()
+
+    def __configure_ssl(self):
+        if self.__tls_method is None:
+            return  # Nothing to do
+
+        if self.__tls_method == 'millegrille':
+            # Internal mode
+            ssl_context = SSLContext()
+            ssl_context.load_cert_chain(self.configuration.cert_pem_path, self.configuration.key_pem_path)
+        elif self.__tls_method == 'external':
+            # Internet mode
+            ssl_context = ssl.create_default_context()
+        elif self.__tls_method == 'nocheck':
+            # No certificate check (insecure) - also need to use verify=False on requests
+            ssl_context = ssl.create_default_context()
+        else:
+            raise ValueError('Unknown TLS check method: %s' % self.__tls_method)
+
+        self.__ssl_context = ssl_context
 
     @property
     def configuration(self):
@@ -138,8 +188,9 @@ class EtatRelaiSolr:
         return self.__mq_port
 
     @property
-    def url_consignation(self) -> str:
-        return self.__url_consignation
+    def url_filehost(self) -> str:
+        # return self.__url_consignation
+        return self.__filehost_url
 
     def set_producer(self, producer: MessageProducerFormatteur):
         self.__producer = producer

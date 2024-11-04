@@ -1,5 +1,8 @@
 # Intake de fichiers a indexer
+from urllib.parse import urlparse, urljoin
+
 import aiohttp
+import asyncio
 import logging
 import json
 import tempfile
@@ -8,8 +11,10 @@ import multibase
 from typing import Optional
 from ssl import SSLContext
 
-from asyncio import Event, TimeoutError, wait, FIRST_COMPLETED, gather
+from asyncio import Event, TimeoutError, wait, FIRST_COMPLETED, gather, TaskGroup
 
+from millegrilles_messages.messages import Constantes
+from millegrilles_messages.bus.BusContext import ForceTerminateExecution
 from millegrilles_messages.messages.Hachage import convertir_hachage_mb_hex
 from millegrilles_messages.messages.MessagesModule import MessageWrapper
 from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_document_secrete, get_decipher_cle_secrete
@@ -58,20 +63,26 @@ class IntakeHandler:
         await self.__solr_dao.supprimer_tuuids(self.__solr_dao.nom_collection_fichiers, tuuids)
         return {'ok': True}
 
+    async def __stop_thread(self):
+        await self.__stop_event.wait()
+        raise ForceTerminateExecution()
+
     async def run(self):
         self.__logger.info('IntakeHandler running')
-        await gather(self.traiter_fichiers())
+        try:
+            async with TaskGroup() as group:
+                group.create_task(self.traiter_fichiers())
+                group.create_task(self.__stop_thread())
+        except* ForceTerminateExecution:
+            pass
 
     async def traiter_fichiers(self):
         while not self.__stop_event.is_set():
             try:
                 if self.__event_fichiers.is_set() is False:
-                    await wait(
-                        [self.__stop_event.wait(), self.__event_fichiers.wait()],
-                        timeout=20, return_when=FIRST_COMPLETED
-                    )
+                    await asyncio.wait_for(self.__event_fichiers.wait(), timeout=20)
                     self.__event_fichiers.set()
-            except TimeoutError:
+            except asyncio.TimeoutError:
                 self.__logger.debug("Verifier si fichier disponible pour indexation")
                 self.__event_fichiers.set()
             else:
@@ -198,12 +209,14 @@ class IntakeHandler:
 
         decipher = get_decipher_cle_secrete(cle, information_dechiffrage)
 
-        url_consignation = self._etat_relaisolr.url_consignation
-        url_fichier = f'{url_consignation}/fichiers_transfert/{fuuid}'
+        url_consignation = self._etat_relaisolr.url_filehost
+        # url_fichier = f'{url_consignation}/fichiers_transfert/{fuuid}'
+        url_fichier = f'{url_consignation}/files/{fuuid}'
 
         taille_fichier = 0
         timeout = aiohttp.ClientTimeout(connect=5, total=240)
         async with aiohttp.ClientSession(timeout=timeout) as session:
+            await self.filehost_authenticate(session)
             async with session.get(url_fichier, ssl=self.__ssl_context) as resp:
                 resp.raise_for_status()
 
@@ -224,6 +237,17 @@ class IntakeHandler:
         # tmp_file.seek(0)
         # with open('/tmp/output.pdf', 'wb') as fichier:
         #     fichier.write(tmp_file.read())
+
+    async def filehost_authenticate(self, session):
+        filehost_url = urlparse(self._etat_relaisolr.url_filehost)
+        filehost_path = filehost_url.path + '/authenticate'
+        filehost_path = filehost_path.replace('//', '/')
+        url_authenticate = urljoin(filehost_url.geturl(), filehost_path)
+        authentication_message, message_id = self._etat_relaisolr.formatteur_message.signer_message(
+            Constantes.KIND_COMMANDE, dict(), domaine='filehost', action='authenticate')
+        authentication_message['millegrille'] = self._etat_relaisolr.formatteur_message.enveloppe_ca.certificat_pem
+        async with session.post(url_authenticate, json=authentication_message, ssl_context=self.__ssl_context) as resp:
+            resp.raise_for_status()
 
 
 MIMETYPES_FULLTEXT = [

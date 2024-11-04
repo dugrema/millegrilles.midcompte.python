@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 import signal
+from asyncio import TaskGroup
 
 from aiohttp.client_exceptions import ClientResponseError
 from typing import Optional
@@ -62,11 +63,16 @@ class ESMain:
     async def run(self):
         await self.__solrdao.ping()
 
-        await asyncio.gather(
-            self.__rabbitmq_dao.run(),
-            self.__intake.run(),
-            self._etat_relaisolr.run(self._stop_event, self.__rabbitmq_dao),
-        )
+        async with TaskGroup() as group:
+            group.create_task(self.__rabbitmq_dao.run())
+            group.create_task(self.__intake.run())
+            group.create_task(self._etat_relaisolr.run(self._stop_event))
+
+        # await asyncio.gather(
+        #     self.__rabbitmq_dao.run(),
+        #     self.__intake.run(),
+        #     self._etat_relaisolr.run(self._stop_event, self.__rabbitmq_dao),
+        # )
 
         logger.info("run() stopping")
 

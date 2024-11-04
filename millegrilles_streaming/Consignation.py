@@ -8,6 +8,7 @@ import ssl
 from ssl import SSLContext
 from typing import Optional
 
+from aiohttp import ClientResponseError
 from urllib3.util import parse_url
 
 from millegrilles_media.EtatMedia import EtatMedia
@@ -43,7 +44,11 @@ class ConsignationHandler:
 
         while self.__stop_event.is_set() is False:
             # await self.charger_filehost()
-            await self.ouvrir_sessions()
+            try:
+                await self.ouvrir_sessions()
+            except ClientResponseError as e:
+                self.__logger.warning("Error connecting to filehost, will retry: %s" % e)
+
             try:
                 await asyncio.wait_for(self.__stop_event.wait(), timeout=900)
             except asyncio.TimeoutError:
@@ -151,6 +156,8 @@ class ConsignationHandler:
         """
         # await self.ouvrir_sessions()  # S'assurer d'avoir une session ouverte
         url_fuuid = self.get_url_fuuid(fuuid)
+        if self.__session_http_requests is None:
+            await self.ouvrir_sessions()
         reponse = await self.__session_http_requests.head(url_fuuid, ssl=self.__ssl_context)
         if reponse.status == 401:
             # Cookie expired, try again
