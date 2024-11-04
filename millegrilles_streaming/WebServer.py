@@ -230,12 +230,15 @@ class WebServer:
                     if not chunk:
                         break
 
-                    if end is not None and position + len(chunk) > end:
-                        taille_chunk = end - position + 1
-                        await response.write(chunk[:taille_chunk])
-                        break  # Termine
-                    else:
-                        await response.write(chunk)
+                    try:
+                        if end is not None and position + len(chunk) > end:
+                            taille_chunk = end - position + 1
+                            await response.write(chunk[:taille_chunk])
+                            break  # Termine
+                        else:
+                            await response.write(chunk)
+                    except (ConnectionError, ConnectionResetError):
+                        pass  # Ok, browser changing position or stopping
 
                     position += len(chunk)
         except ConnectionResetError:

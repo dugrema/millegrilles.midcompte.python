@@ -30,7 +30,6 @@ class ConsignationHandler:
         self.__filehost: Optional[dict] = None
         self.__filehost_url: Optional[str] = None
         self.__tls_method: Optional[str] = None
-        self.__session_http_download: Optional[aiohttp.ClientSession] = None
         self.__session_http_requests: Optional[aiohttp.ClientSession] = None
 
     async def run(self):
@@ -46,15 +45,21 @@ class ConsignationHandler:
             # await self.charger_filehost()
             await self.ouvrir_sessions()
             try:
-                await asyncio.wait_for(self.__stop_event.wait(), timeout=300)
+                await asyncio.wait_for(self.__stop_event.wait(), timeout=900)
             except asyncio.TimeoutError:
                 pass
 
     async def ouvrir_sessions(self):
         await self.charger_filehost()
-        timeout = aiohttp.ClientTimeout(connect=5, total=300)
-        self.__session_http_download = aiohttp.ClientSession(timeout=timeout)
-        await self.filehost_authenticate(self.__session_http_download)
+        # timeout = aiohttp.ClientTimeout(connect=5, total=300)
+        # self.__session_http_download = aiohttp.ClientSession(timeout=timeout)
+        # await self.filehost_authenticate(self.__session_http_download)
+
+        try:
+            if self.__session_http_requests and self.__session_http_requests.closed is False:
+                await self.__session_http_requests.close()
+        except:
+            self.__logger.exception("Erreur rotation session http (fermeture precedente)")
 
         timeout_requests = aiohttp.ClientTimeout(connect=5, total=15)
         self.__session_http_requests = aiohttp.ClientSession(timeout=timeout_requests)
@@ -147,6 +152,11 @@ class ConsignationHandler:
         # await self.ouvrir_sessions()  # S'assurer d'avoir une session ouverte
         url_fuuid = self.get_url_fuuid(fuuid)
         reponse = await self.__session_http_requests.head(url_fuuid, ssl=self.__ssl_context)
+        if reponse.status == 401:
+            # Cookie expired, try again
+            await self.filehost_authenticate(self.__session_http_requests)
+            reponse = await self.__session_http_requests.head(url_fuuid, ssl=self.__ssl_context)
+        reponse.raise_for_status()
         return {'taille': reponse.headers.get('Content-Length'), 'status': reponse.status}
 
     def get_url_fuuid(self, fuuid) -> str:
