@@ -81,6 +81,8 @@ class EtatMedia:
         self.__clecertificat = CleCertificat.from_files(
             self.__configuration.key_pem_path, self.__configuration.cert_pem_path)
 
+        self.__instance_id = self.__clecertificat.enveloppe.subject_common_name
+
         self.__configure_ssl()
 
         if self.__clecertificat is not None:
@@ -145,8 +147,10 @@ class EtatMedia:
             self.__logger.exception("Erreur chargement filehost")
 
     def preparer_filehost_url_context(self, filehost: dict):
-        if filehost.get('instance_id') == self.instance_id and filehost.get('url_internal') is not None:
+        local_instance_id = self.__instance_id
+        if filehost.get('instance_id') == local_instance_id and filehost.get('url_internal') is not None:
             self.__filehost_url = filehost['url_internal']
+            self.__tls_method = 'millegrille'
             # Connecter avec certificat interne
         elif filehost.get('url_external') is not None and filehost.get('tls_external') is not None:
             self.__filehost_url = filehost['url_external']

@@ -1,4 +1,5 @@
 import asyncio
+from urllib.parse import urljoin
 
 import aiohttp
 import tempfile
@@ -52,10 +53,9 @@ async def feed_filepart2(etat_upload: EtatUpload, limit=BATCH_UPLOAD_DEFAULT):
 
 async def uploader_fichier(session: aiohttp.ClientSession, etat_media, fuuid, file_size: int,
                            tmp_file: tempfile.TemporaryFile, batch_size=BATCH_UPLOAD_DEFAULT):
-    ssl_context = etat_media.ssl_context
     # url_fichier = f'{etat_media.url_}filehost/files/{fuuid}'
     filehost_url = etat_media.filehost_url
-    url_fichier = f'{filehost_url}filehost/files/{fuuid}'
+    url_fichier = urljoin(filehost_url, f'/filehost/files/{fuuid}')
 
     tmp_file.seek(0)
     headers = {'x-fuuid': fuuid}
@@ -73,7 +73,7 @@ async def uploader_fichier(session: aiohttp.ClientSession, etat_media, fuuid, fi
             upload_url = f'{url_fichier}/{position}'
 
         feeder_coro = feed_filepart2(etat_upload, limit=batch_size)
-        session_coro = session.put(upload_url, ssl=ssl_context, headers=headers, data=feeder_coro)
+        session_coro = session.put(upload_url, headers=headers, data=feeder_coro)
 
         # Uploader chunk
         session_response = None
@@ -85,7 +85,7 @@ async def uploader_fichier(session: aiohttp.ClientSession, etat_media, fuuid, fi
                 session_response.release()
 
     if one_shot_upload is False:
-        async with session.post(url_fichier, ssl=ssl_context) as resp:
+        async with session.post(url_fichier) as resp:
             resp.raise_for_status()
 
 
@@ -117,10 +117,10 @@ def __chiffrer(cipher, src, dest):
 
 async def filehost_authenticate(etat_media, session):
     filehost_url = etat_media.filehost_url
-    url_authenticate = f'{filehost_url}filehost/authenticate'
+    url_authenticate = urljoin(filehost_url, '/filehost/authenticate')
     authentication_message, message_id = etat_media.formatteur_message.signer_message(
         Constantes.KIND_COMMANDE, dict(), domaine='filehost', action='authenticate')
     authentication_message['millegrille'] = etat_media.formatteur_message.enveloppe_ca.certificat_pem
-    async with session.post(url_authenticate, json=authentication_message, ssl_context=etat_media.ssl_context) as resp:
+    async with session.post(url_authenticate, json=authentication_message) as resp:
         resp.raise_for_status()
 

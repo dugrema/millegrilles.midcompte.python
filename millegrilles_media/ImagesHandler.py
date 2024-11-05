@@ -186,8 +186,8 @@ async def uploader_images(
 
     # Uploader les fichiers temporaires
     timeout = aiohttp.ClientTimeout(connect=5, total=240)
-    filehost_url = etat_media.filehost_url
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    connector = aiohttp.TCPConnector(ssl=etat_media.ssl_context)
+    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
         await filehost_authenticate(etat_media, session)
         await uploader_fichier(session, etat_media, large['hachage'], large['taille'], tmpfile_large)
         await uploader_fichier(session, etat_media, small['hachage'], small['taille'], tmpfile_small)

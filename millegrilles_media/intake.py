@@ -1,4 +1,6 @@
 # Intake de fichiers a indexer
+from urllib.parse import urljoin
+
 import aiohttp
 import asyncio
 import logging
@@ -8,10 +10,9 @@ import multibase
 from typing import Optional
 from ssl import SSLContext
 
-from asyncio import Event, TimeoutError, wait, FIRST_COMPLETED, gather, TaskGroup
+from asyncio import Event, TimeoutError, TaskGroup
 
 from millegrilles_media.TransfertFichiers import filehost_authenticate
-from millegrilles_messages.messages import Constantes
 from millegrilles_messages.bus.BusContext import ForceTerminateExecution
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher_cle_secrete
 from millegrilles_messages.Mimetypes import est_video
@@ -131,12 +132,13 @@ class IntakeHandler:
         decipher = get_decipher_cle_secrete(cle, information_dechiffrage)
 
         timeout = aiohttp.ClientTimeout(connect=5, total=600)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        connector = aiohttp.TCPConnector(ssl=self.__ssl_context)
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             await filehost_authenticate(self._etat_media, session)
 
             filehost_url = self._etat_media.filehost_url
-            url_fichier = f'{filehost_url}filehost/files/{fuuid}'
-            async with session.get(url_fichier, ssl=self.__ssl_context) as resp:
+            url_fichier = urljoin(filehost_url, f'filehost/files/{fuuid}')
+            async with session.get(url_fichier) as resp:
                 resp.raise_for_status()
 
                 async for chunk in resp.content.iter_chunked(64*1024):
