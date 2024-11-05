@@ -1,3 +1,4 @@
+from asyncio import TaskGroup
 from urllib.parse import urljoin, urlparse
 
 import aiohttp
@@ -35,15 +36,12 @@ class ConsignationHandler:
 
     async def run(self):
         self.__logger.info("Demarrage run")
-        await asyncio.gather(self.entretien())
+        async with TaskGroup() as group:
+            group.create_task(self.entretien())
         self.__logger.info("Fin run")
 
     async def entretien(self):
-        # Attendre 5 secondes avant le premier entretien
-        #await asyncio.wait([stop_event_wait], timeout=5)
-
         while self.__stop_event.is_set() is False:
-            # await self.charger_filehost()
             try:
                 await self.ouvrir_sessions()
             except ClientResponseError as e:
@@ -56,10 +54,6 @@ class ConsignationHandler:
 
     async def ouvrir_sessions(self):
         await self.charger_filehost()
-        # timeout = aiohttp.ClientTimeout(connect=5, total=300)
-        # self.__session_http_download = aiohttp.ClientSession(timeout=timeout)
-        # await self.filehost_authenticate(self.__session_http_download)
-
         try:
             if self.__session_http_requests and self.__session_http_requests.closed is False:
                 await self.__session_http_requests.close()
@@ -67,7 +61,8 @@ class ConsignationHandler:
             self.__logger.exception("Erreur rotation session http (fermeture precedente)")
 
         timeout_requests = aiohttp.ClientTimeout(connect=5, total=15)
-        self.__session_http_requests = aiohttp.ClientSession(timeout=timeout_requests)
+        connector = aiohttp.TCPConnector(ssl=self.__ssl_context)
+        self.__session_http_requests = aiohttp.ClientSession(timeout=timeout_requests, connector=connector)
         await self.filehost_authenticate(self.__session_http_requests)
 
     async def charger_filehost(self):
@@ -96,8 +91,10 @@ class ConsignationHandler:
             self.__logger.exception("Erreur chargement URL consignation")
 
     def preparer_filehost_url_context(self, filehost: dict):
-        if filehost.get('instance_id') == self.__etat_instance.instance_id and filehost.get('url_internal') is not None:
+        local_instance_id = self.__etat_instance.instance_id
+        if filehost.get('instance_id') == local_instance_id and filehost.get('url_internal') is not None:
             self.__filehost_url = urljoin(filehost['url_internal'], '/filehost')
+            self.__tls_method = 'millegrille'
             # Connecter avec certificat interne
         elif filehost.get('url_external') is not None and filehost.get('tls_external') is not None:
             self.__filehost_url = urljoin(filehost['url_external'], '/filehost')
@@ -137,10 +134,11 @@ class ConsignationHandler:
 
         timeout = aiohttp.ClientTimeout(connect=30, total=900)
         with path_destination.open(mode='wb') as output_file:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            connector = aiohttp.TCPConnector(ssl=self.__etat_instance.ssl_context)
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
                 await self.filehost_authenticate(session)
 
-                async with session.get(url_fuuid, ssl=self.__etat_instance.ssl_context) as resp:
+                async with session.get(url_fuuid) as resp:
                     resp.raise_for_status()
 
                     async for chunk in resp.content.iter_chunked(64*1024):
@@ -183,5 +181,5 @@ class ConsignationHandler:
         authentication_message, message_id = self.__etat_instance.formatteur_message.signer_message(
             Constantes.KIND_COMMANDE, dict(), domaine='filehost', action='authenticate')
         authentication_message['millegrille'] = self.__etat_instance.formatteur_message.enveloppe_ca.certificat_pem
-        async with session.post(url_authenticate, json=authentication_message, ssl_context=self.__ssl_context) as resp:
+        async with session.post(url_authenticate, json=authentication_message) as resp:
             resp.raise_for_status()
