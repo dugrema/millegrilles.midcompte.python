@@ -134,6 +134,8 @@ class IntakeHandler:
         timeout = aiohttp.ClientTimeout(connect=5, total=600)
         connector = aiohttp.TCPConnector(ssl=self.__ssl_context)
         async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+            session.verify = self._etat_media.tls_method != 'nocheck'
+
             await filehost_authenticate(self._etat_media, session)
 
             filehost_url = self._etat_media.filehost_url

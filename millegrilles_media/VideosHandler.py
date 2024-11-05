@@ -299,6 +299,8 @@ async def uploader_video(etat_media, job, info_chiffrage, tmp_output_chiffre):
     timeout = aiohttp.ClientTimeout(connect=5, total=600)
     taille_fichier: int = info_chiffrage['taille_fichier']
     async with aiohttp.ClientSession(timeout=timeout) as session:
+        session.verify = etat_media.tls_method != 'nocheck'
+
         await filehost_authenticate(etat_media, session)
         await uploader_fichier(session, etat_media, commande_associer['fuuid_video'], taille_fichier, tmp_output_chiffre)
 

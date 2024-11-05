@@ -3,6 +3,7 @@ import os
 from typing import Optional
 
 from millegrilles_messages.messages import Constantes as ConstantesMessages
+from millegrilles_media import Constantes
 
 CONST_MEDIA_PARAMS = [
     ConstantesMessages.ENV_CA_PEM,
@@ -11,6 +12,7 @@ CONST_MEDIA_PARAMS = [
     ConstantesMessages.ENV_MQ_HOSTNAME,
     ConstantesMessages.ENV_MQ_PORT,
     ConstantesMessages.ENV_DIR_STAGING,
+    Constantes.ENV_FILEHOST_URL,
 ]
 
 
@@ -24,6 +26,7 @@ class ConfigurationMedia:
         self.mq_port = 5673
         self.dir_staging = '/var/opt/millegrilles/staging'
         self.fallback_only = False
+        self.filehost_url: Optional[str] = None
 
     def get_env(self) -> dict:
         """
@@ -54,4 +57,5 @@ class ConfigurationMedia:
         self.mq_host = dict_params.get(ConstantesMessages.ENV_MQ_HOSTNAME) or self.mq_host
         self.mq_port = dict_params.get(ConstantesMessages.ENV_MQ_PORT) or self.mq_port
         self.dir_staging = dict_params.get(ConstantesMessages.ENV_DIR_STAGING) or self.dir_staging
+        self.filehost_url = dict_params.get(Constantes.ENV_FILEHOST_URL)
         self.fallback_only = dict_params.get('fallback') or False

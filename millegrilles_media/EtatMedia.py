@@ -115,7 +115,7 @@ class EtatMedia:
                 self.__logger.exception("Exception rafraichissement url consignation")
 
             try:
-                await asyncio.wait_for(stop_event.wait(), timeout=30)
+                await asyncio.wait_for(stop_event.wait(), timeout=300)
             except asyncio.TimeoutError:
                 pass
 
@@ -148,7 +148,12 @@ class EtatMedia:
 
     def preparer_filehost_url_context(self, filehost: dict):
         local_instance_id = self.__instance_id
-        if filehost.get('instance_id') == local_instance_id and filehost.get('url_internal') is not None:
+        override_filehost_url = self.configuration.filehost_url
+        if override_filehost_url:
+            # Should be used for DEV only
+            self.__filehost_url = override_filehost_url
+            self.__tls_method = 'nocheck'
+        elif filehost.get('instance_id') == local_instance_id and filehost.get('url_internal') is not None:
             self.__filehost_url = filehost['url_internal']
             self.__tls_method = 'millegrille'
             # Connecter avec certificat interne
