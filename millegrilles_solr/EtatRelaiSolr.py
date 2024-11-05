@@ -62,6 +62,8 @@ class EtatRelaiSolr:
         if self.__clecertificat is not None:
             idmg = self.__clecertificat.enveloppe.idmg
 
+            self.__instance_id = self.__clecertificat.enveloppe.subject_common_name
+
             # Valider le certificat en memoire
             try:
                 await self.__validateur_certificats.valider(self.__clecertificat.enveloppe.chaine_pem())
@@ -136,8 +138,10 @@ class EtatRelaiSolr:
             return True
 
     def preparer_filehost_url_context(self, filehost: dict):
-        if filehost.get('instance_id') == self.instance_id and filehost.get('url_internal') is not None:
+        local_instance_id = self.__instance_id
+        if filehost.get('instance_id') == local_instance_id and filehost.get('url_internal') is not None:
             self.__filehost_url = urljoin(filehost['url_internal'], '/filehost')
+            self.__tls_method = 'millegrille'
             # Connecter avec certificat interne
         elif filehost.get('url_external') is not None and filehost.get('tls_external') is not None:
             self.__filehost_url = urljoin(filehost['url_external'], '/filehost')

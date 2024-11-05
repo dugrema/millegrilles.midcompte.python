@@ -215,9 +215,10 @@ class IntakeHandler:
 
         taille_fichier = 0
         timeout = aiohttp.ClientTimeout(connect=5, total=240)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        connector = aiohttp.TCPConnector(ssl=self.__ssl_context)
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             await self.filehost_authenticate(session)
-            async with session.get(url_fichier, ssl=self.__ssl_context) as resp:
+            async with session.get(url_fichier) as resp:
                 resp.raise_for_status()
 
                 async for chunk in resp.content.iter_chunked(64*1024):
@@ -246,7 +247,7 @@ class IntakeHandler:
         authentication_message, message_id = self._etat_relaisolr.formatteur_message.signer_message(
             Constantes.KIND_COMMANDE, dict(), domaine='filehost', action='authenticate')
         authentication_message['millegrille'] = self._etat_relaisolr.formatteur_message.enveloppe_ca.certificat_pem
-        async with session.post(url_authenticate, json=authentication_message, ssl_context=self.__ssl_context) as resp:
+        async with session.post(url_authenticate, json=authentication_message) as resp:
             resp.raise_for_status()
 
 
