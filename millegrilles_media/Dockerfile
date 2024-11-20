@@ -37,4 +37,4 @@ VOLUME ["/var/opt/millegrilles/staging"]
 
 WORKDIR /opt/millegrilles/dist
 
-CMD ["-m", "millegrilles_media", "--verbose"]
+CMD ["-m", "millegrilles_media"]

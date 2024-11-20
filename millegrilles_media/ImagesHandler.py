@@ -9,17 +9,17 @@ import ffmpeg
 from wand.image import Image
 from wand.color import Color
 
+from millegrilles_media.Context import MediaContext
 from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4WithSecret
-from millegrilles_media.EtatMedia import EtatMedia
 from millegrilles_media.TransfertFichiers import uploader_fichier, filehost_authenticate
 
 
-async def traiter_image(job, tmp_file, etat_media: EtatMedia, info_video: Optional[dict] = None):
+async def traiter_image(job, tmp_file, context: MediaContext, info_video: Optional[dict] = None):
     """
     Converti une image en jpg thumbnail, small et webp large
+    :param job:
     :param tmp_file:
-    :param etat_media:
-    :param cle:
+    :param context:
     :param info_video:
     :return:
     """
@@ -31,7 +31,7 @@ async def traiter_image(job, tmp_file, etat_media: EtatMedia, info_video: Option
     cle_id = info_dechiffrage['cle_id']
     # cle_bytes = clecert.dechiffrage_asymmetrique(cle['cle'])
 
-    dir_staging = etat_media.configuration.dir_staging
+    dir_staging = context.configuration.dir_staging
 
     with tempfile.TemporaryFile(dir=dir_staging) as tmp_output_large:
         with tempfile.TemporaryFile(dir=dir_staging) as tmp_output_small:
@@ -62,7 +62,7 @@ async def traiter_image(job, tmp_file, etat_media: EtatMedia, info_video: Option
                     ]
                     thumbnail, small, large = await asyncio.gather(*conversions)
 
-            await uploader_images(etat_media, job, info_original, thumbnail, small, large, tmp_output_small, tmp_output_large, info_video)
+            await uploader_images(context, job, info_original, thumbnail, small, large, tmp_output_small, tmp_output_large, info_video)
 
 
 def convertir_thumbnail(img: Image, cle_bytes: bytes, cle_id: str) -> dict:
@@ -140,18 +140,18 @@ def chiffrer_image(img: Image, cle_bytes: bytes, cle_id: str, tmp_out: Optional[
     return info_fichier
 
 
-async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, etat_media: EtatMedia):
+async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, context: MediaContext):
     """
     Genere un thumbnail/small jpg et poster webp
+    :param job:
     :param tmp_file_video:
-    :param etat_media:
-    :param cle:
+    :param context:
     :return:
     """
     loop = asyncio.get_running_loop()
 
     # Extraire un snapshot de reference du video
-    dir_staging = etat_media.configuration.dir_staging
+    dir_staging = context.configuration.dir_staging
     tmp_file_snapshot = tempfile.NamedTemporaryFile(dir=dir_staging, suffix='.jpg')
     try:
         probe = ffmpeg.probe(tmp_file_video.name)
@@ -171,14 +171,14 @@ async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, etat
         tmp_file_video.close()
 
         # Traiter et uploader le snapshot
-        await traiter_image(job, tmp_file_snapshot, etat_media, info_video=probe)
+        await traiter_image(job, tmp_file_snapshot, context, info_video=probe)
     finally:
         if tmp_file_snapshot.closed is False:
             tmp_file_snapshot.close()
 
 
 async def uploader_images(
-        etat_media: EtatMedia, job: dict, info_original: dict, thumbnail, small, large,
+        context: MediaContext, job: dict, info_original: dict, thumbnail, small, large,
         tmpfile_small: tempfile.TemporaryFile, tmpfile_large: tempfile.TemporaryFile,
         info_video: Optional[dict] = None):
 
@@ -186,16 +186,16 @@ async def uploader_images(
 
     # Uploader les fichiers temporaires
     timeout = aiohttp.ClientTimeout(connect=5, total=240)
-    connector = aiohttp.TCPConnector(ssl=etat_media.ssl_context)
+    connector = aiohttp.TCPConnector(ssl=context.ssl_context)
     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-        session.verify = etat_media.tls_method != 'nocheck'
+        session.verify = context.tls_method != 'nocheck'
 
-        await filehost_authenticate(etat_media, session)
-        await uploader_fichier(session, etat_media, large['hachage'], large['taille'], tmpfile_large)
-        await uploader_fichier(session, etat_media, small['hachage'], small['taille'], tmpfile_small)
+        await filehost_authenticate(context, session)
+        await uploader_fichier(session, context, large['hachage'], large['taille'], tmpfile_large)
+        await uploader_fichier(session, context, small['hachage'], small['taille'], tmpfile_small)
 
     # Transmettre commande associer
-    producer = etat_media.producer
+    producer = await context.get_producer()
     await producer.executer_commande(commande_associer,
                                      domaine='GrosFichiers', action='associerConversions', exchange='2.prive')
 

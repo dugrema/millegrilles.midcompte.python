@@ -4,6 +4,7 @@ from urllib.parse import urljoin
 import aiohttp
 import tempfile
 
+from millegrilles_media.Context import MediaContext
 from millegrilles_messages.messages import Constantes
 from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4WithSecret
 
@@ -13,7 +14,7 @@ CHIFFRER_CHUNK_SIZE = 64 * 1024
 
 class EtatUpload:
 
-    def __init__(self, fuuid: str, fp_file, stop_event: asyncio.Event, taille):
+    def __init__(self, fuuid: str, fp_file, stop_event: asyncio.Event, taille: int):
         self.fuuid = fuuid
         self.fp_file = fp_file
         self.stop_event = stop_event
@@ -51,10 +52,10 @@ async def feed_filepart2(etat_upload: EtatUpload, limit=BATCH_UPLOAD_DEFAULT):
     await asyncio.wait([stop_coro], timeout=1)  # Cancel
 
 
-async def uploader_fichier(session: aiohttp.ClientSession, etat_media, fuuid, file_size: int,
+async def uploader_fichier(session: aiohttp.ClientSession, context: MediaContext, fuuid, file_size: int,
                            tmp_file: tempfile.TemporaryFile, batch_size=BATCH_UPLOAD_DEFAULT):
     # url_fichier = f'{etat_media.url_}filehost/files/{fuuid}'
-    filehost_url = etat_media.filehost_url
+    filehost_url = context.filehost_url
     url_fichier = urljoin(filehost_url, f'/filehost/files/{fuuid}')
 
     tmp_file.seek(0)
@@ -115,12 +116,12 @@ def __chiffrer(cipher, src, dest):
     dest.write(cipher.finalize())
 
 
-async def filehost_authenticate(etat_media, session):
-    filehost_url = etat_media.filehost_url
+async def filehost_authenticate(context: MediaContext, session: aiohttp.ClientSession):
+    filehost_url = context.filehost_url
     url_authenticate = urljoin(filehost_url, '/filehost/authenticate')
-    authentication_message, message_id = etat_media.formatteur_message.signer_message(
+    authentication_message, message_id = context.formatteur.signer_message(
         Constantes.KIND_COMMANDE, dict(), domaine='filehost', action='authenticate')
-    authentication_message['millegrille'] = etat_media.formatteur_message.enveloppe_ca.certificat_pem
+    authentication_message['millegrille'] = context.formatteur.enveloppe_ca.certificat_pem
     async with session.post(url_authenticate, json=authentication_message) as resp:
         resp.raise_for_status()
 

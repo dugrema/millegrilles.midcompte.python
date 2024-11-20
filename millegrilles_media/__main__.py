@@ -1,149 +1,79 @@
-import argparse
 import asyncio
 import logging
-import os
-import signal
 from asyncio import TaskGroup
+from concurrent.futures.thread import ThreadPoolExecutor
 
-from typing import Optional
-
-from millegrilles_media.mqdao import RabbitMQDao
+from typing import Awaitable
 
 from millegrilles_media.Configuration import ConfigurationMedia
-from millegrilles_media.Commandes import CommandHandler
-from millegrilles_media.EtatMedia import EtatMedia
+from millegrilles_media.Context import MediaContext
+from millegrilles_media.CommandHandler import CommandHandler
+from millegrilles_media.MediaManager import MediaManager
 from millegrilles_media.intake import IntakeJobImage, IntakeJobVideo
+from millegrilles_messages.bus.BusContext import ForceTerminateExecution, StopListener
+from millegrilles_messages.bus.PikaConnector import MilleGrillesPikaConnector
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
-class ESMain:
+async def force_terminate_task_group():
+    """Used to force termination of a task group."""
+    raise ForceTerminateExecution()
 
-    def __init__(self, args: argparse.Namespace):
-        self.__args = args
-        self.__config = ConfigurationMedia()
-        self._etat_media = EtatMedia(self.__config, self.__args.novideo)
 
-        self.__rabbitmq_dao: Optional[RabbitMQDao] = None
+async def main():
+    config = ConfigurationMedia.load()
+    context = MediaContext(config)
 
-        self.__commandes_handler = None
-        self.__intake_images = None
-        self.__intake_videos = None
+    LOGGER.setLevel(logging.INFO)
+    LOGGER.info("Starting")
 
-        # Asyncio lifecycle handlers
-        self.__loop = None
-        self._stop_event = None
+    # Wire classes together, gets awaitables to run
+    coros = await wiring(context)
 
-    async def configurer(self):
-        self.__loop = asyncio.get_event_loop()
-        self._stop_event = asyncio.Event()
-        self.__config.parse_config(self.__args.__dict__)
-
-        await self._etat_media.reload_configuration()
-        self.__intake_images = IntakeJobImage(self._stop_event, self._etat_media)
-        if self.__args.novideo is not True:
-            self.__intake_videos = IntakeJobVideo(self._stop_event, self._etat_media)
-        self.__commandes_handler = CommandHandler(self._etat_media, self.__intake_images, self.__intake_videos)
-        self.__rabbitmq_dao = RabbitMQDao(self._stop_event, self._etat_media, self.__commandes_handler)
-
-        await self.__intake_images.configurer()
-        if self.__intake_videos is not None:
-            await self.__intake_videos.configurer()
-
-        # S'assurer d'avoir le repertoire de staging
-        dir_staging = self._etat_media.configuration.dir_staging
-        os.makedirs(dir_staging, exist_ok=True)
-
-    async def run(self):
-
+    try:
+        # Use taskgroup to run all threads
         async with TaskGroup() as group:
-            group.create_task(self.__rabbitmq_dao.run())
-            group.create_task(self.__intake_images.run())
-            group.create_task(self._etat_media.run(self._stop_event, self.__rabbitmq_dao))
+            for coro in coros:
+                group.create_task(coro)
 
-            # Video processing est optionnel
-            if self.__intake_videos is not None:
-                group.create_task(self.__intake_videos.run())
+            # Create a listener that fires a task to cancel all other tasks
+            async def stop_group():
+                group.create_task(force_terminate_task_group())
+            stop_listener = StopListener(stop_group)
+            context.register_stop_listener(stop_listener)
 
-        logger.info("run() stopping")
-
-    async def run_scripts(self):
-        pass
-        #import json
-        # await self.__solrdao.ping()
-
-        # Debug
-        #await self.__solrdao.list_field_types()
-        #await self.__solrdao.preparer_sample_data()
-        #await self.__solrdao.preparer_sample_file()
-        #resultat = await self.__requetes_handler.requete_fichiers('z2i3Xjx8abNcGbqKFa5bNzR3UGJkLWUBSgn5c6yZRQW6TxtdDPE', 'abus physiques')
-        #logger.info("Resultat requete \n%s" % json.dumps(resultat, indent=2))
-
-    def exit_gracefully(self, signum=None, frame=None):
-        logger.info("Fermer application, signal: %d" % signum)
-        self.__loop.call_soon_threadsafe(self._stop_event.set)
+    except* (ForceTerminateExecution, asyncio.CancelledError):
+        pass  # Result of the termination task
 
 
-def parse() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Demarrer le gestionnaire de taches media pour MilleGrilles")
-    parser.add_argument(
-        '--verbose', action="store_true", required=False,
-        help="Active le logging maximal"
-    )
-    parser.add_argument(
-        '--scripts', action="store_true", required=False,
-        help="Execute scripts"
-    )
-    parser.add_argument(
-        '--novideo', action="store_true", required=False,
-        help="Desactive le traitement video"
-    )
-    parser.add_argument(
-        '--fallback', action="store_true", required=False,
-        help="Active le traitement video pour fallback seulement (h264 270p)"
-    )
+async def wiring(context: MediaContext) -> list[Awaitable]:
+    # Some threads get used to handle sync events for the duration of the execution. Ensure there are enough.
+    loop = asyncio.get_event_loop()
+    loop.set_default_executor(ThreadPoolExecutor(max_workers=10))
 
-    args = parser.parse_args()
-    adjust_logging(args)
+    # Create instances
+    bus_connector = MilleGrillesPikaConnector(context)
+    context.bus_connector = bus_connector
+    intake_images = IntakeJobImage(context)
+    intake_videos = IntakeJobVideo(context)
 
-    return args
+    manager = MediaManager(context, intake_images, intake_videos)
 
+    command_handler = CommandHandler(context, manager)
+    manager.add_filehost_listener(command_handler.on_filehosting_update)
+    await command_handler.setup()
 
-def adjust_logging(args: argparse.Namespace):
-    if args.verbose is True:
-        loggers = [__name__, 'millegrilles_messages', 'millegrilles_media', 'mediadao']
-        for log in loggers:
-            logging.getLogger(log).setLevel(logging.DEBUG)
+    # Create tasks
+    coros = [
+        context.run(),
+        bus_connector.run(),
+        manager.run(),
+    ]
 
-
-async def demarrer(args: argparse.Namespace):
-    main = ESMain(args)
-
-    signal.signal(signal.SIGINT, main.exit_gracefully)
-    signal.signal(signal.SIGTERM, main.exit_gracefully)
-
-    await main.configurer()
-    if args.scripts is True:
-        logger.info("Run main millegrilles_media scripts")
-        await main.run_scripts()
-    else:
-        logger.info("Run main millegrilles_media")
-        await main.run()
-    logger.info("Fin main millegrilles_media")
-
-
-def main():
-    """
-    Methode d'execution de l'application
-    :return:
-    """
-    logging.basicConfig()
-    logging.getLogger(__name__).setLevel(logging.INFO)
-    logging.getLogger('mediadao').setLevel(logging.INFO)
-    logging.getLogger('millegrilles_media').setLevel(logging.INFO)
-    args = parse()
-    asyncio.run(demarrer(args))
+    return coros
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
+    LOGGER.info("Stopped")

@@ -15,7 +15,7 @@ from typing import Optional
 import ffmpeg
 import multibase
 
-from millegrilles_media.EtatMedia import EtatMedia
+from millegrilles_media.Context import MediaContext
 from millegrilles_media.TransfertFichiers import uploader_fichier, chiffrer_fichier, filehost_authenticate
 
 LOGGER = logging.getLogger(__name__)
@@ -23,9 +23,9 @@ LOGGER = logging.getLogger(__name__)
 
 class ProgressHandler:
 
-    def __init__(self, etat_media: EtatMedia, job: dict):
+    def __init__(self, context: MediaContext, job: dict):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-        self.__etat_media = etat_media
+        self.__etat_media = context
         self.job = job
         self.__frames = None  # video_info['frames']
 
@@ -85,7 +85,7 @@ class ProgressHandler:
             'etat': etat,
         }
 
-        producer = self.__etat_media.producer
+        producer = await self.__etat_media.get_producer()
         await producer.emettre_evenement(evenement,
                                          domaine='media', action='transcodageProgres',
                                          partition=user_id, exchanges='2.prive')
@@ -93,8 +93,8 @@ class ProgressHandler:
 
 class VideoConversionJob:
 
-    def __init__(self, etat_media: EtatMedia, job: dict, tmp_file: tempfile.NamedTemporaryFile):
-        self.etat_media = etat_media
+    def __init__(self, context: MediaContext, job: dict, tmp_file: tempfile.NamedTemporaryFile):
+        self.context = context
         self.job = job
         self.tmp_file = tmp_file
 
@@ -104,9 +104,7 @@ class VideoConversionJob:
 
     async def traiter_video(self):
         self.cancel_event = asyncio.Event()
-        self.progress_handler = ProgressHandler(self.etat_media, self.job)
-
-        # await traiter_video(self.etat_media, self.job, self.tmp_file, self.progress_handler, self.cancel_event)
+        self.progress_handler = ProgressHandler(self.context, self.job)
         await self.__process()
 
     async def annuler(self):
@@ -117,18 +115,13 @@ class VideoConversionJob:
     async def __process(self):
         """
         Converti une image en jpg thumbnail, small et webp large
-        :param etat_media:
-        :param job:
-        :param tmp_file:
-        :param progress_handler:
-        :param cancel_event:
         :return:
         """
-        dir_staging = self.etat_media.configuration.dir_staging
+        dir_staging = self.context.configuration.dir_staging
         tmp_transcode = tempfile.NamedTemporaryFile(dir=dir_staging)
         try:
             # Convertir le video
-            params_conversion = await convertir_progress(self.etat_media, self.job, self.tmp_file, tmp_transcode, self.progress_handler, self.cancel_event)
+            params_conversion = await convertir_progress(self.context, self.job, self.tmp_file, tmp_transcode, self.progress_handler, self.cancel_event)
             mimetype_output = 'video/%s' % params_conversion['format']
             self.job['mimetype_output'] = mimetype_output
 
@@ -137,7 +130,7 @@ class VideoConversionJob:
 
             with tempfile.TemporaryFile(dir=dir_staging) as tmp_output_chiffre:
                 # Chiffrer output
-                info_chiffrage = await chiffrer_video(self.etat_media, self.job, tmp_transcode, tmp_output_chiffre)
+                info_chiffrage = await chiffrer_video(self.context, self.job, tmp_transcode, tmp_output_chiffre)
 
                 # Fermer fichier dechiffre
                 tmp_transcode.close()
@@ -145,7 +138,7 @@ class VideoConversionJob:
 
                 # Uploader fichier chiffre
                 tmp_output_chiffre.seek(0)
-                await uploader_video(self.etat_media, self.job, info_chiffrage, tmp_output_chiffre)
+                await uploader_video(self.context, self.job, info_chiffrage, tmp_output_chiffre)
 
             self.termine = True
         finally:
@@ -153,7 +146,7 @@ class VideoConversionJob:
                 tmp_transcode.close()
 
 
-async def chiffrer_video(etat_media, job: dict, tmp_input: tempfile.NamedTemporaryFile, tmp_output: tempfile.TemporaryFile) -> Optional[dict]:
+async def chiffrer_video(context: MediaContext, job: dict, tmp_input: tempfile.NamedTemporaryFile, tmp_output: tempfile.TemporaryFile) -> Optional[dict]:
     loop = asyncio.get_running_loop()
 
     LOGGER.debug("probe fichier video transcode : %s" % tmp_input.name)
@@ -161,7 +154,7 @@ async def chiffrer_video(etat_media, job: dict, tmp_input: tempfile.NamedTempora
     tmp_input.flush()
     info_video = await asyncio.to_thread(probe_video, tmp_input.name)
 
-    clecert = etat_media.clecertificat
+    # clecert = context.signing_key
     # cle = job['cle']
     # cle_bytes = clecert.dechiffrage_asymmetrique(cle['cle'])
     info_dechiffrage = job['cle']
@@ -291,22 +284,22 @@ async def _do_watch_progress(sock, handler):
         connection.close()
 
 
-async def uploader_video(etat_media, job, info_chiffrage, tmp_output_chiffre):
+async def uploader_video(context: MediaContext, job, info_chiffrage, tmp_output_chiffre):
     commande_associer = preparer_commande_associer(job, info_chiffrage)
 
     # Uploader les fichiers temporaires
     tmp_output_chiffre.seek(0)
     timeout = aiohttp.ClientTimeout(connect=5, total=600)
     taille_fichier: int = info_chiffrage['taille_fichier']
-    connector = aiohttp.TCPConnector(ssl=etat_media.ssl_context)
+    connector = aiohttp.TCPConnector(ssl=context.ssl_context)
     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-        session.verify = etat_media.tls_method != 'nocheck'
+        session.verify = context.tls_method != 'nocheck'
 
-        await filehost_authenticate(etat_media, session)
-        await uploader_fichier(session, etat_media, commande_associer['fuuid_video'], taille_fichier, tmp_output_chiffre)
+        await filehost_authenticate(context, session)
+        await uploader_fichier(session, context, commande_associer['fuuid_video'], taille_fichier, tmp_output_chiffre)
 
     # Transmettre commande associer
-    producer = etat_media.producer
+    producer = await context.get_producer()
     await producer.executer_commande(commande_associer,
                                      domaine='GrosFichiers', action='associerVideo', exchange='2.prive')
 
@@ -436,14 +429,14 @@ ARGS_OVERRIDE_GEOLOC = [
 ]
 
 
-async def convertir_progress(etat_media: EtatMedia, job: dict,
+async def convertir_progress(context: MediaContext, job: dict,
                              src_file: tempfile.NamedTemporaryFile,
                              dest_file: tempfile.NamedTemporaryFile,
                              progress_handler: ProgressHandler,
                              cancel_event: Optional[asyncio.Event] = None) -> Optional[dict]:
 
     loop = asyncio.get_running_loop()
-    dir_staging = etat_media.configuration.dir_staging
+    dir_staging = context.configuration.dir_staging
 
     LOGGER.debug("convertir_progress executer probe")
     # probe_info = await loop.run_in_executor(None, probe_video, src_file.name)
