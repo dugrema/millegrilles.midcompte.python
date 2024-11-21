@@ -16,6 +16,7 @@ import ffmpeg
 import multibase
 
 from millegrilles_media.Context import MediaContext
+from millegrilles_media.ImagesHandler import traiter_poster_video
 from millegrilles_media.TransfertFichiers import uploader_fichier, chiffrer_fichier, filehost_authenticate
 
 LOGGER = logging.getLogger(__name__)
@@ -66,29 +67,32 @@ class ProgressHandler:
 
     async def __emettre_progres(self, progres_pct, etat='transcodage'):
         self.__logger.debug(f'Progres {progres_pct}%')
+        job_id = self.job['job_id']
         user_id = self.job['user_id']
         fuuid = self.job['fuuid']
-        mimetype_conversion = self.job['cle_conversion'].split(';')[0]
+        tuuid = self.job['tuuid']
+        params = self.job['params']
+        # mimetype_conversion = params['cle_conversion'].split(';')[0]
+        mimetype_conversion = params['mimetype']
         progres = progres_pct
         if progres > 100.0:
             progres = 100  # Plafond a 100
         evenement = {
-            'tuuid': self.job['tuuid'],
+            'job_id': job_id,
+            'tuuid': tuuid,
             'fuuid': fuuid,
             'user_id': user_id,
             'mimetype': mimetype_conversion,
-            'videoCodec': self.job['codecVideo'],
-            'videoQuality': self.job['qualityVideo'],
-            'resolution': self.job['resolutionVideo'],
-            'height': self.job['resolutionVideo'],
+            'videoCodec': params['codecVideo'],
+            'videoQuality': params['qualityVideo'],
+            'resolution': params['resolutionVideo'],
+            'height': params['resolutionVideo'],
             'pctProgres': progres,
             'etat': etat,
         }
 
         producer = await self.__etat_media.get_producer()
-        await producer.emettre_evenement(evenement,
-                                         domaine='media', action='transcodageProgres',
-                                         partition=user_id, exchanges='2.prive')
+        await producer.event(evenement, domain='media', action='transcodageProgres', partition=user_id, exchange='2.prive')
 
 
 class VideoConversionJob:
@@ -104,8 +108,18 @@ class VideoConversionJob:
 
     async def traiter_video(self):
         self.cancel_event = asyncio.Event()
+        self.__inject_params()
         self.progress_handler = ProgressHandler(self.context, self.job)
         await self.__process()
+
+    def __inject_params(self):
+        params = self.job['params']
+        if params.get('defaults'):
+            # Apply low resolution fallback video format for browsers
+            params['mimetype'] = 'video/mp4'
+            params['codecVideo'] = 'h264'
+            params['qualityVideo'] = 28
+            params['resolutionVideo'] = 270
 
     async def annuler(self):
         if not self.termine:
@@ -114,9 +128,21 @@ class VideoConversionJob:
 
     async def __process(self):
         """
-        Converti une image en jpg thumbnail, small et webp large
+        Transcode un video
         :return:
         """
+        params = self.job['params']
+        try:
+            flag_thumbnails = params['thumbnails']
+        except KeyError:
+            pass  # No thumbnails to create
+        else:
+            await traiter_poster_video(self.job, self.tmp_file, self.context)
+            self.tmp_file.seek(0)
+
+        await self.__transcode()
+
+    async def __transcode(self):
         dir_staging = self.context.configuration.dir_staging
         tmp_transcode = tempfile.NamedTemporaryFile(dir=dir_staging)
         try:
@@ -157,9 +183,11 @@ async def chiffrer_video(context: MediaContext, job: dict, tmp_input: tempfile.N
     # clecert = context.signing_key
     # cle = job['cle']
     # cle_bytes = clecert.dechiffrage_asymmetrique(cle['cle'])
-    info_dechiffrage = job['cle']
-    cle_bytes: bytes = multibase.decode('m' + info_dechiffrage['cle_secrete_base64'])
-    cle_id = info_dechiffrage['cle_id']
+    # info_dechiffrage = job['cle']
+    # cle_bytes: bytes = multibase.decode('m' + info_dechiffrage['cle_secrete_base64'])
+    cle_bytes: bytes = job['decrypted_key']
+    # cle_id = info_dechiffrage['cle_id']
+    cle_id = job['cle_id']
 
     tmp_input.seek(0)
     info_chiffrage = await chiffrer_fichier(cle_bytes, tmp_input, tmp_output)
@@ -196,6 +224,8 @@ def probe_video(filepath) -> dict:
             # Injecter le nombre de frames dans le probe_info precedent
             nb_read_frames = probe_info_read['streams'][0]['nb_read_frames']
             video_stream['nb_frames'] = nb_read_frames
+        except ffmpeg.Error:
+            LOGGER.exception("probe_video Erreur FFMPEG")
         except:
             LOGGER.exception("probe_video Erreur fallback sur count_frames, nombre de frames inconnu")
 
@@ -291,7 +321,8 @@ async def uploader_video(context: MediaContext, job, info_chiffrage, tmp_output_
     tmp_output_chiffre.seek(0)
     timeout = aiohttp.ClientTimeout(connect=5, total=600)
     taille_fichier: int = info_chiffrage['taille_fichier']
-    connector = aiohttp.TCPConnector(ssl=context.ssl_context)
+    # connector = aiohttp.TCPConnector(ssl=context.ssl_context)
+    connector = context.get_tcp_connector()
     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
         session.verify = context.tls_method != 'nocheck'
 
@@ -300,19 +331,27 @@ async def uploader_video(context: MediaContext, job, info_chiffrage, tmp_output_
 
     # Transmettre commande associer
     producer = await context.get_producer()
-    await producer.executer_commande(commande_associer,
-                                     domaine='GrosFichiers', action='associerVideo', exchange='2.prive')
+    await producer.command(commande_associer, domain='GrosFichiers', action='associerVideo', exchange='3.protege')
 
 
 def preparer_commande_associer(job: dict, info_chiffrage: dict) -> dict:
+    params = job['params']
+    profil = job['profil']
+
+    codec_video = profil['vcodec']
+    codec_audio = profil['acodec']
+
+    cle_conversion = f'{params['mimetype']};{codec_video};{params['resolutionVideo']}p;{params['qualityVideo']}'
+
     commande = {
+        "job_id": job['job_id'],  # Ajoute dans 2024.9
         "tuuid": job['tuuid'],
         "fuuid": job['fuuid'],
         "user_id": job['user_id'],
-        "quality": job['qualityVideo'],
+        "quality": params['qualityVideo'],
 
-        "codec": job['codecVideo'],
-        "codec_audio": job['codecAudio'],
+        "codec": codec_video,
+        "codec_audio": codec_audio,
         "fuuid_video": info_chiffrage['hachage'],
         "mimetype": info_chiffrage['mimetype'],
         "height": info_chiffrage['height'],
@@ -325,10 +364,11 @@ def preparer_commande_associer(job: dict, info_chiffrage: dict) -> dict:
         "cle_id": info_chiffrage['cle_id'],
         "format": info_chiffrage['format'],
 
-        "cle_conversion": job['cle_conversion'],  # Ajouter dans 2023.7.4
+        # "cle_conversion": params['cle_conversion'],  # Ajouter dans 2023.7.4
+        "cle_conversion": cle_conversion,
     }
 
-    if job.get('fallback') is True:
+    if params.get('thumbnails') is True:
         commande['fallback'] = True
 
     return commande
@@ -377,9 +417,10 @@ MAPPING_PARAMS = {
 
 def get_profil(job: dict) -> dict:
 
-    codec_video = job['codecVideo']
+    params = job['params']
+    codec_video = params['codecVideo']
     try:
-        codec_audio = job['codecAudio']
+        codec_audio = params['codecAudio']
         if codec_audio == 'opus':
             # Patch - utiliser libopus
             codec_audio = 'libopus'
@@ -390,7 +431,7 @@ def get_profil(job: dict) -> dict:
 
     for key, mapping in MAPPING_PARAMS.items():
         try:
-            profil[mapping] = job[key]
+            profil[mapping] = params[key]
         except KeyError:
             pass
 
@@ -439,7 +480,6 @@ async def convertir_progress(context: MediaContext, job: dict,
     dir_staging = context.configuration.dir_staging
 
     LOGGER.debug("convertir_progress executer probe")
-    # probe_info = await loop.run_in_executor(None, probe_video, src_file.name)
     probe_info_coroutine = [create_task(asyncio.to_thread(probe_video, src_file.name))]
 
     probe_info = None
@@ -466,7 +506,8 @@ async def convertir_progress(context: MediaContext, job: dict,
 
             height = probe_info['height']
             width = probe_info['width']
-            resolution = job.get('resolutionVideo') or probe_info['resolution']
+            params = job['params']
+            resolution = params.get('resolutionVideo') or probe_info['resolution']
 
             if width > height:
                 scaling = f'scale=-2:{resolution}'
@@ -474,6 +515,7 @@ async def convertir_progress(context: MediaContext, job: dict,
                 scaling = f'scale={resolution}:-2'
 
             params_output = get_profil(job)
+            job['profil'] = params_output
             params_output['vf'] = scaling
             if params_output['vcodec'] == 'hevc':
                 # Metatadata pour ios

@@ -119,32 +119,32 @@ class EtatMedia:
             except asyncio.TimeoutError:
                 pass
 
-    async def charger_url_consignation(self, rabbitmq_dao):
-        producer = None
-        for i in range(0, 3):
-            producer = rabbitmq_dao.get_producer()
-            if producer:
-                break
-            await asyncio.sleep(1)
-
-        if producer is None:
-            self.__logger.warning("charger_url_consignation Producer mq n'est pas encore charge - skip")
-            return
-
-        await asyncio.wait_for(producer.producer_pret().wait(), timeout=60)
-
-        reponse = await producer.executer_requete(
-            dict(), 'CoreTopologie', 'getFilehostForInstance', exchange="1.public")
-        # reponse = await producer.executer_requete(
-        #     dict(), 'CoreTopologie', 'getConsignationFichiers', exchange="2.prive")
-
-        try:
-            filehost_response = reponse.parsed
-            filehost = filehost_response['filehost']
-            self.preparer_filehost_url_context(filehost)
-            self.__filehost = filehost
-        except Exception as e:
-            self.__logger.exception("Erreur chargement filehost")
+    # async def charger_url_consignation(self, rabbitmq_dao):
+    #     producer = None
+    #     for i in range(0, 3):
+    #         producer = rabbitmq_dao.get_producer()
+    #         if producer:
+    #             break
+    #         await asyncio.sleep(1)
+    #
+    #     if producer is None:
+    #         self.__logger.warning("charger_url_consignation Producer mq n'est pas encore charge - skip")
+    #         return
+    #
+    #     await asyncio.wait_for(producer.producer_pret().wait(), timeout=60)
+    #
+    #     reponse = await producer.executer_requete(
+    #         dict(), 'CoreTopologie', 'getFilehostForInstance', exchange="1.public")
+    #     # reponse = await producer.executer_requete(
+    #     #     dict(), 'CoreTopologie', 'getConsignationFichiers', exchange="2.prive")
+    #
+    #     try:
+    #         filehost_response = reponse.parsed
+    #         filehost = filehost_response['filehost']
+    #         self.preparer_filehost_url_context(filehost)
+    #         self.__filehost = filehost
+    #     except Exception as e:
+    #         self.__logger.exception("Erreur chargement filehost")
 
     def preparer_filehost_url_context(self, filehost: dict):
         local_instance_id = self.__instance_id

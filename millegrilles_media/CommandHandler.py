@@ -136,10 +136,13 @@ class CommandHandler:
             delegation_globale = None
 
         action = message.routage['action']
+        estampille = message.estampille
+        message_age = datetime.datetime.now().timestamp() - estampille
         payload = message.parsed
 
         if action == 'processVideo':
-            raise NotImplementedError()
+            if Constantes.SECURITE_PROTEGE in exchanges and Constantes.DOMAINE_GROS_FICHIERS in domaines and message_age < 600:
+                return await self.__media_manager.process_video_job(payload)
 
         self.__logger.info("on_volatile_message Ignoring unknown video action %s" % action)
 

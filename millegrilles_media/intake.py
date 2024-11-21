@@ -274,6 +274,9 @@ class IntakeJobVideo(IntakeHandler):
         super().__init__(context)
         self.__job_handler = None
 
+    def get_job_type(self) -> str:
+        return 'video'
+
     # async def get_prochain_fichier(self) -> Optional[dict]:
     #     try:
     #         producer = await self._context.get_producer()
@@ -297,7 +300,7 @@ class IntakeJobVideo(IntakeHandler):
     #     return None
 
     async def _traiter_fichier(self, job, tmp_file):
-        self.__logger.debug("Traiter video %s" % job)
+        self.__logger.debug("Traiter video %s" % job['job_id'])
 
         mimetype: str = job['mimetype']
         if est_video(mimetype) is False:
@@ -336,14 +339,15 @@ class IntakeJobVideo(IntakeHandler):
         if emettre_commande:
             reponse = {
                 'ok': False,
+                'job_id': job['job_id'],
                 'fuuid': job['fuuid'],
-                'cle_conversion': job['cle_conversion'],
+                'tuuid': job['tuuid'],
                 'user_id': job['user_id'],
             }
 
             producer = await self._context.get_producer()
-            await producer.executer_commande(
-                reponse, 'GrosFichiers', 'supprimerJobVideo', exchange='4.secure',
+            await producer.command(
+                reponse, 'GrosFichiers', 'supprimerJobVideo', exchange='3.protege',
                 nowait=True
             )
 

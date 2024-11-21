@@ -158,18 +158,21 @@ async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, cont
         probe = ffmpeg.probe(tmp_file_video.name)
         try:
             duration = float(probe['format']['duration'])
-            snapshot_position = duration * 0.2
+            snapshot_position = int(duration * 0.2) + 1
+            if snapshot_position > duration:
+                snapshot_position = 0
         except KeyError:
             snapshot_position = 5  # Mettre a 5 secondes, duree non disponible
+
         stream = ffmpeg \
             .input(tmp_file_video.name, ss=snapshot_position) \
             .output(tmp_file_snapshot.name, vframes=1) \
             .overwrite_output()
 
-        await loop.run_in_executor(None, stream.run)
+        await asyncio.to_thread(stream.run)
 
         # Fermer/supprimer fichier original (dechiffre)
-        tmp_file_video.close()
+        # tmp_file_video.close()
 
         # Traiter et uploader le snapshot
         await traiter_image(job, tmp_file_snapshot, context, info_video=probe)
@@ -198,7 +201,7 @@ async def uploader_images(
 
     # Transmettre commande associer
     producer = await context.get_producer()
-    await producer.command(commande_associer, domain='GrosFichiers', action='associerConversions', exchange='2.prive')
+    await producer.command(commande_associer, domain='GrosFichiers', action='associerConversions', exchange='3.protege')
 
 
 def preparer_commande_associer(
