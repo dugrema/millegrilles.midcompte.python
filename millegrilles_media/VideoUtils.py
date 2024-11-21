@@ -14,18 +14,37 @@ async def probe_video(filepath, count_frames=False) -> dict:
         None
     )
 
-    if count_frames and video_stream.get('nb_frames') is None:
-        # Compter le nombre de frames (plus lent)
-        try:
-            probe_info_read = asyncio.to_thread(ffmpeg.probe, filepath,
-                                                select_streams='v:0', count_frames=None, show_entries='stream=nb_read_frames')
-            # Injecter le nombre de frames dans le probe_info precedent
-            nb_read_frames = probe_info_read['streams'][0]['nb_read_frames']
-            video_stream['nb_frames'] = nb_read_frames
-        except ffmpeg.Error:
-            LOGGER.exception("probe_video Erreur FFMPEG")
-        except:
-            LOGGER.exception("probe_video Erreur fallback sur count_frames, nombre de frames inconnu")
+    frame_rate = video_stream.get('avg_frame_rate') or video_stream.get('r_frame_rate')
+    try:
+        duration = float(info_probe['format']['duration'])
+    except (KeyError, ValueError):
+        LOGGER.debug("Duree du video non disponible")
+        duration = None
+    nb_frames = video_stream.get('nb_frames')
+    if nb_frames is None:
+        if count_frames:
+            # Compter le nombre de frames (plus lent)
+            try:
+                probe_info_read = asyncio.to_thread(ffmpeg.probe, filepath,
+                                                    select_streams='v:0', count_frames=None, show_entries='stream=nb_read_frames')
+                # Injecter le nombre de frames dans le probe_info precedent
+                nb_read_frames = probe_info_read['streams'][0]['nb_read_frames']
+                nb_frames = nb_read_frames
+            except ffmpeg.Error:
+                LOGGER.exception("probe_video Erreur FFMPEG")
+            except:
+                LOGGER.exception("probe_video Erreur fallback sur count_frames, nombre de frames inconnu")
+        elif frame_rate and duration:
+            try:
+                # Estimer le nombre de frames
+                n, t = frame_rate.split('/')
+                n = int(n)
+                t = int(t)
+                frames_sec = float(n/t)
+                frames = frames_sec * duration
+                nb_frames = int(frames)
+            except:
+                LOGGER.exception("Erreur calcul nombre de frames")
 
     info_video = dict()
 
@@ -35,16 +54,13 @@ async def probe_video(filepath, count_frames=False) -> dict:
     except StopIteration:
         audio_stream = None
 
-    try:
-        info_video['duration'] = float(info_probe['format']['duration'])
-    except KeyError:
-        LOGGER.info("Duree du video non disponible")
+    if duration:
+        info_video['duration'] = duration
 
     if video_stream is not None:
         codec_video = video_stream['codec_name']
         info_video['videoCodec'] = codec_video
         try:
-            nb_frames = video_stream['nb_frames']
             info_video['metadata'] = {'nbFrames': nb_frames}
         except KeyError:
             pass
@@ -59,7 +75,7 @@ async def probe_video(filepath, count_frames=False) -> dict:
     info_video['height'] = height
     info_video['resolution'] = min(width, height)
     try:
-        info_video['frames'] = int(video_stream['nb_frames'])
+        info_video['frames'] = nb_frames
     except KeyError:
         pass
 

@@ -554,7 +554,7 @@ async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, cont
     try:
         info_probe = await probe_video(pathlib.Path(tmp_file_video.name))
         try:
-            duration = float(info_probe['format']['duration'])
+            duration = info_probe['duration']
             snapshot_position = int(duration * 0.2) + 1
             if snapshot_position > duration:
                 snapshot_position = 0
