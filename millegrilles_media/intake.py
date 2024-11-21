@@ -107,15 +107,10 @@ class IntakeHandler:
     async def _traiter_fichier(self, job: dict, tmp_file) -> dict:
         raise NotImplementedError('must override')
 
-    # async def get_prochain_fichier(self) -> Optional[dict]:
-    #     raise NotImplementedError('must override')
-
     async def annuler_job(self, job, emettre_evenement=False):
         raise NotImplementedError('must override')
 
     async def _downloader_dechiffrer_fichier(self, decrypted_key: bytes, job: dict, tmp_file):
-        # information_dechiffrage = job['cle'].copy()
-
         fuuid = job['fuuid']
         decipher = get_decipher_cle_secrete(decrypted_key, job)
 
@@ -147,25 +142,6 @@ class IntakeJobImage(IntakeHandler):
     def get_job_type(self) -> str:
         return 'image'
 
-    # async def get_prochain_fichier(self) -> Optional[dict]:
-    #     try:
-    #         producer = await self._context.get_producer()
-    #         filehost_id = self._context.filehost['filehost_id']
-    #         requete = {'filehost_id': filehost_id}
-    #         job = await producer.executer_commande(
-    #             requete, 'GrosFichiers', 'getJobImage', exchange="4.secure")
-    #
-    #         if job.parsed['ok'] is True:
-    #             self.__logger.debug("Executer job image : %s" % job)
-    #             return job.parsed
-    #         else:
-    #             self.__logger.debug("Aucune job d'images disponible")
-    #
-    #     except Exception as e:
-    #         self.__logger.exception("Erreur recuperation job image : %s" % e)
-    #
-    #     return None
-
     async def _traiter_fichier(self, job, tmp_file):
         self.__logger.debug("Traiter image %s" % job)
         mimetype: str = job['mimetype']
@@ -188,7 +164,7 @@ class IntakeJobImage(IntakeHandler):
 
         producer = await self._context.get_producer()
         await producer.command(
-            reponse, 'GrosFichiers', 'supprimerJobImage', exchange='3.protege',
+            reponse, 'GrosFichiers', 'supprimerJobImageV2', exchange='3.protege',
             nowait=True
         )
 
