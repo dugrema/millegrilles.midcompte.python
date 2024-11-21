@@ -164,6 +164,63 @@ async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, cont
         except KeyError:
             snapshot_position = 5  # Mettre a 5 secondes, duree non disponible
 
+        # Detecter subtitles
+        audio = list()
+        subtitles = list()
+        try:
+            streams = probe['streams']
+            for idx in range(0, len(streams)):
+                stream = streams[idx]
+                try:
+                    codec_type = stream['codec_type']
+                except KeyError:
+                    continue  # Aucun type identifie
+
+                if codec_type == 'subtitle':
+                    subtitle_info = {'index': idx}
+                    try:
+                        subtitle_info['language'] = stream['tags']['language']
+                    except KeyError:
+                        pass
+                    subtitles.append(subtitle_info)
+                elif codec_type == 'audio':
+                    audio_info = {'index': idx}
+                    try:
+                        audio_info['codec_name'] = stream['codec_name']
+                    except KeyError:
+                        pass
+                    try:
+                        bit_rate = stream['bit_rate']
+                        if isinstance(bit_rate, str):
+                            bit_rate = int(bit_rate)
+                        audio_info['bit_rate'] = bit_rate
+                    except (KeyError, ValueError):
+                        pass
+                    try:
+                        audio_info['default'] = stream['disposition']['default']==1
+                    except KeyError:
+                        pass
+                    try:
+                        audio_info['language'] = stream['tags']['language']
+                    except KeyError:
+                        pass
+                    try:
+                        title: str = stream['tags']['title']
+                        title = title.replace("\"", "")
+                        title = title.strip()
+                        audio_info['title'] = title
+                    except KeyError:
+                        pass
+                    audio.append(audio_info)
+
+            if len(subtitles) > 0:
+                probe['subtitles'] = subtitles
+            if len(audio) > 0:
+                probe['audio'] = audio
+
+        except KeyError:
+            pass  # Aucuns streams, doit etre invalide (pas de video, audio)
+
         stream = ffmpeg \
             .input(tmp_file_video.name, ss=snapshot_position) \
             .output(tmp_file_snapshot.name, vframes=1) \
@@ -258,5 +315,15 @@ def preparer_commande_associer(
         if audio_stream is not None:
             codec_audio = audio_stream['codec_name']
             commande_associer['audioCodec'] = codec_audio
+
+        try:
+            commande_associer['audio'] = info_video['audio']
+        except KeyError:
+            pass
+
+        try:
+            commande_associer['subtitles'] = info_video['subtitles']
+        except KeyError:
+            pass
 
     return commande_associer
