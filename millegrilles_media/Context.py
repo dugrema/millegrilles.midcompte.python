@@ -46,7 +46,7 @@ class MediaContext(MilleGrillesBusContext):
 
         # Pick URL
         url, tls_method = MediaContext.__load_url(value)
-        self.__filehost_url = url
+        self.__filehost_url = url.geturl()
         self.__tls_method = tls_method
 
         # Configure ssl context for the filehost

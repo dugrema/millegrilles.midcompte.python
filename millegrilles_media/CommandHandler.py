@@ -1,4 +1,8 @@
+import datetime
 import logging
+import asyncio
+
+from asyncio import TaskGroup
 
 from typing import Any, Callable, Coroutine, Optional
 
@@ -26,6 +30,7 @@ class CommandHandler:
         self.__current_image_processing_consumer: Optional[MilleGrillesPikaQueueConsumer] = None
         self.__channel_video_processing: Optional[MilleGrillesPikaChannel] = None
         self.__current_video_processing_consumer: Optional[MilleGrillesPikaQueueConsumer] = None
+        self.__filehost_update_queue = asyncio.Queue(maxsize=2)
 
     async def setup(self):
         channel_triggers = create_trigger_q_channel(self.__context, self.on_trigger)
@@ -40,6 +45,22 @@ class CommandHandler:
         if configuration.video_processing:
             self.__channel_video_processing = MilleGrillesPikaChannel(self.__context, prefetch_count=1)
             await self.__context.bus_connector.add_channel(self.__channel_video_processing)
+
+    async def run(self):
+        async with TaskGroup() as group:
+            group.create_task(self.__update_filehosting_task())
+
+        await self.__filehost_update_queue.put(None)  # Exit thread
+
+    async def __update_filehosting_task(self):
+        while self.__context.stopping is False:
+            filehost = await self.__filehost_update_queue.get()
+            if filehost is None:
+                break  # Exit condition
+
+            filehost_id = filehost.filehost_id
+            if self.__current_filehost_id != filehost_id:
+                await self.__activate_processing_listeners(filehost_id)
 
     async def on_trigger(self, message: MessageWrapper):
         pass
@@ -88,12 +109,15 @@ class CommandHandler:
             delegation_globale = None
 
         action = message.routage['action']
+        estampille = message.estampille
+        message_age = datetime.datetime.now().timestamp() - estampille
         payload = message.parsed
 
         if action == 'processImage':
-            raise NotImplementedError()
+            if Constantes.SECURITE_PROTEGE in exchanges and Constantes.DOMAINE_GROS_FICHIERS in domaines and message_age < 180:
+                return await self.__media_manager.process_image_job(payload)
 
-        self.__logger.info("on_volatile_message Ignoring unknown image action %s" % action)
+        self.__logger.info("on_volatile_message Ignoring unknown image action / wrong security %s" % action)
 
     async def on_video_processing_message(self, message: MessageWrapper):
         # Authorization check - 3.protege/CoreTopologie
@@ -125,16 +149,7 @@ class CommandHandler:
         :return:
         """
         self.__logger.debug("on_filehosting_update Triggered")
-        try:
-            filehost_id = filehost.filehost_id
-        except AttributeError:
-            # No filehost
-            self.__current_filehost_id = None
-            await self.__remove_processing_listeners()
-        else:
-            if self.__current_filehost_id != filehost_id:
-                # await self.__remove_processing_listeners()
-                await self.__activate_processing_listeners(filehost_id)
+        await self.__filehost_update_queue.put(filehost)
 
     async def __activate_processing_listeners(self, filehost_id: str):
         await self.__remove_processing_listeners()
@@ -196,24 +211,3 @@ def create_exclusive_q_channel(context: MilleGrillesBusContext, on_message: Call
     volatile_q_channel.add_queue(volatile_q)
 
     return volatile_q_channel
-
-def create_processing_channel(context: MilleGrillesBusContext,
-                              on_message: Callable[[MessageWrapper], Coroutine[Any, Any, None]]) -> MilleGrillesPikaChannel:
-    processing_channel = MilleGrillesPikaChannel(context, prefetch_count=1)
-
-    # volatile_q = MilleGrillesPikaQueueConsumer(context, on_message, 'media/volatile',
-    #                                           arguments={'x-message-ttl': 30000}, allow_user_messages=True)
-    # volatile_q.add_routing_key(RoutingKey(Constantes.SECURITE_PUBLIC, 'requete.filecontroler.domainesBackupV2'))
-    # processing_channel.add_queue(volatile_q)
-
-    return processing_channel
-
-# def create_volatile_channel(context: MilleGrillesBusContext, on_message: Callable[[MessageWrapper], Coroutine[Any, Any, None]]) -> MilleGrillesPikaChannel:
-#     volatile_q_channel = MilleGrillesPikaChannel(context, prefetch_count=1)
-#
-#     volatile_q = MilleGrillesPikaQueueConsumer(context, on_message, 'media/volatile',
-#                                               arguments={'x-message-ttl': 30000}, allow_user_messages=True)
-#     volatile_q_channel.add_queue(volatile_q)
-#     # volatile_q.add_routing_key(RoutingKey(Constantes.SECURITE_PUBLIC, 'requete.filecontroler.domainesBackupV2'))
-#
-#     return volatile_q_channel

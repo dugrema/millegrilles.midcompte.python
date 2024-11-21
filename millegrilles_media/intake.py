@@ -1,3 +1,4 @@
+import asyncio
 from urllib.parse import urljoin
 
 import aiohttp
@@ -10,6 +11,7 @@ from ssl import SSLContext
 
 from asyncio import Event
 
+from millegrilles_messages.messages import Constantes
 from millegrilles_media.Context import MediaContext
 from millegrilles_media.TransfertFichiers import filehost_authenticate
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher_cle_secrete
@@ -33,6 +35,9 @@ class IntakeHandler:
         cert_path = config.cert_pem_path
         self.__ssl_context = SSLContext()
         self.__ssl_context.load_cert_chain(cert_path, config.key_pem_path)
+
+    def get_job_type(self) -> str:
+        raise NotImplementedError('must implement')
 
     # async def trigger_traitement(self):
     #     self.__logger.info('IntakeHandler trigger fichiers recu')
@@ -110,6 +115,38 @@ class IntakeHandler:
     #             self.__event_fichiers.clear()
 
     async def process_job(self, job: dict):
+        try:
+            decrypted_key: bytes = await self.__get_key(job)
+        except asyncio.TimeoutError:
+            self.__logger.error("Timeout getting decryption key, aborting")
+            return
+        except KeyRetrievalException as e:
+            self.__logger.error("process_job Error getting key for job, aborting processing: %s" % str(e))
+            return
+
+        job['decrypted_key'] = decrypted_key
+
+        try:
+            await self.__run_job(job)
+        except:
+            self.__logger.exception("Unhandled exception in process_job")
+
+    async def __get_key(self, job: dict) -> bytes:
+        producer = await self._context.get_producer()
+        response = await producer.command({'job_id': job['job_id'], 'queue': self.get_job_type()},
+                                          'GrosFichiers', 'jobGetKey', Constantes.SECURITE_PROTEGE,
+                                          domain_check=["GrosFichiers", "MaitreDesCles"])
+        parsed = response.parsed
+
+        if parsed.get('ok') is not True:
+            raise KeyRetrievalException('Error getting key: %s' % parsed.get('err'))
+
+        decrypted_key = parsed['cles'][0]['cle_secrete_base64']
+        decrypted_key_bytes: bytes = multibase.decode('m'+decrypted_key)
+
+        return decrypted_key_bytes
+
+    async def __run_job(self, job: dict):
         dir_staging = self._context.configuration.dir_staging
 
         # Downloader/dechiffrer
@@ -128,7 +165,7 @@ class IntakeHandler:
         # tmp_file = tempfile.NamedTemporaryFile()
         tmp_file = class_tempfile(dir=dir_staging)
         try:
-            await self._downloader_dechiffrer_fichier(job, tmp_file)
+            await self._downloader_dechiffrer_fichier(job['decrypted_key'], job, tmp_file)
             tmp_file.seek(0)  # Rewind pour traitement
             self.__logger.debug("Fichier a indexer est dechiffre (fp tmp)")
             try:
@@ -141,7 +178,7 @@ class IntakeHandler:
             if tmp_file.closed is False:
                 tmp_file.close()
 
-    async def _traiter_fichier(self, job, tmp_file) -> dict:
+    async def _traiter_fichier(self, job: dict, tmp_file) -> dict:
         raise NotImplementedError('must override')
 
     # async def get_prochain_fichier(self) -> Optional[dict]:
@@ -150,17 +187,15 @@ class IntakeHandler:
     async def annuler_job(self, job, emettre_evenement=False):
         raise NotImplementedError('must override')
 
-    async def _downloader_dechiffrer_fichier(self, job, tmp_file):
-        information_dechiffrage = job['cle'].copy()
-
-        # Ajuster format de cle pour multibase
-        cle: bytes = multibase.decode('m' + information_dechiffrage['cle_secrete_base64'])
+    async def _downloader_dechiffrer_fichier(self, decrypted_key: bytes, job: dict, tmp_file):
+        # information_dechiffrage = job['cle'].copy()
 
         fuuid = job['fuuid']
-        decipher = get_decipher_cle_secrete(cle, information_dechiffrage)
+        decipher = get_decipher_cle_secrete(decrypted_key, job)
 
         timeout = aiohttp.ClientTimeout(connect=5, total=600)
-        connector = aiohttp.TCPConnector(ssl=self.__ssl_context)
+        # connector = aiohttp.TCPConnector(ssl=self.__ssl_context)
+        connector = self._context.get_tcp_connector()
         async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             session.verify = self._context.tls_method != 'nocheck'
 
@@ -182,6 +217,9 @@ class IntakeJobImage(IntakeHandler):
     def __init__(self, context: MediaContext):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         super().__init__(context)
+
+    def get_job_type(self) -> str:
+        return 'image'
 
     # async def get_prochain_fichier(self) -> Optional[dict]:
     #     try:
@@ -217,13 +255,14 @@ class IntakeJobImage(IntakeHandler):
             return
 
         reponse = {
+            'job_id': job['job_id'],
+            'tuuid': job['tuuid'],
             'fuuid': job['fuuid'],
-            'user_id': job['user_id'],
         }
 
         producer = await self._context.get_producer()
-        await producer.executer_commande(
-            reponse, 'GrosFichiers', 'supprimerJobImage', exchange='4.secure',
+        await producer.command(
+            reponse, 'GrosFichiers', 'supprimerJobImage', exchange='3.protege',
             nowait=True
         )
 
@@ -307,3 +346,7 @@ class IntakeJobVideo(IntakeHandler):
                 reponse, 'GrosFichiers', 'supprimerJobVideo', exchange='4.secure',
                 nowait=True
             )
+
+
+class KeyRetrievalException(Exception):
+    pass

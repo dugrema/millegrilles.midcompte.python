@@ -69,6 +69,7 @@ async def wiring(context: MediaContext) -> list[Awaitable]:
         context.run(),
         bus_connector.run(),
         manager.run(),
+        command_handler.run(),
     ]
 
     return coros

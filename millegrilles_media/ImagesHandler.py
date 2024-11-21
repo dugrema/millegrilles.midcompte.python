@@ -26,9 +26,10 @@ async def traiter_image(job, tmp_file, context: MediaContext, info_video: Option
     loop = asyncio.get_running_loop()
 
     # clecert = etat_media.clecertificat
-    info_dechiffrage = job['cle']
-    cle_bytes: bytes = multibase.decode('m' + info_dechiffrage['cle_secrete_base64'])
-    cle_id = info_dechiffrage['cle_id']
+    # info_dechiffrage = job['cle']
+    # cle_bytes: bytes = multibase.decode('m' + info_dechiffrage['cle_secrete_base64'])
+    cle_bytes: bytes = job['decrypted_key']
+    cle_id = job['cle_id']
     # cle_bytes = clecert.dechiffrage_asymmetrique(cle['cle'])
 
     dir_staging = context.configuration.dir_staging
@@ -186,7 +187,8 @@ async def uploader_images(
 
     # Uploader les fichiers temporaires
     timeout = aiohttp.ClientTimeout(connect=5, total=240)
-    connector = aiohttp.TCPConnector(ssl=context.ssl_context)
+    # connector = aiohttp.TCPConnector(ssl=context.ssl_context)
+    connector = context.get_tcp_connector()
     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
         session.verify = context.tls_method != 'nocheck'
 
@@ -196,8 +198,7 @@ async def uploader_images(
 
     # Transmettre commande associer
     producer = await context.get_producer()
-    await producer.executer_commande(commande_associer,
-                                     domaine='GrosFichiers', action='associerConversions', exchange='2.prive')
+    await producer.command(commande_associer, domain='GrosFichiers', action='associerConversions', exchange='2.prive')
 
 
 def preparer_commande_associer(
@@ -217,9 +218,10 @@ def preparer_commande_associer(
     }
 
     commande_associer = {
+        'job_id': job['job_id'],
         'tuuid': job['tuuid'],
         'fuuid': job['fuuid'],
-        'user_id': job['user_id'],
+        # 'user_id': job['user_id'],
         'width': info_original['width'],
         'height': info_original['height'],
         'mimetype': info_original['mimetype'],
