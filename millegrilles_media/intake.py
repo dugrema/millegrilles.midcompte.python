@@ -39,84 +39,10 @@ class IntakeHandler:
     def get_job_type(self) -> str:
         raise NotImplementedError('must implement')
 
-    # async def trigger_traitement(self):
-    #     self.__logger.info('IntakeHandler trigger fichiers recu')
-    #     self.__event_fichiers.set()
-
-    # async def run(self):
-    #     self.__logger.info('IntakeHandler running')
-    #     try:
-    #         async with TaskGroup() as group:
-    #             group.create_task(self.traiter_fichiers())
-    #             group.create_task(self.__wait_stop())
-    #     except* ForceTerminateExecution:
-    #         pass
-
-    # async def __wait_stop(self):
-    #     await self._context.wait()
-    #     raise ForceTerminateExecution()  # Stopping
-
-    # async def traiter_fichiers(self):
-    #
-    #     while not self._context.stopping:
-    #         try:
-    #             if self.__event_fichiers.is_set() is False:
-    #                 await asyncio.wait_for(self.__event_fichiers.wait(), timeout=20)
-    #                 self.__event_fichiers.set()
-    #         except TimeoutError:
-    #             self.__logger.debug("Verifier si fichier disponible pour indexation")
-    #             self.__event_fichiers.set()
-    #         else:
-    #             if self._context.stopping:
-    #                 self.__logger.info('Arret loop traiter_fichiers')
-    #                 break
-    #
-    #         try:
-    #             # Requete prochain fichier
-    #             job = await self.get_prochain_fichier()
-    #
-    #             if job is not None:
-    #                 dir_staging = self._context.configuration.dir_staging
-    #
-    #                 # Downloader/dechiffrer
-    #                 fuuid = job['fuuid']
-    #                 mimetype = job['mimetype']
-    #
-    #                 # Les videos (ffmpeg) utilisent un fichier avec nom
-    #                 if est_video(mimetype):
-    #                 # if mimetype.lower().startswith('video/'):
-    #                     class_tempfile = tempfile.NamedTemporaryFile
-    #                 else:
-    #                     class_tempfile = tempfile.TemporaryFile
-    #
-    #                 self.__logger.debug("Downloader %s" % fuuid)
-    #                 # with class_tempfile() as tmp_file:
-    #                 # tmp_file = tempfile.NamedTemporaryFile()
-    #                 tmp_file = class_tempfile(dir=dir_staging)
-    #                 try:
-    #                     await self.downloader_dechiffrer_fichier(job, tmp_file)
-    #                     tmp_file.seek(0)  # Rewind pour traitement
-    #                     self.__logger.debug("Fichier a indexer est dechiffre (fp tmp)")
-    #                     try:
-    #                         # Traitement
-    #                         await self._traiter_fichier(job, tmp_file)
-    #                     except Exception as e:
-    #                         self.__logger.exception("Erreur traitement - annuler pour %s : %s" % (job, e))
-    #                         await self.annuler_job(job, True)
-    #                 finally:
-    #                     if tmp_file.closed is False:
-    #                         tmp_file.close()
-    #
-    #             else:
-    #                 self.__event_fichiers.clear()
-    #         except Exception as e:
-    #             self.__logger.exception("traiter_fichiers Erreur traitement : %s" % e)
-    #             # Erreur generique non geree. Creer un delai de traitement pour poursuivre
-    #             self.__event_fichiers.clear()
-
     async def process_job(self, job: dict):
         try:
             decrypted_key: bytes = await self.__get_key(job)
+            job['decrypted_key'] = decrypted_key
         except asyncio.TimeoutError:
             self.__logger.error("Timeout getting decryption key, aborting")
             return
@@ -124,12 +50,10 @@ class IntakeHandler:
             self.__logger.error("process_job Error getting key for job, aborting processing: %s" % str(e))
             return
 
-        job['decrypted_key'] = decrypted_key
-
         try:
             await self.__run_job(job)
         except:
-            self.__logger.exception("Unhandled exception in process_job")
+            self.__logger.exception("Unhandled exception in process_job - will retry")
 
     async def __get_key(self, job: dict) -> bytes:
         producer = await self._context.get_producer()
@@ -155,19 +79,21 @@ class IntakeHandler:
 
         # Les videos (ffmpeg) utilisent un fichier avec nom
         if est_video(mimetype):
-            # if mimetype.lower().startswith('video/'):
             class_tempfile = tempfile.NamedTemporaryFile
         else:
             class_tempfile = tempfile.TemporaryFile
 
         self.__logger.debug("Downloader %s" % fuuid)
-        # with class_tempfile() as tmp_file:
-        # tmp_file = tempfile.NamedTemporaryFile()
         tmp_file = class_tempfile(dir=dir_staging)
         try:
-            await self._downloader_dechiffrer_fichier(job['decrypted_key'], job, tmp_file)
-            tmp_file.seek(0)  # Rewind pour traitement
-            self.__logger.debug("Fichier a indexer est dechiffre (fp tmp)")
+            try:
+                await self._downloader_dechiffrer_fichier(job['decrypted_key'], job, tmp_file)
+                tmp_file.seek(0)  # Rewind pour traitement
+                self.__logger.debug("Fichier a indexer est dechiffre (fp tmp)")
+            except:
+                self.__logger.exception("Unhandled exception in download - will retry later")
+                return
+
             try:
                 # Traitement
                 await self._traiter_fichier(job, tmp_file)
@@ -337,7 +263,7 @@ class IntakeJobVideo(IntakeHandler):
             self.__logger.debug("annuler_job courante : aucune job courante - emettre message d'annulation")
 
         if emettre_commande:
-            reponse = {
+            commande = {
                 'ok': False,
                 'job_id': job['job_id'],
                 'fuuid': job['fuuid'],
@@ -347,7 +273,7 @@ class IntakeJobVideo(IntakeHandler):
 
             producer = await self._context.get_producer()
             await producer.command(
-                reponse, 'GrosFichiers', 'supprimerJobVideo', exchange='3.protege',
+                commande, 'GrosFichiers', 'supprimerJobVideoV2', exchange='3.protege',
                 nowait=True
             )
 

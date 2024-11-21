@@ -5,7 +5,6 @@ import multibase
 
 from typing import Optional
 
-import ffmpeg
 from wand.image import Image
 from wand.color import Color
 
@@ -141,103 +140,6 @@ def chiffrer_image(img: Image, cle_bytes: bytes, cle_id: str, tmp_out: Optional[
     return info_fichier
 
 
-async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, context: MediaContext):
-    """
-    Genere un thumbnail/small jpg et poster webp
-    :param job:
-    :param tmp_file_video:
-    :param context:
-    :return:
-    """
-    loop = asyncio.get_running_loop()
-
-    # Extraire un snapshot de reference du video
-    dir_staging = context.configuration.dir_staging
-    tmp_file_snapshot = tempfile.NamedTemporaryFile(dir=dir_staging, suffix='.jpg')
-    try:
-        probe = ffmpeg.probe(tmp_file_video.name)
-        try:
-            duration = float(probe['format']['duration'])
-            snapshot_position = int(duration * 0.2) + 1
-            if snapshot_position > duration:
-                snapshot_position = 0
-        except KeyError:
-            snapshot_position = 5  # Mettre a 5 secondes, duree non disponible
-
-        # Detecter subtitles
-        audio = list()
-        subtitles = list()
-        try:
-            streams = probe['streams']
-            for idx in range(0, len(streams)):
-                stream = streams[idx]
-                try:
-                    codec_type = stream['codec_type']
-                except KeyError:
-                    continue  # Aucun type identifie
-
-                if codec_type == 'subtitle':
-                    subtitle_info = {'index': idx}
-                    try:
-                        subtitle_info['language'] = stream['tags']['language']
-                    except KeyError:
-                        pass
-                    subtitles.append(subtitle_info)
-                elif codec_type == 'audio':
-                    audio_info = {'index': idx}
-                    try:
-                        audio_info['codec_name'] = stream['codec_name']
-                    except KeyError:
-                        pass
-                    try:
-                        bit_rate = stream['bit_rate']
-                        if isinstance(bit_rate, str):
-                            bit_rate = int(bit_rate)
-                        audio_info['bit_rate'] = bit_rate
-                    except (KeyError, ValueError):
-                        pass
-                    try:
-                        audio_info['default'] = stream['disposition']['default']==1
-                    except KeyError:
-                        pass
-                    try:
-                        audio_info['language'] = stream['tags']['language']
-                    except KeyError:
-                        pass
-                    try:
-                        title: str = stream['tags']['title']
-                        title = title.replace("\"", "")
-                        title = title.strip()
-                        audio_info['title'] = title
-                    except KeyError:
-                        pass
-                    audio.append(audio_info)
-
-            if len(subtitles) > 0:
-                probe['subtitles'] = subtitles
-            if len(audio) > 0:
-                probe['audio'] = audio
-
-        except KeyError:
-            pass  # Aucuns streams, doit etre invalide (pas de video, audio)
-
-        stream = ffmpeg \
-            .input(tmp_file_video.name, ss=snapshot_position) \
-            .output(tmp_file_snapshot.name, vframes=1) \
-            .overwrite_output()
-
-        await asyncio.to_thread(stream.run)
-
-        # Fermer/supprimer fichier original (dechiffre)
-        # tmp_file_video.close()
-
-        # Traiter et uploader le snapshot
-        await traiter_image(job, tmp_file_snapshot, context, info_video=probe)
-    finally:
-        if tmp_file_snapshot.closed is False:
-            tmp_file_snapshot.close()
-
-
 async def uploader_images(
         context: MediaContext, job: dict, info_original: dict, thumbnail, small, large,
         tmpfile_small: tempfile.TemporaryFile, tmpfile_large: tempfile.TemporaryFile,
@@ -292,29 +194,42 @@ def preparer_commande_associer(
         commande_associer['anime'] = True
 
     if info_video is not None:
-        video_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'video'].__iter__())
+        # video_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'video'].__iter__())
+        # try:
+        #     audio_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'audio'].__iter__())
+        # except StopIteration:
+        #     audio_stream = None
+        commande_associer['mimetype'] = mimetype  # Override mimetype image snapshot
         try:
-            audio_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'audio'].__iter__())
-        except StopIteration:
-            audio_stream = None
-        commande_associer['mimetype'] = job['mimetype']  # Override mimetype image snapshot
-        try:
-            commande_associer['duration'] = float(info_video['format']['duration'])
+            commande_associer['duration'] = float(info_video['duration'])
         except KeyError:
             pass  # Duration non disponible
 
-        if video_stream is not None:
-            codec_video = video_stream['codec_name']
-            commande_associer['videoCodec'] = codec_video
-            try:
-                nb_frames = video_stream['nb_frames']
-                commande_associer['metadata'] = {'nbFrames': nb_frames}
-            except KeyError:
-                pass
+        try:
+            commande_associer['videoCodec'] = info_video['videoCodec']
+        except KeyError:
+            pass
+        try:
+            commande_associer['audioCodec'] = info_video['audioCodec']
+        except KeyError:
+            pass
+        try:
+            commande_associer['metadata'] = {"nb_frames": info_video['metadata']['nbFrames']}
+        except KeyError:
+            pass
 
-        if audio_stream is not None:
-            codec_audio = audio_stream['codec_name']
-            commande_associer['audioCodec'] = codec_audio
+        # if video_stream is not None:
+        #     codec_video = video_stream['codec_name']
+        #     commande_associer['videoCodec'] = info_video['videoCodec']
+        #     try:
+        #         nb_frames = video_stream['nb_frames']
+        #         commande_associer['metadata'] = {'nbFrames': nb_frames}
+        #     except KeyError:
+        #         pass
+        #
+        # if audio_stream is not None:
+        #     codec_audio = audio_stream['codec_name']
+        #     commande_associer['audioCodec'] = codec_audio
 
         try:
             commande_associer['audio'] = info_video['audio']

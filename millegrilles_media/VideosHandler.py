@@ -1,23 +1,24 @@
-import logging
-from asyncio import create_task
-
 import aiohttp
 import asyncio
 import datetime
+import logging
 import os
+import pathlib
 import signal
 import socket
 import sys
 import tempfile
 
+from asyncio import create_task
 from typing import Optional
 
 import ffmpeg
 import multibase
 
 from millegrilles_media.Context import MediaContext
-from millegrilles_media.ImagesHandler import traiter_poster_video
+from millegrilles_media.ImagesHandler import traiter_image
 from millegrilles_media.TransfertFichiers import uploader_fichier, chiffrer_fichier, filehost_authenticate
+from millegrilles_media.VideoUtils import probe_video
 
 LOGGER = logging.getLogger(__name__)
 
@@ -135,19 +136,21 @@ class VideoConversionJob:
         try:
             flag_thumbnails = params['thumbnails']
         except KeyError:
+            info_probe = None
             pass  # No thumbnails to create
         else:
-            await traiter_poster_video(self.job, self.tmp_file, self.context)
+            info_probe = await traiter_poster_video(self.job, self.tmp_file, self.context)
             self.tmp_file.seek(0)
 
-        await self.__transcode()
+        await self.__transcode(info_probe)
 
-    async def __transcode(self):
+    async def __transcode(self, info_probe: Optional[dict]):
         dir_staging = self.context.configuration.dir_staging
         tmp_transcode = tempfile.NamedTemporaryFile(dir=dir_staging)
         try:
             # Convertir le video
-            params_conversion = await convertir_progress(self.context, self.job, self.tmp_file, tmp_transcode, self.progress_handler, self.cancel_event)
+            params_conversion = await transcoder_video(
+                self.context, self.job, info_probe, self.tmp_file, tmp_transcode, self.progress_handler, self.cancel_event)
             mimetype_output = 'video/%s' % params_conversion['format']
             self.job['mimetype_output'] = mimetype_output
 
@@ -178,7 +181,7 @@ async def chiffrer_video(context: MediaContext, job: dict, tmp_input: tempfile.N
     LOGGER.debug("probe fichier video transcode : %s" % tmp_input.name)
     tmp_input.seek(0)
     tmp_input.flush()
-    info_video = await asyncio.to_thread(probe_video, tmp_input.name)
+    info_video = await probe_video(pathlib.Path(tmp_input.name))
 
     # clecert = context.signing_key
     # cle = job['cle']
@@ -205,65 +208,6 @@ async def chiffrer_video(context: MediaContext, job: dict, tmp_input: tempfile.N
     }
 
     info_video.update(info_fichier)
-
-    return info_video
-
-
-def probe_video(filepath) -> dict:
-    info_probe = ffmpeg.probe(filepath)
-
-    # Verifier si on a le nombre de frames
-    video_stream = next(
-        (stream for stream in info_probe['streams'] if stream['codec_type'] == 'video'),
-        None)
-    if video_stream.get('nb_frames') is None:
-        # Compter le nombre de frames (plus lent)
-        try:
-            probe_info_read = ffmpeg.probe(filepath, select_streams='v:0', count_frames=None,
-                                           show_entries='stream=nb_read_frames')
-            # Injecter le nombre de frames dans le probe_info precedent
-            nb_read_frames = probe_info_read['streams'][0]['nb_read_frames']
-            video_stream['nb_frames'] = nb_read_frames
-        except ffmpeg.Error:
-            LOGGER.exception("probe_video Erreur FFMPEG")
-        except:
-            LOGGER.exception("probe_video Erreur fallback sur count_frames, nombre de frames inconnu")
-
-    info_video = dict()
-
-    video_stream = next((stream for stream in info_probe['streams'] if stream['codec_type'] == 'video'), None)
-    try:
-        audio_stream = next([s for s in info_probe['streams'] if s['codec_type'] == 'audio'].__iter__())
-    except StopIteration:
-        audio_stream = None
-
-    try:
-        info_video['duration'] = float(info_probe['format']['duration'])
-    except KeyError:
-        LOGGER.info("Duree du video non disponible")
-
-    if video_stream is not None:
-        codec_video = video_stream['codec_name']
-        info_video['videoCodec'] = codec_video
-        try:
-            nb_frames = video_stream['nb_frames']
-            info_video['metadata'] = {'nbFrames': nb_frames}
-        except KeyError:
-            pass
-
-    if audio_stream is not None:
-        codec_audio = audio_stream['codec_name']
-        info_video['audioCodec'] = codec_audio
-
-    width = int(video_stream['width'])
-    height = int(video_stream['height'])
-    info_video['width'] = width
-    info_video['height'] = height
-    info_video['resolution'] = min(width, height)
-    try:
-        info_video['frames'] = int(video_stream['nb_frames'])
-    except KeyError:
-        pass
 
     return info_video
 
@@ -469,28 +413,28 @@ ARGS_OVERRIDE_GEOLOC = [
   '-metadata', 'location-eng='
 ]
 
+async def transcoder_video(context: MediaContext, job: dict,
+                           probe_info: Optional[dict],
+                           src_file: tempfile.NamedTemporaryFile,
+                           dest_file: tempfile.NamedTemporaryFile,
+                           progress_handler: ProgressHandler,
+                           cancel_event: Optional[asyncio.Event] = None) -> Optional[dict]:
 
-async def convertir_progress(context: MediaContext, job: dict,
-                             src_file: tempfile.NamedTemporaryFile,
-                             dest_file: tempfile.NamedTemporaryFile,
-                             progress_handler: ProgressHandler,
-                             cancel_event: Optional[asyncio.Event] = None) -> Optional[dict]:
-
-    loop = asyncio.get_running_loop()
     dir_staging = context.configuration.dir_staging
 
     LOGGER.debug("convertir_progress executer probe")
-    probe_info_coroutine = [create_task(asyncio.to_thread(probe_video, src_file.name))]
+    if probe_info is None:
+        probe_info_coroutine = [create_task(asyncio.to_thread(probe_video, src_file.name))]
 
-    probe_info = None
-    while probe_info is None:
-        await progress_handler.emettre_progres(0, 'probe')
-        done, probe_info_coroutine = await asyncio.wait(probe_info_coroutine, timeout=10)
-        for r in done:
-            e = r.exception()
-            if e:
-                raise e
-            probe_info = r.result()
+        probe_info = None
+        while probe_info is None:
+            await progress_handler.emettre_progres(0, 'probe')
+            done, probe_info_coroutine = await asyncio.wait(probe_info_coroutine, timeout=10)
+            for r in done:
+                e = r.exception()
+                if e:
+                    raise e
+                probe_info = r.result()
 
     LOGGER.debug("convertir_progress probe info %s" % probe_info)
     try:
@@ -514,26 +458,48 @@ async def convertir_progress(context: MediaContext, job: dict,
             else:
                 scaling = f'scale={resolution}:-2'
 
+            if params.get('defaults') == 'true':
+                # Verifier si on a des sous-titres de detectes
+                try:
+                    add_subtitles = probe_info['subtitles'] is not None
+                except KeyError:
+                    # Aucuns sous-titres
+                    add_subtitles = False
+            elif params.get('subtitles'):
+                add_subtitles = True
+            else:
+                add_subtitles = False
+
             params_output = get_profil(job)
+
             job['profil'] = params_output
-            params_output['vf'] = scaling
             if params_output['vcodec'] == 'hevc':
                 # Metatadata pour ios
                 params_output['tag:v'] = 'hvc1'
+
+            if add_subtitles:
+                # vf += f",subtitles='{src_file.name}':si=0"
+                params_output['filter_complex'] = f'[0:v][0:s]overlay[ov];[ov]{scaling}[v]'
+                params_output['map'] = ['[v]', '0:a']
+                pass
+            else:
+                params_output['vf'] = [scaling]
 
             args_output = ARGS_OVERRIDE_GEOLOC.copy()
             args_output.append('-progress')
             args_output.append(f'unix://{socket_filename}')
 
-            LOGGER.debug("Params output ffmpeg : %s" % params_output)
+            LOGGER.debug("ffmpeg params output : %s" % params_output)
             stream = ffmpeg.input(src_file.name)
             stream = stream.output(dest_file.name, **params_output)
             stream = stream.global_args(*args_output)
             stream = stream.overwrite_output()
 
+            LOGGER.debug("FFMPEG args:\n%s" % stream.get_args())
+
             ffmpeg_process = stream.run_async(pipe_stdout=True, pipe_stderr=True)
             try:
-                run_ffmpeg = loop.run_in_executor(None, run_stream, ffmpeg_process)
+                run_ffmpeg = asyncio.create_task(asyncio.to_thread(run_stream, ffmpeg_process))
                 watcher = asyncio.create_task(_do_watch_progress(sock1, progress_handler.traiter_event))
                 jobs = [run_ffmpeg, watcher]
                 if cancel_event is not None:
@@ -572,3 +538,40 @@ async def convertir_progress(context: MediaContext, job: dict,
                 if ffmpeg_process is not None:
                     LOGGER.error("Cancelling ffmpeg process %s" % ffmpeg_process.pid)
                     os.kill(ffmpeg_process.pid, signal.SIGINT)
+
+
+async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, context: MediaContext) -> dict:
+    """
+    Genere un thumbnail/small jpg et poster webp
+    :param job:
+    :param tmp_file_video:
+    :param context:
+    :return:
+    """
+    # Extraire un snapshot de reference du video
+    dir_staging = context.configuration.dir_staging
+    tmp_file_snapshot = tempfile.NamedTemporaryFile(dir=dir_staging, suffix='.jpg')
+    try:
+        info_probe = await probe_video(pathlib.Path(tmp_file_video.name))
+        try:
+            duration = float(info_probe['format']['duration'])
+            snapshot_position = int(duration * 0.2) + 1
+            if snapshot_position > duration:
+                snapshot_position = 0
+        except KeyError:
+            snapshot_position = 5  # Mettre a 5 secondes, duree non disponible
+
+        stream = ffmpeg \
+            .input(tmp_file_video.name, ss=snapshot_position) \
+            .output(tmp_file_snapshot.name, vframes=1) \
+            .overwrite_output()
+
+        await asyncio.to_thread(stream.run)
+
+        # Traiter et uploader le snapshot
+        await traiter_image(job, tmp_file_snapshot, context, info_video=info_probe)
+
+        return info_probe
+    finally:
+        if tmp_file_snapshot.closed is False:
+            tmp_file_snapshot.close()
