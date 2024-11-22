@@ -4,13 +4,16 @@ ENV BUILD_FOLDER=/opt/millegrilles/build \
     BUNDLE_FOLDER=/opt/millegrilles/dist \
     PYTHONPATH=/opt/millegrilles/dist \
     SRC_FOLDER=/opt/millegrilles/build/src \
-    CA_PEM=/run/secrets/pki.millegrille.cert \
-    MQ_HOSTNAME=mq, \
-    MQ_PORT=5673, \
-    MG_REDIS_HOST=redis \
-    MG_REDIS_PORT=6379 \
-    CERT_PEM=/run/secrets/cert.pem \
-    KEY_PEM=/run/secrets/key.pem
+    CA_PATH=/run/secrets/millegrille.cert.pem \
+    CERT_PATH=/run/secrets/cert.pem \
+    KEY_PATH=/run/secrets/key.pem \
+    MQ_HOSTNAME=mq \
+    MQ_PORT=5673 \
+    REDIS_HOSTNAME=redis \
+    REDIS_PASSWORD_PATH=/run/secrets/passwd.redis.txt \
+    REDIS_PORT=6379
+
+REDIS_PASSWORD_PATH=/var/opt/millegrilles/secrets/passwd.redis.txt
 
 COPY . $BUILD_FOLDER
 
