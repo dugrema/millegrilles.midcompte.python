@@ -9,7 +9,7 @@ import socket
 import sys
 import tempfile
 
-from asyncio import create_task
+from asyncio import create_task, TaskGroup
 from typing import Optional
 
 import ffmpeg
@@ -413,6 +413,15 @@ ARGS_OVERRIDE_GEOLOC = [
   '-metadata', 'location-eng='
 ]
 
+async def emettre_progres_thread(stop: asyncio.Event, progress_handler: ProgressHandler):
+    while stop.is_set() is False:
+        await progress_handler.emettre_progres(0, 'probe')
+        try:
+            await asyncio.wait_for(stop.wait(), 10)
+            return  # Done
+        except asyncio.TimeoutError:
+            pass
+
 async def transcoder_video(context: MediaContext, job: dict,
                            probe_info: Optional[dict],
                            src_file: tempfile.NamedTemporaryFile,
@@ -424,17 +433,14 @@ async def transcoder_video(context: MediaContext, job: dict,
 
     LOGGER.debug("convertir_progress executer probe")
     if probe_info is None:
-        probe_info_coroutine = [create_task(asyncio.to_thread(probe_video, src_file.name))]
-
-        probe_info = None
-        while probe_info is None:
-            await progress_handler.emettre_progres(0, 'probe')
-            done, probe_info_coroutine = await asyncio.wait(probe_info_coroutine, timeout=10)
-            for r in done:
-                e = r.exception()
-                if e:
-                    raise e
-                probe_info = r.result()
+        async with TaskGroup() as group:
+            stop = asyncio.Event()
+            group.create_task(emettre_progres_thread(stop, progress_handler))
+            task_probe = group.create_task(probe_video(src_file.name))
+            try:
+                probe_info = await task_probe
+            finally:
+                stop.set()
 
     LOGGER.debug("convertir_progress probe info %s" % probe_info)
     try:
