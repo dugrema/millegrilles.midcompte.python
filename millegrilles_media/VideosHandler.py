@@ -480,6 +480,7 @@ async def transcoder_video(context: MediaContext, job: dict,
                 try:
                     add_subtitles = probe_info['subtitles'] is not None
                     subtitle_idx = 0
+                    params['subtitle_stream_idx'] = subtitle_idx  # Injecter param (utilise pour cle_conversion)
                 except KeyError:
                     pass  # Aucuns sous-titres
 
