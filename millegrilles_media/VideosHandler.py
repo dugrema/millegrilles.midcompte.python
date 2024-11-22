@@ -467,7 +467,7 @@ async def transcoder_video(context: MediaContext, job: dict,
             width = probe_info['width']
             params = job['params']
             resolution = params.get('resolutionVideo') or probe_info['resolution']
-            audio_idx = params.get('audio_stream_idx') or 0
+            audio_idx = params.get('audio_stream_idx') or '0?'  # Support audio optionnel si non specifie
             subtitle_idx = params.get('subtitle_stream_idx')
 
             if width > height:
@@ -506,7 +506,7 @@ async def transcoder_video(context: MediaContext, job: dict,
                 params_output['vf'] = scaling
 
             # Map output streams. Remove subtitles, only keep 1 video and 1 audio (if present)
-            params_output['map'] = [video_stream, f'0:a:{audio_idx}?']
+            params_output['map'] = [video_stream, f'0:a:{audio_idx}']
 
             args_output = ARGS_OVERRIDE_GEOLOC.copy()
             args_output.append('-progress')
