@@ -289,6 +289,10 @@ def preparer_commande_associer(job: dict, info_chiffrage: dict) -> dict:
     codec_audio = profil['acodec']
 
     cle_conversion = f'{params['mimetype']};{codec_video};{params['resolutionVideo']}p;{params['qualityVideo']}'
+    if params.get('audio_stream_idx'):
+        cle_conversion += f';a{params['audio_stream_idx']}'
+    if params.get('subtitle_stream_idx') is not None:
+        cle_conversion += f';s{params['subtitle_stream_idx']}'
 
     commande = {
         "job_id": job['job_id'],  # Ajoute dans 2024.9
@@ -296,6 +300,8 @@ def preparer_commande_associer(job: dict, info_chiffrage: dict) -> dict:
         "fuuid": job['fuuid'],
         "user_id": job['user_id'],
         "quality": params['qualityVideo'],
+        "audio_stream_idx": params.get('audio_stream_idx'),
+        "subtitle_stream_idx": params.get('subtitle_stream_idx'),
 
         "codec": codec_video,
         "codec_audio": codec_audio,
@@ -461,6 +467,8 @@ async def transcoder_video(context: MediaContext, job: dict,
             width = probe_info['width']
             params = job['params']
             resolution = params.get('resolutionVideo') or probe_info['resolution']
+            audio_idx = params.get('audio_stream_idx') or 0
+            subtitle_idx = params.get('subtitle_stream_idx')
 
             if width > height:
                 scaling = f'scale=-2:{resolution}'
@@ -471,13 +479,9 @@ async def transcoder_video(context: MediaContext, job: dict,
                 # Verifier si on a des sous-titres de detectes
                 try:
                     add_subtitles = probe_info['subtitles'] is not None
+                    subtitle_idx = 0
                 except KeyError:
-                    # Aucuns sous-titres
-                    add_subtitles = False
-            elif params.get('subtitles'):
-                add_subtitles = True
-            else:
-                add_subtitles = False
+                    pass  # Aucuns sous-titres
 
             params_output = get_profil(job)
 
@@ -486,18 +490,22 @@ async def transcoder_video(context: MediaContext, job: dict,
                 # Metatadata pour ios
                 params_output['tag:v'] = 'hvc1'
 
-            if add_subtitles:
+            video_stream = '0:v'
+            if subtitle_idx is not None:
                 # Determiner type de sous-titre
                 try:
-                    codec_subtitle: str = probe_info['subtitles'][0]['codec_name']
+                    codec_subtitle: str = probe_info['subtitles'][subtitle_idx]['codec_name']
                     idx = codec_subtitle.lower().index('dvd')  # Raises ValueError if not found
-                    params_output['filter_complex'] = f'[0:v][0:s]overlay[ov];[ov]{scaling}[v]'
-                    params_output['map'] = ['[v]', '0:a']
+                    params_output['filter_complex'] = f'[0:v][0:s:{subtitle_idx}]overlay[ov];[ov]{scaling}[v]'
+                    video_stream = '[v]'
                 except (IndexError, KeyError, ValueError):
                     # Try to load standard subtitles
-                    params_output['vf'] = ','.join([scaling, f'subtitles={src_file.name}:si=0'])
+                    params_output['vf'] = ','.join([scaling, f'subtitles={src_file.name}:si={subtitle_idx}'])
             else:
                 params_output['vf'] = scaling
+
+            # Map output streams. Remove subtitles, only keep 1 video and 1 audio (if present)
+            params_output['map'] = [video_stream, f'0:a:{audio_idx}?']
 
             args_output = ARGS_OVERRIDE_GEOLOC.copy()
             args_output.append('-progress')
