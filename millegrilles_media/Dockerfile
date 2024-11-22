@@ -13,8 +13,6 @@ ENV BUILD_FOLDER=/opt/millegrilles/build \
     REDIS_PASSWORD_PATH=/run/secrets/passwd.redis.txt \
     REDIS_PORT=6379
 
-REDIS_PASSWORD_PATH=/var/opt/millegrilles/secrets/passwd.redis.txt
-
 COPY . $BUILD_FOLDER
 
 WORKDIR /opt/millegrilles/build
