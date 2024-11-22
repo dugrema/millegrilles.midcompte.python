@@ -41,7 +41,10 @@ class ProgressHandler:
 
     @frames.setter
     def frames(self, frames):
-        self.__frames = frames
+        if isinstance(frames, (float, int)):
+            self.__frames = frames
+        elif isinstance(frames, str):
+            self.__frames = int(frames)
 
     async def annuler(self):
         self.__stop_emission = True
