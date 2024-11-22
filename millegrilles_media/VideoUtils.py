@@ -97,6 +97,10 @@ async def probe_video(filepath, count_frames=False) -> dict:
                     subtitle_info['language'] = stream['tags']['language']
                 except KeyError:
                     pass
+                try:
+                    subtitle_info['codec_name'] = stream['codec_name']
+                except KeyError:
+                    pass
                 subtitles.append(subtitle_info)
             elif codec_type == 'audio':
                 audio_info = {'index': idx}

@@ -1,3 +1,5 @@
+from multiprocessing.managers import Value
+
 import aiohttp
 import asyncio
 import datetime
@@ -467,7 +469,7 @@ async def transcoder_video(context: MediaContext, job: dict,
             else:
                 scaling = f'scale={resolution}:-2'
 
-            if params.get('defaults') == 'true':
+            if params.get('defaults'):
                 # Verifier si on a des sous-titres de detectes
                 try:
                     add_subtitles = probe_info['subtitles'] is not None
@@ -487,12 +489,17 @@ async def transcoder_video(context: MediaContext, job: dict,
                 params_output['tag:v'] = 'hvc1'
 
             if add_subtitles:
-                # vf += f",subtitles='{src_file.name}':si=0"
-                params_output['filter_complex'] = f'[0:v][0:s]overlay[ov];[ov]{scaling}[v]'
-                params_output['map'] = ['[v]', '0:a']
-                pass
+                # Determiner type de sous-titre
+                try:
+                    codec_subtitle: str = probe_info['subtitles'][0]['codec_name']
+                    idx = codec_subtitle.lower().index('dvd')  # Raises ValueError if not found
+                    params_output['filter_complex'] = f'[0:v][0:s]overlay[ov];[ov]{scaling}[v]'
+                    params_output['map'] = ['[v]', '0:a']
+                except (IndexError, KeyError, ValueError):
+                    # Try to load standard subtitles
+                    params_output['vf'] = ','.join([scaling, f'subtitles={src_file.name}:si=0'])
             else:
-                params_output['vf'] = [scaling]
+                params_output['vf'] = scaling
 
             args_output = ARGS_OVERRIDE_GEOLOC.copy()
             args_output.append('-progress')
