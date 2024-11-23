@@ -5,7 +5,7 @@ import ssl
 from typing import Optional
 from urllib.parse import urlparse
 
-from millegrilles_media.Configuration import ConfigurationMedia
+from millegrilles_solr.Configuration import ConfigurationRelaiSolr
 from millegrilles_messages.bus.BusContext import MilleGrillesBusContext
 from millegrilles_messages.bus.PikaConnector import MilleGrillesPikaConnector
 from millegrilles_messages.structs.Filehost import Filehost
@@ -15,7 +15,7 @@ LOGGER = logging.getLogger(__name__)
 
 class SolrContext(MilleGrillesBusContext):
 
-    def __init__(self, configuration: ConfigurationMedia):
+    def __init__(self, configuration: ConfigurationRelaiSolr):
         super().__init__(configuration)
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__bus_connector: Optional[MilleGrillesPikaConnector] = None

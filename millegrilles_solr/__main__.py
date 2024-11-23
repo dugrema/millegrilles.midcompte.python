@@ -62,6 +62,7 @@ async def wiring(context: SolrContext) -> list[Awaitable]:
     request_handler = RequetesHandler(solr_dao)
     manager = SolrManager(context, intake, solr_dao, request_handler)
 
+    # Setup
     bus_handler = MgbusHandler(context, manager)
     manager.add_filehost_listener(bus_handler.on_filehosting_update)
     await bus_handler.setup()

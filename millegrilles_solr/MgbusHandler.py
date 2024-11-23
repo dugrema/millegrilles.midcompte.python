@@ -142,7 +142,7 @@ class MgbusHandler:
             auto_delete=True,  # remove queue to avoid piling up messages for a filehost with no processors
             arguments={'x-message-ttl': 180000})
         index_consumer.add_routing_key(
-            RoutingKey(Constantes.SECURITE_PROTEGE, f'commande.media.{filehost_id}.processImage'))
+            RoutingKey(Constantes.SECURITE_PROTEGE, f'commande.solrrelai.{filehost_id}.processIndex'))
         self.__current_index_processing_consumer = index_consumer
         await self.__channel_index_processing.add_queue_consume(self.__current_index_processing_consumer)
 
@@ -207,9 +207,9 @@ def create_requests_q_channel(context: MilleGrillesBusContext, on_message: Calla
 
 
 def create_commands_q_channel(context: MilleGrillesBusContext, on_message: Callable[[MessageWrapper], Coroutine[Any, Any, None]]) -> MilleGrillesPikaChannel:
-    requests_q_channel = MilleGrillesPikaChannel(context, prefetch_count=1)
-    requests_q = MilleGrillesPikaQueueConsumer(context, on_message, "solrrelai/volatiles", arguments={'x-message-ttl': 180_000})
-    requests_q.add_routing_key(RoutingKey(Constantes.SECURITE_PROTEGE, f'evenement.GrosFichiers.{ConstantesRelaiSolr.EVENEMENT_REINDEXER_CONSIGNATION}'))
-    requests_q.add_routing_key(RoutingKey(Constantes.SECURITE_PROTEGE, f'commande.solrrelai.{ConstantesRelaiSolr.COMMANDE_SUPPRIMER_TUUIDS}'))
-    requests_q_channel.add_queue(requests_q)
-    return requests_q_channel
+    commands_q_channel = MilleGrillesPikaChannel(context, prefetch_count=1)
+    commands_q = MilleGrillesPikaQueueConsumer(context, on_message, "solrrelai/volatiles", arguments={'x-message-ttl': 180_000})
+    commands_q.add_routing_key(RoutingKey(Constantes.SECURITE_PROTEGE, f'evenement.GrosFichiers.{ConstantesRelaiSolr.EVENEMENT_REINDEXER_CONSIGNATION}'))
+    commands_q.add_routing_key(RoutingKey(Constantes.SECURITE_PROTEGE, f'commande.solrrelai.{ConstantesRelaiSolr.COMMANDE_SUPPRIMER_TUUIDS}'))
+    commands_q_channel.add_queue(commands_q)
+    return commands_q_channel

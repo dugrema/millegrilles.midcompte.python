@@ -36,7 +36,12 @@ class SolrManager:
         await self.__solr_dao.initialiser_solr()
 
     async def run(self):
-        await self.__solr_dao.ping()
+        try:
+            await self.__solr_dao.ping()
+        except:
+            self.__logger.exception("Error connecting to solr (ping failed). Quitting.")
+            self.__context.stop()
+            return
 
         async with TaskGroup() as group:
             group.create_task(self.__reload_filehost_thread())

@@ -28,8 +28,10 @@ class SolrDao:
         return self.__context.configuration.solr_url
 
     def __session(self, timeout: Optional[aiohttp.ClientTimeout] = None) -> aiohttp.ClientSession:
-        ssl_context = self.__context.ssl_context
-        connector = aiohttp.TCPConnector(ssl=ssl_context, verify_ssl=True)
+        #ssl_context = self.__context.ssl_context
+        #connector = aiohttp.TCPConnector(ssl=ssl_context, verify_ssl=True)
+        #return aiohttp.ClientSession(connector=connector, timeout=timeout)
+        connector = aiohttp.TCPConnector(verify_ssl=False)
         return aiohttp.ClientSession(connector=connector, timeout=timeout)
 
     # def configure(self):
