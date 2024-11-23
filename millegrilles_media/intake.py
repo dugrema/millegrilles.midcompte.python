@@ -115,7 +115,6 @@ class IntakeHandler:
         decipher = get_decipher_cle_secrete(decrypted_key, job)
 
         timeout = aiohttp.ClientTimeout(connect=5, total=600)
-        # connector = aiohttp.TCPConnector(ssl=self.__ssl_context)
         connector = self._context.get_tcp_connector()
         async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             session.verify = self._context.tls_method != 'nocheck'
@@ -178,28 +177,6 @@ class IntakeJobVideo(IntakeHandler):
 
     def get_job_type(self) -> str:
         return 'video'
-
-    # async def get_prochain_fichier(self) -> Optional[dict]:
-    #     try:
-    #         producer = await self._context.get_producer()
-    #         filehost_id = self._context.filehost['filehost_id']
-    #         requete = {
-    #             'filehost_id': filehost_id,
-    #             'fallback': self._context.configuration.fallback_only,
-    #         }
-    #         job = await producer.executer_commande(
-    #             requete, 'GrosFichiers', 'getJobVideo', exchange="4.secure")
-    #
-    #         if job.parsed['ok'] is True:
-    #             self.__logger.debug("Executer job video : %s" % job)
-    #             return job.parsed
-    #         else:
-    #             self.__logger.debug("Aucune job de videos disponible")
-    #
-    #     except Exception as e:
-    #         self.__logger.exception("Erreur recuperation job video : %s" % e)
-    #
-    #     return None
 
     async def _traiter_fichier(self, job, tmp_file):
         self.__logger.debug("Traiter video %s" % job['job_id'])
