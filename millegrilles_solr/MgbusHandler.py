@@ -138,10 +138,11 @@ class MgbusHandler:
         action = message.routage['action']
         payload = message.parsed
 
-        if message_kind == Constantes.KIND_EVENEMENT and action == ConstantesRelaiSolr.EVENEMENT_REINDEXER_CONSIGNATION and delegation_globale:
-            return await self.__reset_index_fichiers()
-        elif message_kind == Constantes.KIND_COMMANDE and action == ConstantesRelaiSolr.COMMANDE_SUPPRIMER_TUUIDS and user_id:
-            return await self.__solr_manager.supprimer_tuuids(user_id, payload)
+        if message_kind == Constantes.KIND_COMMANDE:
+            if action == ConstantesRelaiSolr.COMMANDE_SUPPRIMER_TUUIDS and user_id:
+                return await self.__solr_manager.supprimer_tuuids(user_id, payload)
+            elif action == ConstantesRelaiSolr.COMMANDE_REINDEXER_CONSIGNATION and Constantes.SECURITE_PROTEGE in enveloppe.get_exchanges:
+                return await self.__reset_index_fichiers()
 
         self.__logger.info("on_command_message Ignoring unknown action %s" % action)
 
@@ -240,7 +241,7 @@ def create_requests_q_channel(context: MilleGrillesBusContext, on_message: Calla
 def create_commands_q_channel(context: MilleGrillesBusContext, on_message: Callable[[MessageWrapper], Coroutine[Any, Any, None]]) -> MilleGrillesPikaChannel:
     commands_q_channel = MilleGrillesPikaChannel(context, prefetch_count=1)
     commands_q = MilleGrillesPikaQueueConsumer(context, on_message, "solrrelai/volatiles", arguments={'x-message-ttl': 180_000})
-    commands_q.add_routing_key(RoutingKey(Constantes.SECURITE_PROTEGE, f'evenement.GrosFichiers.{ConstantesRelaiSolr.EVENEMENT_REINDEXER_CONSIGNATION}'))
+    commands_q.add_routing_key(RoutingKey(Constantes.SECURITE_PROTEGE, f'commande.solrrelai.{ConstantesRelaiSolr.COMMANDE_REINDEXER_CONSIGNATION}'))
     commands_q.add_routing_key(RoutingKey(Constantes.SECURITE_PROTEGE, f'commande.solrrelai.{ConstantesRelaiSolr.COMMANDE_SUPPRIMER_TUUIDS}'))
     commands_q_channel.add_queue(commands_q)
     return commands_q_channel
