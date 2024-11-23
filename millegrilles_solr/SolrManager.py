@@ -99,7 +99,7 @@ class SolrManager:
         # Supprimer tous les documents indexes
         await self.__solr_dao.reset_index(self.__solr_dao.nom_collection_fichiers)
 
-    async def supprimer_tuuids(self, user_id: str, params: dict):
+    async def supprimer_tuuids(self, params: dict):
         tuuids = params['tuuids']
         self.__logger.debug("Supprimer tuuids de l'index: %s" % tuuids)
         await self.__solr_dao.supprimer_tuuids(self.__solr_dao.nom_collection_fichiers, tuuids)

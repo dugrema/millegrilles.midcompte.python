@@ -125,22 +125,14 @@ class MgbusHandler:
 
         # Authorization check - 3.protege/CoreTopologie
         enveloppe = message.certificat
-        try:
-            delegation_globale = enveloppe.get_delegation_globale == Constantes.DELEGATION_GLOBALE_PROPRIETAIRE
-        except ExtensionNotFound:
-            delegation_globale = False
-        try:
-            user_id = enveloppe.get_user_id
-        except ExtensionNotFound:
-            user_id = None
 
         message_kind = message.kind
         action = message.routage['action']
         payload = message.parsed
 
         if message_kind == Constantes.KIND_COMMANDE:
-            if action == ConstantesRelaiSolr.COMMANDE_SUPPRIMER_TUUIDS and user_id:
-                return await self.__solr_manager.supprimer_tuuids(user_id, payload)
+            if action == ConstantesRelaiSolr.COMMANDE_SUPPRIMER_TUUIDS and Constantes.SECURITE_PROTEGE in enveloppe.get_exchanges:
+                return await self.__solr_manager.supprimer_tuuids(payload)
             elif action == ConstantesRelaiSolr.COMMANDE_REINDEXER_CONSIGNATION and Constantes.SECURITE_PROTEGE in enveloppe.get_exchanges:
                 return await self.__reset_index_fichiers()
 
