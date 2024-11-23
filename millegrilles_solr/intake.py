@@ -1,5 +1,5 @@
 # Intake de fichiers a indexer
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urljoin
 
 import aiohttp
 import asyncio
@@ -9,246 +9,212 @@ import tempfile
 import multibase
 
 from typing import Optional
-from ssl import SSLContext
-
-from asyncio import Event, TimeoutError, wait, FIRST_COMPLETED, gather, TaskGroup
 
 from millegrilles_messages.messages import Constantes
-from millegrilles_messages.bus.BusContext import ForceTerminateExecution
 from millegrilles_messages.messages.Hachage import convertir_hachage_mb_hex
-from millegrilles_messages.messages.MessagesModule import MessageWrapper
 from millegrilles_messages.chiffrage.DechiffrageUtils import dechiffrer_document_secrete, get_decipher_cle_secrete
-from millegrilles_solr.EtatRelaiSolr import EtatRelaiSolr
+from millegrilles_solr.Context import SolrContext
 from millegrilles_solr.solrdao import SolrDao
 
 
 class IntakeHandler:
 
-    def __init__(self, stop_event: Event, etat_relai_solr: EtatRelaiSolr, solr_dao: SolrDao):
+    def __init__(self, context: SolrContext, solr_dao: SolrDao):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-        self._etat_relaisolr = etat_relai_solr
+        self.__context = context
         self.__solr_dao = solr_dao
-        self.__event_fichiers: Event = None
-        self.__stop_event = stop_event
-        self.__ssl_context: Optional[SSLContext] = None
+        self.__event_fichiers = asyncio.Event()
 
-    async def configurer(self):
-        self.__event_fichiers = Event()
-
-        config = self._etat_relaisolr.configuration
-        cert_path = config.cert_pem_path
-        self.__ssl_context = SSLContext()
-        self.__ssl_context.load_cert_chain(cert_path, config.key_pem_path)
-
-    async def trigger_fichiers(self):
-        self.__logger.info('IntakeHandler trigger fichiers recu')
-        self.__event_fichiers.set()
-
-    async def reset_index_fichiers(self):
-        self.__logger.info('IntakeHandler trigger fichiers recu')
-
-        # Bloquer temporairement traitement de l'indexation
-        self.__event_fichiers.clear()
-
-        # Supprimer tous les documents indexes
-        await self.__solr_dao.reset_index(self.__solr_dao.nom_collection_fichiers)
-
-        # Redemarrer l'indexaction
-        self.__event_fichiers.set()
-
-    async def supprimer_tuuids(self, message: MessageWrapper):
-        contenu = message.parsed
-        tuuids = contenu['tuuids']
-        self.__logger.debug("Supprimer tuuids de l'index: %s" % tuuids)
-        await self.__solr_dao.supprimer_tuuids(self.__solr_dao.nom_collection_fichiers, tuuids)
-        return {'ok': True}
-
-    async def __stop_thread(self):
-        await self.__stop_event.wait()
-        raise ForceTerminateExecution()
-
-    async def run(self):
-        self.__logger.info('IntakeHandler running')
+    async def process_job(self, job: dict):
         try:
-            async with TaskGroup() as group:
-                group.create_task(self.traiter_fichiers())
-                group.create_task(self.__stop_thread())
-        except* ForceTerminateExecution:
+            decrypted_key: bytes = await self.__get_key(job)
+            job['decrypted_key'] = decrypted_key
+        except asyncio.TimeoutError:
+            self.__logger.error("Timeout getting decryption key, aborting")
+            return
+        except KeyRetrievalException as e:
+            self.__logger.error("process_job Error getting key for job, aborting processing: %s" % str(e))
+            return
+
+        try:
+            await self.__run_job(job)
+        except:
+            self.__logger.exception("Unhandled exception in process_job - will retry")
+
+    async def __get_key(self, job: dict) -> bytes:
+        producer = await self.__context.get_producer()
+        response = await producer.command({'job_id': job['job_id'], 'queue': 'index'},
+                                          'GrosFichiers', 'jobGetKey', Constantes.SECURITE_PROTEGE,
+                                          domain_check=["GrosFichiers", "MaitreDesCles"])
+        parsed = response.parsed
+
+        if parsed.get('ok') is not True:
+            raise KeyRetrievalException('Error getting key: %s' % parsed.get('err'))
+
+        decrypted_key = parsed['cles'][0]['cle_secrete_base64']
+        decrypted_key_bytes: bytes = multibase.decode('m'+decrypted_key)
+
+        return decrypted_key_bytes
+
+    # async def reset_index_fichiers(self):
+    #     self.__logger.info('IntakeHandler trigger fichiers recu')
+    #
+    #     # Bloquer temporairement traitement de l'indexation
+    #     self.__event_fichiers.clear()
+    #
+    #     # Supprimer tous les documents indexes
+    #     await self.__solr_dao.reset_index(self.__solr_dao.nom_collection_fichiers)
+    #
+    #     # Redemarrer l'indexaction
+    #     self.__event_fichiers.set()
+
+    # async def supprimer_tuuids(self, message: MessageWrapper):
+    #     contenu = message.parsed
+    #     tuuids = contenu['tuuids']
+    #     self.__logger.debug("Supprimer tuuids de l'index: %s" % tuuids)
+    #     await self.__solr_dao.supprimer_tuuids(self.__solr_dao.nom_collection_fichiers, tuuids)
+    #     return {'ok': True}
+
+    async def __run_job(self, job: dict):
+        # Downloader/dechiffrer
+        try:
+            fuuid = job['fuuid']
+            mimetype = job['mimetype']
+            if fuuid is None or mimetype is None:
+                self.__logger.error('fuuid ou mimetype None - annuler indexation')
+                await self.annuler_job(job, True)
+                return
+        except (KeyError, TypeError):
+            # Aucun fichier (e.g. un repertoire
+            mimetype = None
+            fuuid = None
+
+        # Traiter le fichier avec indexation du contenu si applicable
+        try:
+            if mimetype_supporte_fulltext(mimetype):
+                with tempfile.TemporaryFile() as tmp_file:
+                    try:
+                        await self.__downloader_dechiffrer_fichier(job['decrypted_key'], job, tmp_file)
+                    except:
+                        self.__logger.exception("Unhandled exception in download - will retry later")
+                        return
+                    tmp_file.seek(0)  # Rewind pour traitement
+                    self.__logger.debug("Fichier a indexer est dechiffre (fp tmp)")
+                    await self.__traiter_fichier(job, tmp_file)
+                return  # Indexation avec contenu terminee
+        except FichierVide:
+            # Aucun contenu du fichier, traiter comme un fichier dont le contenu n'est pas indexable
             pass
+        except Exception as e:
+            self.__logger.exception("Erreur traitement - annuler pour %s : %s" % (job, e))
+            await self.annuler_job(job, True)
+            return
 
-    async def traiter_fichiers(self):
-        while not self.__stop_event.is_set():
-            try:
-                if self.__event_fichiers.is_set() is False:
-                    await asyncio.wait_for(self.__event_fichiers.wait(), timeout=20)
-                    self.__event_fichiers.set()
-            except asyncio.TimeoutError:
-                self.__logger.debug("Verifier si fichier disponible pour indexation")
-                self.__event_fichiers.set()
-            else:
-                if self.__stop_event.is_set():
-                    self.__logger.info('Arret loop traiter_fichiers')
-                    break
+        # Traitement sans indexation du contenu
+        try:
+            await self.__traiter_fichier(job, None)
+        except Exception as e:
+            self.__logger.exception("Erreur traitement - annuler pour %s : %s" % (job, e))
+            await self.annuler_job(job, True)
 
-            try:
-                # Requete prochain fichier
-                job = await self.get_prochain_fichier()
-
-                if job is not None:
-                    user_id = job['user_id']
-                    tuuid = job['tuuid']
-
-                    # Downloader/dechiffrer
-                    try:
-                        fuuid = job['fuuid']
-                        mimetype = job['mimetype']
-                        if fuuid is None or mimetype is None:
-                            raise TypeError('fuuid ou mimetype None')
-                    except (KeyError, TypeError):
-                        # Aucun fichier (e.g. un repertoire
-                        mimetype = None
-                        fuuid = None
-                        tmp_file = None
-                    else:
-                        if mimetype_supporte_fulltext(mimetype):
-                            self.__logger.debug("traiter_fichiers Downloader %s" % fuuid)
-                            tmp_file = tempfile.TemporaryFile()
-                            try:
-                                await self.downloader_dechiffrer_fichier(job, tmp_file)
-                                tmp_file.seek(0)
-                            except aiohttp.ClientResponseError as e:
-                                if e.status == 404:
-                                    self.__logger.warning("Fichier absent (404) : %s - contenu non indexe" % fuuid)
-                                    tmp_file.close()
-                                    tmp_file = None
-                                else:
-                                    raise e
-                            except FichierVide:
-                                self.__logger.warning("Fichier vide : %s - contenu non indexe" % fuuid)
-                                tmp_file.close()
-                                tmp_file = None
-
-                            self.__logger.debug("Fichier a indexer est dechiffre (fp tmp)")
-                        else:
-                            tmp_file = None
-
-                    info_fichier = await self.dechiffrer_metadata(job)
-                    info_fichier['mimetype'] = mimetype
-                    # info_fichier['tuuid'] = tuuid
-                    info_fichier['fuuid'] = fuuid
-
-                    try:
-                        hachage_original = info_fichier['hachage_original']
-                        # Decoder la valeur multihash et re-encoder en hex
-                        hachage_original_hex = convertir_hachage_mb_hex(hachage_original)
-                        info_fichier['hachage_original'] = hachage_original_hex
-                    except KeyError:
-                        pass  # OK
-
-                    try:
-                        cuuids: Optional[list] = job['path_cuuids']
-                        if cuuids is not None:
-                            # Path cuuids commence par le parent immediat (idx:0 est le parent)
-                            # Inverser l'ordre pour l'indexation
-                            cuuids.reverse()
-                            # info_fichier['cuuids'] = '/'.join(cuuids)
-                            info_fichier['cuuids'] = cuuids
-                    except KeyError:
-                        pass  # Ok
-
-                    self.__logger.debug("Indexer fichier %s" % json.dumps(info_fichier, indent=2))
-
-                    # Indexer
-                    await self.__solr_dao.indexer(
-                        self.__solr_dao.nom_collection_fichiers, user_id, tuuid, info_fichier, tmp_file)
-
-                    # Confirmer succes de l'indexation
-                    producer = self._etat_relaisolr.producer
-                    await producer.executer_commande(
-                        {'fuuid': fuuid, 'user_id': user_id, 'tuuid': tuuid},
-                        'GrosFichiers', 'confirmerFichierIndexe', exchange='4.secure',
-                        nowait=True
-                    )
-                else:
-                    self.__event_fichiers.clear()
-            except Exception as e:
-                self.__logger.exception("traiter_fichiers Erreur traitement : %s" % e)
-                # Erreur generique non geree. Creer un delai de traitement pour poursuivre
-                self.__event_fichiers.clear()
-
-    async def get_prochain_fichier(self) -> Optional[dict]:
+    async def __traiter_fichier(self, job: dict, tmp_file: Optional[tempfile.TemporaryFile]):
+        user_id = job['user_id']
+        tuuid = job['tuuid']
 
         try:
-            producer = self._etat_relaisolr.producer
-            job_indexation = await producer.executer_commande(
-                dict(), 'GrosFichiers', 'getJobIndexation', exchange="4.secure")
-            if job_indexation.parsed['ok'] is True:
-                self.__logger.debug("Executer job indexation : %s" % job_indexation)
-                return job_indexation.parsed
-            else:
-                self.__logger.debug("Aucune job d'indexation disponible")
-        except Exception as e:
-            self.__logger.error("Erreur recuperation job indexation : %s" % e)
+            fuuid = job['fuuid']
+            mimetype = job['mimetype']
+        except (KeyError, TypeError):
+            # Aucun fichier (e.g. un repertoire
+            mimetype = None
+            fuuid = None
+            tmp_file = None
 
-        return None
+        info_fichier = await self.__dechiffrer_metadata(job)
+        info_fichier['mimetype'] = mimetype
+        info_fichier['fuuid'] = fuuid
 
-    async def dechiffrer_metadata(self, job):
-        # cle = job['cle']['cle']
-        information_dechiffrage = job['cle']
-        cle: bytes = multibase.decode('m' + information_dechiffrage['cle_secrete_base64'])
+        try:
+            hachage_original = info_fichier['hachage_original']
+            # Decoder la valeur multihash et re-encoder en hex
+            hachage_original_hex = convertir_hachage_mb_hex(hachage_original)
+            info_fichier['hachage_original'] = hachage_original_hex
+        except KeyError:
+            pass  # OK
+
+        try:
+            cuuids: Optional[list] = job['path_cuuids']
+            if cuuids is not None:
+                # Path cuuids commence par le parent immediat (idx:0 est le parent)
+                # Inverser l'ordre pour l'indexation
+                cuuids.reverse()
+                # info_fichier['cuuids'] = '/'.join(cuuids)
+                info_fichier['cuuids'] = cuuids
+        except KeyError:
+            pass  # Ok
+
+        self.__logger.debug("Indexer fichier %s" % json.dumps(info_fichier, indent=2))
+
+        # Indexer
+        await self.__solr_dao.indexer(
+            self.__solr_dao.nom_collection_fichiers, user_id, tuuid, info_fichier, tmp_file)
+
+        # Confirmer succes de l'indexation
+        producer = await self.__context.get_producer()
+        await producer.command(
+            {'fuuid': fuuid, 'user_id': user_id, 'tuuid': tuuid},
+            'GrosFichiers', 'confirmerFichierIndexe', exchange='3.protege',
+            nowait=True
+        )
+
+    async def annuler_job(self, job, emettre_evenement=False):
+        if not emettre_evenement:
+            return
+
+        reponse = {
+            'job_id': job['job_id'],
+            'tuuid': job['tuuid'],
+            'fuuid': job['fuuid'],
+        }
+
+        producer = await self.__context.get_producer()
+        await producer.command(
+            reponse, 'GrosFichiers', 'supprimerJobIndexV2', exchange='3.protege',
+            nowait=True
+        )
+
+    async def __dechiffrer_metadata(self, job):
+        cle: bytes = job['decrypted_key']
         metadata = job['metadata']
-
         doc_dechiffre = dechiffrer_document_secrete(cle, metadata)
         return doc_dechiffre
 
-    async def downloader_dechiffrer_fichier(self, job, tmp_file):
-        # cle = job['cle']['cle']
-        information_dechiffrage = job['cle']
-        cle: bytes = multibase.decode('m' + information_dechiffrage['cle_secrete_base64'])
+    async def __downloader_dechiffrer_fichier(self, decrypted_key: bytes, job: dict, tmp_file) -> int:
         fuuid = job['fuuid']
+        decipher = get_decipher_cle_secrete(decrypted_key, job)
 
-        decipher = get_decipher_cle_secrete(cle, information_dechiffrage)
-
-        url_consignation = self._etat_relaisolr.url_filehost
-        # url_fichier = f'{url_consignation}/fichiers_transfert/{fuuid}'
-        url_fichier = f'{url_consignation}/files/{fuuid}'
-
-        taille_fichier = 0
-        timeout = aiohttp.ClientTimeout(connect=5, total=240)
-        connector = aiohttp.TCPConnector(ssl=self.__ssl_context)
+        timeout = aiohttp.ClientTimeout(connect=5, total=600)
+        connector = self.__context.get_tcp_connector()
         async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-            await self.filehost_authenticate(session)
+            await filehost_authenticate(self.__context, session)
+
+            filehost_url = self.__context.filehost_url
+            url_fichier = urljoin(filehost_url, f'filehost/files/{fuuid}')
             async with session.get(url_fichier) as resp:
                 resp.raise_for_status()
 
-                async for chunk in resp.content.iter_chunked(64*1024):
+                async for chunk in resp.content.iter_chunked(64 * 1024):
                     tmp_file.write(decipher.update(chunk))
-                    taille_fichier = taille_fichier + len(chunk)
 
-        try:
-            dernier_chunk = decipher.finalize()
-            tmp_file.write(dernier_chunk)
-            taille_fichier = taille_fichier + len(dernier_chunk)
-            if taille_fichier == 0:
-                raise FichierVide('fuuid %s est vide' % fuuid)
-        except ValueError as e:
-            raise FichierVide('fuuid %s est vide (err: %s)' % (fuuid, e))
+        tmp_file.write(decipher.finalize())
 
-        # DEBUG
-        # tmp_file.seek(0)
-        # with open('/tmp/output.pdf', 'wb') as fichier:
-        #     fichier.write(tmp_file.read())
+        # Trouver position pour obtenir la taille dechiffree du fichier
+        file_size = tmp_file.tell()
+        if file_size == 0:
+            raise FichierVide()  # Aucunes donnees, indiquer que le contenu ne peut pas etre indexe
 
-    async def filehost_authenticate(self, session):
-        filehost_url = urlparse(self._etat_relaisolr.url_filehost)
-        filehost_path = filehost_url.path + '/authenticate'
-        filehost_path = filehost_path.replace('//', '/')
-        url_authenticate = urljoin(filehost_url.geturl(), filehost_path)
-        authentication_message, message_id = self._etat_relaisolr.formatteur_message.signer_message(
-            Constantes.KIND_COMMANDE, dict(), domaine='filehost', action='authenticate')
-        authentication_message['millegrille'] = self._etat_relaisolr.formatteur_message.enveloppe_ca.certificat_pem
-        async with session.post(url_authenticate, json=authentication_message) as resp:
-            resp.raise_for_status()
+        tmp_file.seek(0)
+        return file_size
 
 
 MIMETYPES_FULLTEXT = [
@@ -272,5 +238,20 @@ def mimetype_supporte_fulltext(mimetype) -> bool:
     return False
 
 
+async def filehost_authenticate(context: SolrContext, session: aiohttp.ClientSession):
+    filehost_url = context.filehost_url
+    url_authenticate = urljoin(filehost_url, '/filehost/authenticate')
+    authentication_message, message_id = context.formatteur.signer_message(
+        Constantes.KIND_COMMANDE, dict(), domaine='filehost', action='authenticate')
+    authentication_message['millegrille'] = context.formatteur.enveloppe_ca.certificat_pem
+    async with session.post(url_authenticate, json=authentication_message) as resp:
+        resp.raise_for_status()
+
+
 class FichierVide(Exception):
     pass
+
+
+class KeyRetrievalException(Exception):
+    pass
+

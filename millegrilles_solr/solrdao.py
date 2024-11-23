@@ -1,43 +1,50 @@
+import aiohttp
 import json
 import re
 import logging
+
 from tempfile import TemporaryFile
 from typing import Optional
-
-import aiohttp
 from ssl import SSLContext
+
+from millegrilles_solr.Context import SolrContext
 
 
 class SolrDao:
 
-    def __init__(self, etat_relaisolr):
+    def __init__(self, context: SolrContext):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-        self.__etat_relaisolr = etat_relaisolr
+        self.__context = context
 
-        self.__ssl_context: Optional[SSLContext] = None
+        # self.__ssl_context: Optional[SSLContext] = None
         # self.__url_solr = 'https://localhost:8983'
 
     @property
     def nom_collection_fichiers(self):
-        return self.__etat_relaisolr.configuration.nom_collection_fichiers
+        return self.__context.configuration.nom_collection_fichiers
 
     @property
     def solr_url(self):
-        return self.__etat_relaisolr.configuration.solr_url
+        return self.__context.configuration.solr_url
 
-    def configure(self):
-        config = self.__etat_relaisolr.configuration
-        cert_path = config.cert_pem_path
-        self.__logger.debug("configure Charger certificat %s" % cert_path)
-        self.__ssl_context = SSLContext()
-        self.__ssl_context.load_cert_chain(cert_path, config.key_pem_path)
-        # self.__ssl_context.load_verify_locations(capath=ca_path)  # Aucun effet sur client
+    def __session(self, timeout: Optional[aiohttp.ClientTimeout] = None) -> aiohttp.ClientSession:
+        ssl_context = self.__context.ssl_context
+        connector = aiohttp.TCPConnector(ssl=ssl_context, verify_ssl=True)
+        return aiohttp.ClientSession(connector=connector, timeout=timeout)
+
+    # def configure(self):
+    #     config = self.__context.configuration
+    #     cert_path = config.cert_pem_path
+    #     self.__logger.debug("configure Charger certificat %s" % cert_path)
+    #     self.__ssl_context = SSLContext()
+    #     self.__ssl_context.load_cert_chain(cert_path, config.key_pem_path)
+    #     # self.__ssl_context.load_verify_locations(capath=ca_path)  # Aucun effet sur client
 
     async def ping(self):
         timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with self.__session(timeout) as session:
             ping_url = f'{self.solr_url}/api'
-            async with session.get(ping_url, ssl=self.__ssl_context) as resp:
+            async with session.get(ping_url) as resp:
                 self.__logger.debug("PING status : %d" % resp.status)
                 resp.raise_for_status()
                 await resp.read()
@@ -48,11 +55,11 @@ class SolrDao:
         :return:
         """
         timeout = aiohttp.ClientTimeout(total=60)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with self.__session(timeout) as session:
 
             reload_fichiers_url = f'{self.solr_url}/api/collections/{self.nom_collection_fichiers}'
             data = {'reload': {}}
-            async with session.post(reload_fichiers_url, ssl=self.__ssl_context, json=data) as resp:
+            async with session.post(reload_fichiers_url, json=data) as resp:
                 # get_core_url = f'{self.solr_url}/solr/admin/collections/{self.nom_collection_fichiers}'
                 # async with session.get(get_core_url, ssl=self.__ssl_context) as resp:
                 #     self.__logger.debug("initialiser_solr Status collections : %d" % resp.status)
@@ -65,11 +72,11 @@ class SolrDao:
 
     async def reset_index(self, nom_collection, delete=False):
         timeout = aiohttp.ClientTimeout(total=60)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with self.__session(timeout) as session:
             if delete:
                 # Delete collections
                 delete_url = f'{self.solr_url}/api/collections/{nom_collection}'
-                async with session.delete(delete_url, ssl=self.__ssl_context) as resp:
+                async with session.delete(delete_url) as resp:
                     if resp.status != 200:
                         self.__logger.warning("reset_index Status DELETE de collections %s : %d" % (nom_collection, resp.status))
                     resp.raise_for_status()
@@ -77,7 +84,7 @@ class SolrDao:
                 # Delete data
                 data = {'delete': {'query': '*:*'}}
                 delete_url = f'{self.solr_url}/solr/{nom_collection}/update?commit=true'
-                async with session.post(delete_url, ssl=self.__ssl_context, json=data) as resp:
+                async with session.post(delete_url, json=data) as resp:
                     if resp.status != 200:
                         self.__logger.warning("reset_index Status DELETE de data collections %s : %d" % (nom_collection, resp.status))
                     else:
@@ -85,12 +92,12 @@ class SolrDao:
 
     async def supprimer_tuuids(self, nom_collection, tuuids: list[str]):
         timeout = aiohttp.ClientTimeout(total=60)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with self.__session(timeout) as session:
             # Delete data
             for tuuid in tuuids:
                 data = {'delete': {'id': tuuid}}
                 delete_url = f'{self.solr_url}/solr/{nom_collection}/update?commit=true'
-                async with session.post(delete_url, ssl=self.__ssl_context, json=data) as resp:
+                async with session.post(delete_url, json=data) as resp:
                     if resp.status != 200:
                         self.__logger.warning("supprimer_tuuids Status DELETE de id:%s collections %s : %d" % (tuuid, nom_collection, resp.status))
                     else:
@@ -105,7 +112,7 @@ class SolrDao:
         else:
             fq = f'user_id:{user_id}'
 
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with self.__session(timeout) as session:
             requete_url = f'{self.solr_url}/solr/{nom_collection}/select'
             # params = {'q': '*:*'}
             params = {
@@ -117,7 +124,7 @@ class SolrDao:
                 'start': start,
                 'rows': limit,
             }
-            async with session.get(requete_url, ssl=self.__ssl_context, params=params) as resp:
+            async with session.get(requete_url, params=params) as resp:
                 self.__logger.debug("requete response status : %d" % resp.status)
                 resp.raise_for_status()
                 return await resp.json()
@@ -136,9 +143,9 @@ class SolrDao:
         except KeyError:
             pass
         timeout = aiohttp.ClientTimeout(connect=5, total=15)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with self.__session(timeout) as session:
             data_update_url = f'{self.solr_url}/api/collections/{nom_collection}/update?commit=true'
-            async with session.post(data_update_url, ssl=self.__ssl_context, json=data) as resp:
+            async with session.post(data_update_url, json=data) as resp:
                 self.__logger.debug("_indexer_document Ajout data status: %d" % resp.status)
                 resp.raise_for_status()
                 self.__logger.debug("_indexer_document Reponse : %s", await resp.json())
@@ -160,11 +167,10 @@ class SolrDao:
         mimetype = metadata.get('mimetype') or 'application/octet-stream'
 
         timeout = aiohttp.ClientTimeout(connect=5, total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with self.__session(timeout) as session:
             data_update_url = f'{self.solr_url}/solr/{nom_collection}/update/extract'
             async with session.post(
                     data_update_url,
-                    ssl=self.__ssl_context,
                     params=params,
                     data=fichier,
                     headers={'Content-Type': mimetype}
@@ -174,19 +180,19 @@ class SolrDao:
                 self.__logger.debug("_indexer_fichier Reponse : %s", await resp.json())
 
     async def list_field_types(self):
-        async with aiohttp.ClientSession() as session:
+        async with self.__session() as session:
             requete_url = f'{self.solr_url}/solr/{self.nom_collection_fichiers}/schema/fieldtypes'
             async with session.get(requete_url, ssl=self.__ssl_context) as resp:
                 resp.raise_for_status()
                 str_formattee = json.dumps(await resp.json(), indent=2)
                 self.__logger.debug("list_field_types Reponse\n%s", str_formattee)
 
-    async def initialiser_collection_fichiers(self, session):
+    async def initialiser_collection_fichiers(self, session: aiohttp.ClientSession):
         nom_collection = self.nom_collection_fichiers
 
         create_collection_url = f'{self.solr_url}/api/collections'
         data = {'create': {'name': nom_collection, 'numShards': 1, 'replicationFactor': 1}}
-        async with session.post(create_collection_url, ssl=self.__ssl_context, json=data) as resp:
+        async with session.post(create_collection_url, json=data) as resp:
             self.__logger.debug("initialiser_solr Resultat creer %s : %d" % (nom_collection, resp.status))
             resp.raise_for_status()
             self.__logger.debug("initialiser_solr Reponse : %s", await resp.json())
@@ -199,7 +205,7 @@ class SolrDao:
                 'defaults': {"lowernames": "true", "captureAttr": "false"},
             }
         }
-        async with session.post(config_extract_url, ssl=self.__ssl_context, json=config_extract_data) as resp:
+        async with session.post(config_extract_url, json=config_extract_data) as resp:
             self.__logger.debug("initialiser_solr Resultat config extract %s : %d" % (nom_collection, resp.status))
             resp.raise_for_status()
 
@@ -220,7 +226,7 @@ class SolrDao:
             # {"name": "inStock", "type": "boolean", "stored": True},
             # {"name": "store", "type": "location"},
         ]}
-        async with session.post(schema_url, ssl=self.__ssl_context, json=data) as resp:
+        async with session.post(schema_url, json=data) as resp:
             self.__logger.debug("initialiser_solr Resultat schema : %d" % resp.status)
             resp.raise_for_status()
             self.__logger.debug("initialiser_solr Reponse : %s", await resp.json())
@@ -231,7 +237,7 @@ class SolrDao:
                 "updateHandler.autoCommit.maxTime": 15000,
             }
         }
-        async with session.post(commit_url, ssl=self.__ssl_context, json=data) as resp:
+        async with session.post(commit_url, json=data) as resp:
             self.__logger.debug("initialiser_solr Commit data test : %d" % resp.status)
             resp.raise_for_status()
             self.__logger.debug("initialiser_solr Commit reponse : %s", await resp.json())
@@ -266,10 +272,10 @@ class SolrDao:
         ]
 
         timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with self.__session(timeout) as session:
             data_update_url = f'{self.solr_url}/api/collections/{self.nom_collection_fichiers}/update?commit=true'
             for datum in data:
-                async with session.post(data_update_url, ssl=self.__ssl_context, json=datum) as resp:
+                async with session.post(data_update_url, json=datum) as resp:
                     self.__logger.debug("preparer_sample_data Ajout data test : %d" % resp.status)
                     resp.raise_for_status()
                     self.__logger.debug("preparer_sample_data Reponse : %s", await resp.json())
@@ -282,7 +288,7 @@ class SolrDao:
 
     async def preparer_sample_file(self):
         timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with self.__session(timeout) as session:
             data_update_url = f'{self.solr_url}/solr/{self.nom_collection_fichiers}/update/extract'
             with open('/home/mathieu/tas/tmp/test2.pdf', 'rb') as file:
                 params = {
@@ -295,7 +301,6 @@ class SolrDao:
                 }
                 async with session.post(
                     data_update_url,
-                    ssl=self.__ssl_context,
                     params=params,
                     data=file,
                     headers={'Content-Type': 'application/octet-stream'}
