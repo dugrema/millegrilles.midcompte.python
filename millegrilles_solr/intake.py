@@ -120,6 +120,7 @@ class IntakeHandler:
     async def __traiter_fichier(self, job: dict, tmp_file: Optional[tempfile.TemporaryFile]):
         user_id = job['user_id']
         tuuid = job['tuuid']
+        job_id = job['job_id']
 
         try:
             fuuid = job['fuuid']
@@ -162,7 +163,7 @@ class IntakeHandler:
         # Confirmer succes de l'indexation
         producer = await self.__context.get_producer()
         await producer.command(
-            {'fuuid': fuuid, 'user_id': user_id, 'tuuid': tuuid},
+            {'ok': True, 'job_id': job_id, 'fuuid': fuuid, 'user_id': user_id, 'tuuid': tuuid},
             'GrosFichiers', 'confirmerFichierIndexe', exchange='3.protege',
             nowait=True
         )
@@ -172,14 +173,16 @@ class IntakeHandler:
             return
 
         reponse = {
+            'ok': False,
             'job_id': job['job_id'],
             'tuuid': job['tuuid'],
             'fuuid': job['fuuid'],
+            'supprimer': True,
         }
 
         producer = await self.__context.get_producer()
         await producer.command(
-            reponse, 'GrosFichiers', 'supprimerJobIndexV2', exchange='3.protege',
+            reponse, 'GrosFichiers', 'confirmerFichierIndexe', exchange='3.protege',
             nowait=True
         )
 

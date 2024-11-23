@@ -98,7 +98,20 @@ class MgbusHandler:
         # Authorization check - user_id
         enveloppe = message.certificat
         try:
-            user_id = enveloppe.get_user_id
+            domaines = enveloppe.get_domaines
+        except ExtensionNotFound:
+            domaines = list()
+        try:
+            exchanges = enveloppe.get_exchanges
+        except ExtensionNotFound:
+            exchanges = list()
+        if 'GrosFichiers' in domaines and Constantes.SECURITE_PROTEGE in exchanges:
+            pass  # GrosFichiers
+        else:
+            return  # Ignore message
+
+        try:
+            user_id = payload['user_id']
         except ExtensionNotFound:
             return  # No user_id, ignore message
 
@@ -201,7 +214,7 @@ def create_exclusive_q_channel(context: MilleGrillesBusContext, on_message: Call
 def create_requests_q_channel(context: MilleGrillesBusContext, on_message: Callable[[MessageWrapper], Coroutine[Any, Any, None]]) -> MilleGrillesPikaChannel:
     requests_q_channel = MilleGrillesPikaChannel(context, prefetch_count=1)
     requests_q = MilleGrillesPikaQueueConsumer(context, on_message, "solrrelai/requests", arguments={'x-message-ttl': 30_000})
-    requests_q.add_routing_key(RoutingKey(Constantes.SECURITE_PRIVE, f'requete.solrrelai.{ConstantesRelaiSolr.REQUETE_FICHIERS}'))
+    requests_q.add_routing_key(RoutingKey(Constantes.SECURITE_PROTEGE, f'requete.solrrelai.{ConstantesRelaiSolr.REQUETE_FICHIERS}'))
     requests_q_channel.add_queue(requests_q)
     return requests_q_channel
 
