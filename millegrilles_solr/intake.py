@@ -162,7 +162,7 @@ class IntakeHandler:
         except KeyError:
             pass  # Ok
 
-        self.__logger.debug("Indexer fichier %s" % json.dumps(info_fichier, indent=2))
+        self.__logger.debug("Indexer fichier tuuid:%s\n%s" % (tuuid, json.dumps(info_fichier, indent=2)))
 
         # Indexer
         await self.__solr_dao.indexer(
