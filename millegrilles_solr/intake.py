@@ -77,13 +77,21 @@ class IntakeHandler:
 
     async def __run_job(self, job: dict):
         # Downloader/dechiffrer
+        tuuid = job['tuuid']
+        try:
+            user_id = job['user_id']
+        except KeyError:
+            self.__logger.warning("user_id manquant de la job: %s" % job)
+            await self.annuler_job(job, emettre_evenement=True)
+            return
+
         try:
             fuuid = job['fuuid']
             mimetype = job['mimetype']
-            if fuuid is None or mimetype is None:
-                self.__logger.error('fuuid ou mimetype None - annuler indexation')
-                await self.annuler_job(job, True)
-                return
+            # if fuuid is None or mimetype is None:
+            #     self.__logger.error('fuuid ou mimetype None - annuler indexation')
+            #     await self.annuler_job(job, True)
+            #     return
         except (KeyError, TypeError):
             # Aucun fichier (e.g. un repertoire
             mimetype = None
@@ -91,7 +99,7 @@ class IntakeHandler:
 
         # Traiter le fichier avec indexation du contenu si applicable
         try:
-            if mimetype_supporte_fulltext(mimetype):
+            if mimetype_supporte_fulltext(mimetype) and fuuid:
                 with tempfile.TemporaryFile() as tmp_file:
                     try:
                         await self.__downloader_dechiffrer_fichier(job['decrypted_key'], job, tmp_file)

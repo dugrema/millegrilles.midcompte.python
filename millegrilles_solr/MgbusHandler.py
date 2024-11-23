@@ -27,6 +27,7 @@ class MgbusHandler:
         self.__current_filehost_id: Optional[str] = None
         self.__channel_index_processing: Optional[MilleGrillesPikaChannel] = None
         self.__current_index_processing_consumer: Optional[MilleGrillesPikaQueueConsumer] = None
+        self.__current_all_index_processing_consumer: Optional[MilleGrillesPikaQueueConsumer] = None
         self.__filehost_update_queue = asyncio.Queue(maxsize=2)
 
     async def setup(self):
@@ -148,6 +149,17 @@ class MgbusHandler:
         await self.__remove_processing_listeners()
         self.__current_filehost_id = filehost_id
 
+        q_name = f'solrrelai/index'
+        self.__logger.debug("Activating processing listener on %s" % q_name)
+        index_consumer = MilleGrillesPikaQueueConsumer(
+            self.__context, self.on_index_processing_message, q_name,
+            auto_delete=True,  # remove queue to avoid piling up messages for a filehost with no processors
+            arguments={'x-message-ttl': 180000})
+        index_consumer.add_routing_key(
+            RoutingKey(Constantes.SECURITE_PROTEGE, f'commande.solrrelai.processIndex'))
+        self.__current_all_index_processing_consumer = index_consumer
+        await self.__channel_index_processing.add_queue_consume(self.__current_all_index_processing_consumer)
+
         q_name = f'solrrelai/{filehost_id}/index'
         self.__logger.debug("Activating processing listener on %s" % q_name)
         index_consumer = MilleGrillesPikaQueueConsumer(
@@ -160,9 +172,15 @@ class MgbusHandler:
         await self.__channel_index_processing.add_queue_consume(self.__current_index_processing_consumer)
 
     async def __remove_processing_listeners(self):
+        all_index_job_consumer = self.__current_all_index_processing_consumer
+        if all_index_job_consumer:
+            self.__logger.debug("Removing processing listener on indexing (all)")
+            self.__current_all_index_processing_consumer = None
+            await self.__channel_index_processing.remove_queue(all_index_job_consumer)
+
         index_job_consumer = self.__current_index_processing_consumer
         if index_job_consumer:
-            self.__logger.debug("Removing processing listener on indexing")
+            self.__logger.debug("Removing processing listener on indexing (filehost)")
             self.__current_index_processing_consumer = None
             await self.__channel_index_processing.remove_queue(index_job_consumer)
 
