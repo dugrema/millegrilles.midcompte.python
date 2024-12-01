@@ -67,8 +67,8 @@ async def wiring(context: StreamingContext) -> list[Awaitable]:
     # Setup, injecting additional dependencies
     context.bus_connector = bus_connector
     context.add_reload_listener(intake.clear_session)
+    await manager.setup()  # Create folders before rest of setup
     await maintenance_handler.setup()
-    await manager.setup()
     await web_server.setup()
 
     # Create tasks
