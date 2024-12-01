@@ -129,33 +129,37 @@ class IntakeHandler:
         file_info_dict = {
             'fuuid': fuuid,
             'mimetype': job.file_information.mimetype,
-            'taille': job.file_size,
-            'jwt_token': job.file_information.jwt_token
+            'file_size': job.file_size,
+            'file_position': 0,
+            # 'jwt_token': job.file_information.jwt_token  # Security issue, do not save
         }
+
+        # Use the info file as a lock on the download. Will prevent other streaming processes from starting
+        # the same download when the job is already being processed.
         with work_json_path.open(mode='wt') as fp:
             await asyncio.to_thread(json.dump, file_info_dict, fp)
 
-        try:
             try:
-                # Download and decrypt file
-                with open(work_file_path, 'wb') as fp:
-                    await self.__download_decipher_file(job, fp)
-                self.__logger.debug("File %s has been downloaded and decrypted", fuuid)
-                # Move file
-                work_file_path.rename(decrypted_file_path)
-                work_json_path.rename(json_path)
-            except:
-                self.__logger.exception("Unhandled exception in download")
-                return
-        finally:
-            # Ensure cleanup
-            job.ready_event.set()
-            try:
-                del self.__job_status[fuuid]
-            except KeyError:
-                pass  # Job already deleted
-            work_file_path.unlink(missing_ok=True)
-            work_json_path.unlink(missing_ok=True)
+                try:
+                    # Download and decrypt file
+                    with open(work_file_path, 'wb') as fp:
+                        await self.__download_decipher_file(job, fp)
+                    self.__logger.debug("File %s has been downloaded and decrypted", fuuid)
+                    # Move file
+                    work_file_path.rename(decrypted_file_path)
+                    work_json_path.rename(json_path)
+                except:
+                    self.__logger.exception("Unhandled exception in download")
+                    return
+            finally:
+                # Ensure cleanup
+                job.ready_event.set()
+                try:
+                    del self.__job_status[fuuid]
+                except KeyError:
+                    pass  # Job already deleted
+                work_file_path.unlink(missing_ok=True)
+                work_json_path.unlink(missing_ok=True)
 
     async def __download_decipher_file(self, job: IntakeJob, tmp_file):
         fuuid = job.fuuid
