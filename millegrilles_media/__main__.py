@@ -62,6 +62,7 @@ async def wiring(context: MediaContext) -> list[Awaitable]:
 
     command_handler = CommandHandler(context, manager)
     manager.add_filehost_listener(command_handler.on_filehosting_update)
+    await manager.setup()  # Create folders for other modules
     await command_handler.setup()
 
     # Create tasks

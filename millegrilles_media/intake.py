@@ -71,7 +71,7 @@ class IntakeHandler:
         return decrypted_key_bytes
 
     async def __run_job(self, job: dict):
-        dir_staging = self._context.configuration.dir_staging
+        dir_staging = self._context.dir_media_staging
 
         # Downloader/dechiffrer
         fuuid = job['fuuid']
@@ -83,13 +83,13 @@ class IntakeHandler:
         else:
             class_tempfile = tempfile.TemporaryFile
 
-        self.__logger.debug("Downloader %s" % fuuid)
+        self.__logger.debug("Download %s", fuuid)
         tmp_file = class_tempfile(dir=dir_staging)
         try:
             try:
                 await self._downloader_dechiffrer_fichier(job['decrypted_key'], job, tmp_file)
                 tmp_file.seek(0)  # Rewind pour traitement
-                self.__logger.debug("Fichier a indexer est dechiffre (fp tmp)")
+                self.__logger.debug("File has been decrypted (fp tmp)")
             except:
                 self.__logger.exception("Unhandled exception in download - will retry later")
                 return
@@ -98,7 +98,7 @@ class IntakeHandler:
                 # Traitement
                 await self._traiter_fichier(job, tmp_file)
             except Exception as e:
-                self.__logger.exception("Erreur traitement - annuler pour %s : %s" % (job, e))
+                self.__logger.exception("Erreur traitement - annuler pour %s : %s", job, e)
                 await self.annuler_job(job, True)
         finally:
             if tmp_file.closed is False:

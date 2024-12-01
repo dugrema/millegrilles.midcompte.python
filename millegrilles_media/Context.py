@@ -1,6 +1,7 @@
 import aiohttp
 import logging
 import ssl
+import pathlib
 
 from typing import Optional
 from urllib.parse import urlparse
@@ -24,6 +25,10 @@ class MediaContext(MilleGrillesBusContext):
         self.__filehost_url: Optional[str] = None
         self.__tls_method: Optional[str] = None
         self.__ssl_context_filehost: Optional[ssl.SSLContext] = None
+
+    @property
+    def configuration(self) -> ConfigurationMedia:
+        return super().configuration
 
     @property
     def bus_connector(self):
@@ -75,6 +80,10 @@ class MediaContext(MilleGrillesBusContext):
         connector = aiohttp.TCPConnector(ssl=ssl_context, verify_ssl=verify)
 
         return connector
+
+    @property
+    def dir_media_staging(self):
+        return pathlib.Path(self.configuration.dir_staging, 'media')
 
     @staticmethod
     def __load_url(filehost: Filehost):

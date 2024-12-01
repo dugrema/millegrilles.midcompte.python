@@ -148,7 +148,7 @@ class VideoConversionJob:
         await self.__transcode(info_probe)
 
     async def __transcode(self, info_probe: Optional[dict]):
-        dir_staging = self.context.configuration.dir_staging
+        dir_staging = self.context.dir_media_staging
         tmp_transcode = tempfile.NamedTemporaryFile(dir=dir_staging)
         try:
             # Convertir le video
@@ -438,7 +438,7 @@ async def transcoder_video(context: MediaContext, job: dict,
                            progress_handler: ProgressHandler,
                            cancel_event: Optional[asyncio.Event] = None) -> Optional[dict]:
 
-    dir_staging = context.configuration.dir_staging
+    dir_staging = context.dir_media_staging
 
     LOGGER.debug("convertir_progress executer probe")
     if probe_info is None:
@@ -572,7 +572,7 @@ async def traiter_poster_video(job, tmp_file_video: tempfile.TemporaryFile, cont
     :return:
     """
     # Extraire un snapshot de reference du video
-    dir_staging = context.configuration.dir_staging
+    dir_staging = context.dir_media_staging
     tmp_file_snapshot = tempfile.NamedTemporaryFile(dir=dir_staging, suffix='.jpg')
     try:
         info_probe = await probe_video(pathlib.Path(tmp_file_video.name))

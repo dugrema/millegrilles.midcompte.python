@@ -17,6 +17,10 @@ class MediaManager:
         # Listeners for changes on the filehost
         self.__filehost_listeners: list[Callable[[Optional[Filehost]], Awaitable[None]]] = list()
 
+    async def setup(self):
+        # Create staging folders
+        self.__context.dir_media_staging.mkdir(parents=True, exist_ok=True)
+
     async def run(self):
         async with TaskGroup() as group:
             group.create_task(self.__reload_filehost_thread())

@@ -31,7 +31,7 @@ async def traiter_image(job, tmp_file, context: MediaContext, info_video: Option
     cle_id = job['cle_id']
     # cle_bytes = clecert.dechiffrage_asymmetrique(cle['cle'])
 
-    dir_staging = context.configuration.dir_staging
+    dir_staging = context.dir_media_staging
 
     with tempfile.TemporaryFile(dir=dir_staging) as tmp_output_large:
         with tempfile.TemporaryFile(dir=dir_staging) as tmp_output_small:
