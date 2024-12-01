@@ -1,42 +1,41 @@
 import asyncio
 import logging
+import json
+
+import aiohttp
 import jwt
 import pathlib
 import re
 
 from aiohttp import web
 from aiohttp.web_request import Request
-from asyncio import Event
-from asyncio.exceptions import TimeoutError
 from ssl import SSLContext
 from typing import Optional, Union
 
+from gridfs.errors import FileExists
+
 from millegrilles_messages.messages import Constantes
 
-from millegrilles_streaming.Configuration import ConfigurationWeb
-from millegrilles_streaming.EtatStreaming import EtatStreaming
-from millegrilles_streaming.Commandes import CommandHandler, InformationFuuid
+from millegrilles_streaming.StreamingManager import StreamingManager
+from millegrilles_streaming.Structs import InformationFuuid
 
 
 class WebServer:
 
-    def __init__(self, etat: EtatStreaming, commandes: CommandHandler):
+    def __init__(self, manager: StreamingManager):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-        self.__etat = etat
-        self.__commandes = commandes
-
+        self.__manager = manager
         self.__app = web.Application()
-        self.__stop_event: Optional[Event] = None
-        self.__configuration = ConfigurationWeb()
         self.__ssl_context: Optional[SSLContext] = None
 
-    def setup(self, configuration: Optional[dict] = None):
-        self._charger_configuration(configuration)
+    async def setup(self):
+        await asyncio.to_thread(self._charger_configuration)
         self._preparer_routes()
         self._charger_ssl()
+        # self.__webrunner = WebRunner(self.context, self.__app, ipv6=self.__ipv6)
 
-    def _charger_configuration(self, configuration: Optional[dict] = None):
-        self.__configuration.parse_config(configuration)
+    def _charger_configuration(self):
+        self.__manager.context.configuration.parse_config()
 
     def _preparer_routes(self):
         self.__app.add_routes([
@@ -45,10 +44,11 @@ class WebServer:
         ])
 
     def _charger_ssl(self):
+        configuration = self.__manager.context.configuration
         self.__ssl_context = SSLContext()
-        self.__logger.debug("Charger certificat %s" % self.__configuration.web_cert_pem_path)
-        self.__ssl_context.load_cert_chain(self.__configuration.web_cert_pem_path,
-                                           self.__configuration.web_key_pem_path)
+        self.__logger.debug("Charger certificat %s" % configuration.cert_path)
+        self.__ssl_context.load_cert_chain(str(configuration.cert_path),
+                                           str(configuration.key_path))
 
     async def handle_path_fuuid(self, request: Request):
         fuuid = request.match_info['fuuid']
@@ -68,84 +68,82 @@ class WebServer:
                 self.__logger.debug("handle_path_fuuid ERROR jwt refuse pour requete sur fuuid %s" % fuuid)
                 return web.HTTPUnauthorized()
 
-            # Verifier si le fichier existe deja (dechiffre)
-            reponse = await self.__commandes.traiter_fuuid(fuuid, jwt_token, claims)
-            if reponse is None:
-                # On n'a aucune information sur ce fichier/download.
-                self.__logger.warning("handle_path_fuuid Aucune information sur le download %s", fuuid)
-                return web.HTTPInternalServerError()
+            # Check if the decrypted file is already available
+            file = InformationFuuid(fuuid, jwt_token, claims)
+            try:
+                await self.__manager.load_decrypted_information(file)
+                return await self.stream_reponse(request, file)
+            except FileNotFoundError:
+                pass  # File not already decrypted, add job
 
-            if reponse.status == 404:
-                # Fichier inconnu localement
+            try:
+                job = await self.__manager.add_job(file)
+                if job.status_code is not None and job.status_code != 200:
+                    # On a une erreur du back-end (consignation)
+                    return web.HTTPInternalServerError()
+            except aiohttp.ClientResponseError as e:
+                if e.status == 404:
+                    return web.HTTPNotFound()
+                elif e.status == 403:
+                    return web.HTTPForbidden()
+                else:
+                    raise e
+            except FileNotFoundError:
                 return web.HTTPNotFound()
-            elif reponse.status is not None and reponse.status != 200:
-                # On a une erreur du back-end (consignation)
-                return web.HTTPInternalServerError()
+            except FileExistsError:
+                # File was just made available
+                return await self.stream_reponse(request, file)
 
-            if reponse.est_pret:
-                # Repondre avec le stream demande
-                return await self.stream_reponse(request, reponse)
+            if job.ready_event.is_set():  # Job done, respond with stream
+                return await self.stream_reponse(request, job.file_information)
 
             # HTTP 204 - le contenu n'est pas pret
-            if reponse.position_courante is not None:
+            if job.file_position is not None:
+                info = job.file_information
                 headers_response = {
-                    'Content-Type': reponse.mimetype,
-                    'X-File-Size': str(reponse.taille),
-                    'X-File-Position': str(reponse.position_courante),
+                    'Content-Type': info.mimetype,
+                    'X-File-Size': str(job.file_size),
+                    'X-File-Position': str(job.file_position),
                 }
                 return web.Response(status=204, headers=headers_response)
 
-            return web.HTTPInternalServerError()  # Fix me
+            return web.HTTPInternalServerError()
 
         except Exception:
             self.__logger.exception("handle_path_fuuid ERROR")
             return web.HTTPInternalServerError()
 
-    async def entretien(self):
-        self.__logger.debug('Entretien web')
+    async def run(self):
+        await self.__run_app()
 
-    async def run(self, stop_event: Optional[Event] = None):
-        if stop_event is not None:
-            self.__stop_event = stop_event
-        else:
-            self.__stop_event = Event()
-
+    async def __run_app(self):
         runner = web.AppRunner(self.__app)
         await runner.setup()
 
         # Configuration du site avec SSL
-        port = self.__configuration.port
+        port = self.__manager.context.configuration.web_port
         site = web.TCPSite(runner, '0.0.0.0', port, ssl_context=self.__ssl_context)
 
         try:
             await site.start()
-            self.__logger.info("Site demarre")
-
-            while not self.__stop_event.is_set():
-                await self.entretien()
-                try:
-                    await asyncio.wait_for(self.__stop_event.wait(), 30)
-                except TimeoutError:
-                    pass
+            self.__logger.info("Website started on port %d" % port)
+            await self.__manager.context.wait()  # Wait until application shuts down
+        except:
+            self.__logger.exception("Error running website - quitting")
+            self.__manager.context.stop()
         finally:
-            self.__logger.info("Site arrete")
+            self.__logger.info("Website stopped")
             await runner.cleanup()
 
     async def verifier_token_jwt(self, token: str, fuuid: str) -> Union[bool, dict]:
         # Recuperer kid, charger certificat pour validation
         header = jwt.get_unverified_header(token)
         fingerprint = header['kid']
-        enveloppe = await self.__etat.charger_certificat(fingerprint)
-
-        # roles = enveloppe.get_roles
-        # if 'collections' in roles:  # Note - corriger, les JWT devraient etre generes par un domaine
-        #     pass  # Ok
-        # else:
-        #     # Certificat n'est pas autorise a signer des streams
-        #     return False
+        producer = await self.__manager.context.get_producer()
+        enveloppe = await producer.fetch_certificate(fingerprint)
 
         domaines = enveloppe.get_domaines
-        if 'GrosFichiers' in domaines or 'Messagerie' in domaines:
+        if 'GrosFichiers' in domaines:
             pass  # OK
         else:
             # Certificat n'est pas autorise a signer des streams
@@ -184,12 +182,26 @@ class WebServer:
         stat_fichier = path_fichier.stat()
         taille_fichier = stat_fichier.st_size
 
+        # Touch file - indicates it is still active (prevents cleanup process from deleting it)
+        await asyncio.to_thread(path_fichier.touch)
+
         range_str = None
 
         headers_response = {
             'Cache-Control': 'public, max-age=604800, immutable',
             'Accept-Ranges': 'bytes',
         }
+
+        # Try to load mimetype from json info file
+        mimetype = info.mimetype
+        if mimetype is None:
+            path_json = pathlib.Path(path_fichier.parent, f'{fuuid}.json')
+            try:
+                with open(path_json, 'rt') as fp:
+                    info = await asyncio.to_thread(json.load, fp)
+                mimetype = info['mimetype']
+            except (FileNotFoundError, json.JSONDecodeError):
+                mimetype = None
 
         if range_bytes is not None:
             # Calculer le content range, taille transfert
@@ -213,7 +225,8 @@ class WebServer:
         # Preparer reponse, headers
         response = web.StreamResponse(status=status, headers=headers_response)
         response.content_length = taille_transfert
-        response.content_type = info.mimetype
+        if mimetype:
+            response.content_type = mimetype
         response.etag = etag
 
         await response.prepare(request)
@@ -247,6 +260,7 @@ class WebServer:
             self.__logger.exception("stream_reponse Erreur stream fichier %s" % fuuid)
         finally:
             await response.write_eof()
+
 
 
 def parse_range(range, taille_totale):

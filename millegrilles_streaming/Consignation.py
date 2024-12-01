@@ -15,7 +15,7 @@ from urllib3.util import parse_url
 from millegrilles_media.EtatMedia import EtatMedia
 from millegrilles_messages.messages import Constantes
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher_cle_secrete
-from millegrilles_streaming.EtatStreaming import EtatStreaming
+# from millegrilles_streaming.EtatStreaming import EtatStreaming
 
 
 class ConsignationHandler:
@@ -33,6 +33,7 @@ class ConsignationHandler:
         self.__filehost_url: Optional[str] = None
         self.__tls_method: Optional[str] = None
         self.__session_http_requests: Optional[aiohttp.ClientSession] = None
+        self.__ssl_context: Optional[ssl.SSLContext] = None
 
     async def run(self):
         self.__logger.info("Demarrage run")
