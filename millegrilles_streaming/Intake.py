@@ -35,6 +35,7 @@ class KeyRetrievalException(Exception):
 class IntakeJob:
 
     def __init__(self, info: InformationFuuid, cle_dechiffree: Union[str, bytes]):
+        self.__creation = datetime.datetime.now()
         self.__info = info
         if isinstance(cle_dechiffree, str):
             self.decrypted_key = multibase.decode('m' + cle_dechiffree)
@@ -46,6 +47,10 @@ class IntakeJob:
         self.file_position: Optional[int] = None    # Current decryption position
 
         self.ready_event: Optional[asyncio.Event] = asyncio.Event()  # Set quand le download est pret
+
+    @property
+    def creation_date(self) -> datetime.datetime:
+        return self.__creation
 
     @property
     def file_information(self) -> InformationFuuid:
@@ -74,6 +79,7 @@ class IntakeHandler:
         try:
             async with TaskGroup() as group:
                 group.create_task(self.__run_jobs())
+                group.create_task(self.__job_status_maintenance_thread())
                 group.create_task(self.__stop_thread())
         except* Exception:
             if self._context.stopping is False:
@@ -90,6 +96,22 @@ class IntakeHandler:
         await self._context.wait()
         # Release threads
         await self.__job_queue.put(None)
+
+    async def __job_status_maintenance_thread(self):
+        while self._context.stopping is False:
+            job_expiration = datetime.datetime.now() - datetime.timedelta(hours=1)
+            expired_list = list()
+            for fuuid, job in self.__job_status.items():
+                if job.creation_date < job_expiration:
+                    expired_list.append(fuuid)
+            if len(expired_list) > 0:
+                self.__logger.warning("__job_status_maintenance_thread Queue empty but %s download statuses are leftover - clearing", len(expired_list))
+                for fuuid in expired_list:
+                    try:
+                        del self.__job_status[fuuid]
+                    except KeyError:
+                        pass  #
+            await self._context.wait(900)
 
     async def __run_jobs(self):
         while self._context.stopping is False:
