@@ -125,6 +125,16 @@ class IntakeHandler:
         elif decrypted_file_path.exists():
             return  # Nothing to do
 
+        # Save file information
+        file_info_dict = {
+            'fuuid': fuuid,
+            'mimetype': job.file_information.mimetype,
+            'taille': job.file_size,
+            'jwt_token': job.file_information.jwt_token
+        }
+        with work_json_path.open(mode='wt') as fp:
+            await asyncio.to_thread(json.dump, file_info_dict, fp)
+
         try:
             try:
                 # Download and decrypt file
@@ -252,17 +262,6 @@ class IntakeHandler:
             timeout = aiohttp.ClientTimeout(connect=5, total=900)
             self.__session = self._context.get_http_session(timeout)
         file_header = await self.get_fuuid_header(file.fuuid, self.__session)
-
-        # Save file information
-        path_download_json = pathlib.Path(self._context.download_path, f'{file.fuuid}.json')
-        file_info_dict = {
-            'fuuid': file.fuuid,
-            'mimetype': file.mimetype,
-            'taille': file_header['taille'],
-            'jwt_token': file.jwt_token
-        }
-        with path_download_json.open(mode='wt') as fp:
-            await asyncio.to_thread(json.dump, file_info_dict, fp)
 
         # Get decryption key
         decrypted_key = await self.__get_key(file.user_id, file.fuuid, file.jwt_token)

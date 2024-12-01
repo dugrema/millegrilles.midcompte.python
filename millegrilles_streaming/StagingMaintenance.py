@@ -29,15 +29,17 @@ class StagingMaintenanceHandler:
     async def __entretien(self):
         while self.__context.stopping is False:
             # Run maintenance
-            await asyncio.to_thread(self.download_path_maintenance, self.__context.download_path)
-            await asyncio.to_thread(self.decrypted_path_maintenance, self.__context.decrypted_path)
+            await asyncio.to_thread(self.download_path_maintenance, self.__context.download_path, StreamingConstants.CONST_TIMEOUT_DOWNLOAD)
+            await asyncio.to_thread(self.decrypted_path_maintenance, self.__context.decrypted_path, StreamingConstants.CONST_TIMEOUT_DECHIFFRE)
 
             # Wait for next pass
             await self.__context.wait(300)
 
-    def download_path_maintenance(self, path_download: pathlib.Path, timeout=StreamingConstants.CONST_TIMEOUT_DOWNLOAD) -> list:
+    def download_path_maintenance(self, path_download: pathlib.Path, timeout: int) -> list:
         dt_expiration = datetime.datetime.now() - datetime.timedelta(seconds=timeout)
         ts_expiration = dt_expiration.timestamp()
+
+        self.__logger.debug("download_path_maintenance of %s for files older than %s", path_download, dt_expiration)
 
         fuuids_supprimes = list()
 
@@ -76,7 +78,7 @@ class StagingMaintenanceHandler:
         return fuuids_supprimes
 
 
-    def decrypted_path_maintenance(self, path_dechiffre: pathlib.Path, timeout=StreamingConstants.CONST_TIMEOUT_DECHIFFRE):
+    def decrypted_path_maintenance(self, path_dechiffre: pathlib.Path, timeout: int):
         pass
 
         """
@@ -90,6 +92,8 @@ class StagingMaintenanceHandler:
         ts_expiration = dt_expiration.timestamp()
 
         fuuids_supprimes = list()
+
+        self.__logger.debug("decrypted_path_maintenance of %s for files older than %s", path_dechiffre, dt_expiration)
 
         # Supprimer les fichiers .dat (et .json associe)
         for fichier in path_dechiffre.iterdir():
