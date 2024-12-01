@@ -261,6 +261,7 @@ class WebServer:
         finally:
             await response.write_eof()
 
+        return response
 
 
 def parse_range(range, taille_totale):
