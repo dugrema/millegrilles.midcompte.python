@@ -11,6 +11,7 @@ from millegrilles_messages.bus.BusContext import ForceTerminateExecution, StopLi
 from millegrilles_messages.bus.PikaConnector import MilleGrillesPikaConnector
 from millegrilles_streaming.Intake import IntakeHandler
 from millegrilles_streaming.MgbusHandler import MgbusHandler
+from millegrilles_streaming.StagingMaintenance import StagingMaintenanceHandler
 from millegrilles_streaming.StreamingManager import StreamingManager
 from millegrilles_streaming.WebServer import WebServer
 
@@ -55,32 +56,25 @@ async def wiring(context: StreamingContext) -> list[Awaitable]:
 
     # Create instances
     bus_connector = MilleGrillesPikaConnector(context)
-    context.bus_connector = bus_connector
-
-    #         self.__consignation_handler = ConsignationHandler(self._stop_event, self._etat)
-    #         self.__intake = IntakeStreaming(self._stop_event, self._etat, self.__consignation_handler)
-
     intake = IntakeHandler(context)
-    context.add_reload_listener(intake.clear_session)
-
+    maintenance_handler = StagingMaintenanceHandler(context)
     manager = StreamingManager(context, intake)
-
-    # command_handler = CommandHandler(context, manager)
-    # manager.add_filehost_listener(command_handler.on_filehosting_update)
-    # await command_handler.setup()
 
     # Access modules
     web_server = WebServer(manager)
     bus_handler = MgbusHandler(manager)
 
-    # Setup / injecting dependencies
+    # Setup, injecting additional dependencies
+    context.bus_connector = bus_connector
+    context.add_reload_listener(intake.clear_session)
+    await maintenance_handler.setup()
     await manager.setup()
     await web_server.setup()
 
     # Create tasks
     coros = [
         context.run(),
-        # bus_connector.run(),  # Done in bus handler
+        maintenance_handler.run(),
         manager.run(),
         web_server.run(),
         bus_handler.run(),
