@@ -51,7 +51,7 @@ class SolrDao:
                 resp.raise_for_status()
                 await resp.read()
 
-    async def initialiser_solr(self):
+    async def setup(self):
         """
         Creer core initial, templates, etc.
         :return:

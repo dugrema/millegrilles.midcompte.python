@@ -25,7 +25,7 @@ class SolrManager:
     def add_filehost_listener(self, listener: Callable[[Optional[Filehost]], Awaitable[None]]):
         self.__filehost_listeners.append(listener)
 
-    async def configurer(self):
+    async def setup(self):
         # Configurer core1
         try:
             await self.__solr_dao.ping()
@@ -33,7 +33,7 @@ class SolrManager:
             if e.status == 400:
                 self.__logger.fatal("Erreur connexion a SOLR, certificat HTTPS rejete")
             raise e
-        await self.__solr_dao.initialiser_solr()
+        await self.__solr_dao.setup()
 
     async def run(self):
         try:
