@@ -70,25 +70,28 @@ class CommandHandler:
         # Authorization check - 3.protege/CoreTopologie
         enveloppe = message.certificat
         try:
-            domaines = enveloppe.get_domaines
+            domaines = set(enveloppe.get_domaines)
         except ExtensionNotFound:
             domaines = list()
         try:
-            exchanges = enveloppe.get_exchanges
+            exchanges = set(enveloppe.get_exchanges)
         except ExtensionNotFound:
             exchanges = list()
 
-        if 'CoreTopologie' in domaines and Constantes.SECURITE_PROTEGE in exchanges:
+        if {'CoreTopologie', 'GrosFichiers'}.isdisjoint(domaines) is False and Constantes.SECURITE_PROTEGE in exchanges:
             pass  # CoreTopologie
         else:
             return  # Ignore message
 
+        domain = message.routage['domaine']
         action = message.routage['action']
-        payload = message.parsed
 
-        if action == 'filehostingUpdate':
+        if domain == 'CoreTopologie' and action == 'filehostingUpdate':
             # File hosts updated, reload configuration
             return await self.__media_manager.reload_filehost_configuration()
+        elif domain == 'GrosFichiers' and action == 'jobSupprimee':
+            # File hosts updated, reload configuration
+            return await self.__media_manager.cancel_job(message, enveloppe)
 
         self.__logger.info("on_exclusive_message Ignoring unknown action %s" % action)
 
@@ -210,6 +213,7 @@ def create_exclusive_q_channel(context: MilleGrillesBusContext, on_message: Call
     volatile_q_channel = MilleGrillesPikaChannel(context, prefetch_count=20)
     volatile_q = MilleGrillesPikaQueueConsumer(context, on_message, None, exclusive=True, arguments={'x-message-ttl': 300000})
     volatile_q.add_routing_key(RoutingKey(Constantes.SECURITE_PUBLIC, 'evenement.CoreTopologie.filehostingUpdate'))
+    volatile_q.add_routing_key(RoutingKey(Constantes.SECURITE_PRIVE, 'evenement.GrosFichiers.*.jobSupprimee'))
 
     volatile_q_channel.add_queue(volatile_q)
 

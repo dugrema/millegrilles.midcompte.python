@@ -173,12 +173,12 @@ class IntakeJobVideo(IntakeHandler):
     def __init__(self, context: MediaContext):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         super().__init__(context)
-        self.__job_handler = None
+        self.__job_handler: Optional[VideoConversionJob] = None
 
     def get_job_type(self) -> str:
         return 'video'
 
-    async def _traiter_fichier(self, job, tmp_file):
+    async def _traiter_fichier(self, job: dict, tmp_file):
         self.__logger.debug("Traiter video %s" % job['job_id'])
 
         mimetype: str = job['mimetype']
@@ -198,15 +198,13 @@ class IntakeJobVideo(IntakeHandler):
             await job_handler.annuler()  # Aucun effet si la job s'est terminee correctement
         self.__logger.debug("Fin traiter video de job_handler")
 
-    async def annuler_job(self, job, emettre_commande=False):
+    async def annuler_job(self, job_id: str, emettre_commande=False):
         if self.__job_handler is not None:
             job_courante = self.__job_handler.job
             # Verifier si on doit annuler la job en cours
             try:
-                if job['fuuid'] == job_courante['fuuid'] and \
-                      job['user_id'] == job_courante['user_id'] and \
-                      job['cle_conversion'] == job_courante['cle_conversion']:
-                    self.__logger.info("Annuler job courante %s %s" % (job['fuuid'], job['cle_conversion']))
+                if job_id == job_courante['job_id']:
+                    self.__logger.info("Annuler job courante job_id:%s, fuuid:%s", job_id, job_courante['fuuid'])
                     await self.__job_handler.annuler()
                 else:
                     self.__logger.debug("annuler_job courante : mismatch, on ne fait rien")
@@ -215,20 +213,20 @@ class IntakeJobVideo(IntakeHandler):
         else:
             self.__logger.debug("annuler_job courante : aucune job courante - emettre message d'annulation")
 
-        if emettre_commande:
-            commande = {
-                'ok': False,
-                'job_id': job['job_id'],
-                'fuuid': job['fuuid'],
-                'tuuid': job['tuuid'],
-                'user_id': job['user_id'],
-            }
-
-            producer = await self._context.get_producer()
-            await producer.command(
-                commande, 'GrosFichiers', 'supprimerJobVideoV2', exchange='3.protege',
-                nowait=True
-            )
+        # if emettre_commande:
+        #     commande = {
+        #         'ok': False,
+        #         'job_id': job['job_id'],
+        #         'fuuid': job['fuuid'],
+        #         'tuuid': job['tuuid'],
+        #         'user_id': job['user_id'],
+        #     }
+        #
+        #     producer = await self._context.get_producer()
+        #     await producer.command(
+        #         commande, 'GrosFichiers', 'supprimerJobVideoV2', exchange='3.protege',
+        #         nowait=True
+        #     )
 
 
 class KeyRetrievalException(Exception):

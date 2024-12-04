@@ -2,8 +2,13 @@ import logging
 from asyncio import TaskGroup
 from typing import Callable, Awaitable, Optional
 
+from cryptography.x509 import ExtensionNotFound
+
+from millegrilles_messages.messages import Constantes
 from millegrilles_media.Context import MediaContext
 from millegrilles_media.intake import IntakeJobVideo, IntakeJobImage
+from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
+from millegrilles_messages.messages.MessagesModule import MessageWrapper
 from millegrilles_messages.structs.Filehost import Filehost
 
 
@@ -66,3 +71,19 @@ class MediaManager:
             # TODO - cleanup
 
             await self.__context.wait(300)
+
+    async def cancel_job(self, message: MessageWrapper, certificate: EnveloppeCertificat):
+        try:
+            user_id = certificate.get_user_id
+        except ExtensionNotFound:
+            try:
+                exchanges = certificate.get_exchanges
+                domaines = certificate.get_domaines
+                if Constantes.SECURITE_PROTEGE not in exchanges or 'GrosFichiers' not in domaines:
+                    self.__logger.debug("Access refused - no user_id, not a GrosFichiers domain manager")
+                    return
+            except ExtensionNotFound:
+                user_id = None
+
+        job_id = message.parsed['job_id']
+        await self.__intake_videos.annuler_job(job_id)
