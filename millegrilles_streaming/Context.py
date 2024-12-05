@@ -3,10 +3,9 @@ import logging
 import pathlib
 import ssl
 
-from typing import Optional, Callable, Awaitable
+from typing import Optional, Callable
 from urllib.parse import urlparse
 
-from millegrilles_messages.bus.BusConfiguration import MilleGrillesBusConfiguration
 from millegrilles_messages.bus.BusContext import MilleGrillesBusContext
 from millegrilles_messages.bus.PikaConnector import MilleGrillesPikaConnector
 from millegrilles_messages.structs.Filehost import Filehost
