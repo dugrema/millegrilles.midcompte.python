@@ -4,31 +4,32 @@ import datetime
 
 import pytz
 
+from millegrilles_messages.messages import Constantes
+from millegrilles_ceduleur.TickerContext import TickerContext
 
-class Ceduleur:
 
-    def __init__(self, etat, stop_event: asyncio.Event):
+class TickerEmitHandler:
+
+    def __init__(self, context: TickerContext):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-        self.__etat = etat
-        self.__stop_event = stop_event
+        self.__context = context
 
     async def run(self):
-        while self.__stop_event.is_set() is False:
+        await self.__emit_thread()
+
+    async def __emit_thread(self):
+        while self.__context.stopping is False:
             # Calculer attente avant la prochaine minute
             attente = determiner_attente()
-
+            await self.__context.wait(attente)
             try:
-                await asyncio.wait_for(self.__stop_event.wait(), attente)
-                return  # Stopped
-            except asyncio.TimeoutError:
-                pass
-
-            try:
-                await self.emettre_ping()
+                await self.__emit_tick()
+            except asyncio.CancelledError as e:
+                raise e
             except:
-                self.__logger.exception("run Erreur emettre_ping")
+                self.__logger.exception("Unhandled error")
 
-    async def emettre_ping(self):
+    async def __emit_tick(self):
         now = datetime.datetime.now(tz=pytz.UTC)
         date_string = now.isoformat()
 
@@ -61,17 +62,18 @@ class Ceduleur:
             "flag_semaine": flag_semaine
         }
 
-        producer = self.__etat.producer
+        producer = await self.__context.get_producer()
 
-        # Nouvelle approche
-        await producer.emettre_evenement(evenement,
-                                         domaine='ceduleur', action='ping',
-                                         exchanges='1.public')
+        # Tick
+        await producer.event(evenement, domain='ceduleur', action='tick', exchange='1.public')
+
+        # Ping
+        await producer.event(evenement, domain='ceduleur', action='ping', exchange='1.public')
 
         # Ping legacy
-        await producer.emettre_evenement(evenement,
-                                         domaine='global', action='cedule',
-                                         exchanges=['1.public', '2.prive', '3.protege', '4.secure'])
+        exchanges = [Constantes.SECURITE_PUBLIC, Constantes.SECURITE_PRIVE, Constantes.SECURITE_PROTEGE, Constantes.SECURITE_SECURE]
+        for exchange in exchanges:
+            await producer.event(evenement, domain='global', action='cedule', exchange=exchange)
 
 
 def determiner_attente() -> int:

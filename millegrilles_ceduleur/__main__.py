@@ -1,109 +1,189 @@
-import argparse
 import asyncio
 import logging
-import os
-import signal
+from asyncio import TaskGroup
+from concurrent.futures.thread import ThreadPoolExecutor
 
-from typing import Optional
+from typing import Awaitable
 
-from millegrilles_ceduleur.mqdao import RabbitMQDao
+from millegrilles_ceduleur.MgbusHandler import MgbusHandler
+from millegrilles_ceduleur.TickerConfiguration import TickerConfiguration
+from millegrilles_ceduleur.TickerContext import TickerContext
+from millegrilles_ceduleur.TickerEmitHandler import TickerEmitHandler
+from millegrilles_ceduleur.TickerManager import TickerManager
+from millegrilles_messages.bus.BusContext import ForceTerminateExecution, StopListener
+from millegrilles_messages.bus.PikaConnector import MilleGrillesPikaConnector
 
-from millegrilles_ceduleur.Configuration import ConfigurationCeduleur
-from millegrilles_ceduleur.EtatCeduleur import EtatCeduleur
-from millegrilles_ceduleur.Commandes import CommandHandler
-from millegrilles_ceduleur.EmetteurCedule import Ceduleur
-
-logger = logging.getLogger(__name__)
-
-
-class ESMain:
-
-    def __init__(self, args: argparse.Namespace):
-        self.__args = args
-        self.__config = ConfigurationCeduleur()
-        self._etat_ceduleur = EtatCeduleur(self.__config)
-
-        self.__rabbitmq_dao: Optional[RabbitMQDao] = None
-
-        self.__commandes_handler = None
-
-        self.__ceduleur: Optional[Ceduleur] = None
-
-        # Asyncio lifecycle handlers
-        self.__loop = None
-        self._stop_event = None
-
-    async def configurer(self):
-        self.__loop = asyncio.get_event_loop()
-        self._stop_event = asyncio.Event()
-        self.__config.parse_config(self.__args.__dict__)
-
-        await self._etat_ceduleur.reload_configuration()
-        self.__commandes_handler = CommandHandler(self._etat_ceduleur)
-        self.__rabbitmq_dao = RabbitMQDao(self._stop_event, self._etat_ceduleur, self.__commandes_handler)
-        self.__ceduleur = Ceduleur(self._etat_ceduleur, self._stop_event)
-
-    async def run(self):
-
-        ceduleur = Ceduleur(self._etat_ceduleur, self._stop_event)
-        threads = [
-            self.__rabbitmq_dao.run(),
-            self._etat_ceduleur.run(self._stop_event, self.__rabbitmq_dao),
-            ceduleur.run(),
-        ]
-
-        await asyncio.gather(*threads)
-
-        logger.info("run() stopping")
-
-    def exit_gracefully(self, signum=None, frame=None):
-        logger.info("Fermer application, signal: %d" % signum)
-        self.__loop.call_soon_threadsafe(self._stop_event.set)
+LOGGER = logging.getLogger(__name__)
 
 
-def parse() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Demarrer le gestionnaire de taches media pour MilleGrilles")
-    parser.add_argument(
-        '--verbose', action="store_true", required=False,
-        help="Active le logging maximal"
-    )
-
-    args = parser.parse_args()
-    adjust_logging(args)
-
-    return args
+async def force_terminate_task_group():
+    """Used to force termination of a task group."""
+    raise ForceTerminateExecution()
 
 
-def adjust_logging(args: argparse.Namespace):
-    if args.verbose is True:
-        loggers = [__name__, 'millegrilles_messages', 'millegrilles_ceduleur']
-        for log in loggers:
-            logging.getLogger(log).setLevel(logging.DEBUG)
+async def main():
+    config = TickerConfiguration.load()
+    context = TickerContext(config)
+
+    LOGGER.setLevel(logging.INFO)
+    LOGGER.info("Starting")
+
+    # Wire classes together, gets awaitables to run
+    coros = await wiring(context)
+
+    try:
+        # Use taskgroup to run all threads
+        async with TaskGroup() as group:
+            for coro in coros:
+                group.create_task(coro)
+
+            # Create a listener that fires a task to cancel all other tasks
+            async def stop_group():
+                group.create_task(force_terminate_task_group())
+            stop_listener = StopListener(stop_group)
+            context.register_stop_listener(stop_listener)
+
+    except* (ForceTerminateExecution, asyncio.CancelledError):
+        pass  # Result of the termination task
 
 
-async def demarrer(args: argparse.Namespace):
-    main = ESMain(args)
+async def wiring(context: TickerContext) -> list[Awaitable]:
+    # Some threads get used to handle sync events for the duration of the execution. Ensure there are enough.
+    loop = asyncio.get_event_loop()
+    loop.set_default_executor(ThreadPoolExecutor(max_workers=10))
 
-    signal.signal(signal.SIGINT, main.exit_gracefully)
-    signal.signal(signal.SIGTERM, main.exit_gracefully)
+    # Service instances
+    bus_connector = MilleGrillesPikaConnector(context)
+    context.bus_connector = bus_connector
+    ticker_handler = TickerEmitHandler(context)
 
-    await main.configurer()
-    logger.info("Run main millegrilles_ceduleur")
-    await main.run()
-    logger.info("Fin main millegrilles_ceduleur")
+    # Facade
+    manager = TickerManager(context)
 
+    # Access modules
+    bus_handler = MgbusHandler(manager)
 
-def main():
-    """
-    Methode d'execution de l'application
-    :return:
-    """
-    logging.basicConfig()
-    logging.getLogger(__name__).setLevel(logging.INFO)
-    logging.getLogger('millegrilles_ceduleur').setLevel(logging.INFO)
-    args = parse()
-    asyncio.run(demarrer(args))
+    # Create tasks
+    coros = [
+        context.run(),
+        ticker_handler.run(),
+        bus_handler.run(),
+    ]
+
+    return coros
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
+    LOGGER.info("Stopped")
+
+
+# import argparse
+# import asyncio
+# import logging
+# import os
+# import signal
+#
+# from typing import Optional
+#
+# from millegrilles_ceduleur.mqdao import RabbitMQDao
+#
+# from millegrilles_ceduleur.Configuration import ConfigurationCeduleur
+# from millegrilles_ceduleur.EtatCeduleur import EtatCeduleur
+# from millegrilles_ceduleur.Commandes import CommandHandler
+# from millegrilles_ceduleur.EmetteurCedule import Ceduleur
+#
+# logger = logging.getLogger(__name__)
+#
+#
+# class ESMain:
+#
+#     def __init__(self, args: argparse.Namespace):
+#         self.__args = args
+#         self.__config = ConfigurationCeduleur()
+#         self._etat_ceduleur = EtatCeduleur(self.__config)
+#
+#         self.__rabbitmq_dao: Optional[RabbitMQDao] = None
+#
+#         self.__commandes_handler = None
+#
+#         self.__ceduleur: Optional[Ceduleur] = None
+#
+#         # Asyncio lifecycle handlers
+#         self.__loop = None
+#         self._stop_event = None
+#
+#     async def configurer(self):
+#         self.__loop = asyncio.get_event_loop()
+#         self._stop_event = asyncio.Event()
+#         self.__config.parse_config(self.__args.__dict__)
+#
+#         await self._etat_ceduleur.reload_configuration()
+#         self.__commandes_handler = CommandHandler(self._etat_ceduleur)
+#         self.__rabbitmq_dao = RabbitMQDao(self._stop_event, self._etat_ceduleur, self.__commandes_handler)
+#         self.__ceduleur = Ceduleur(self._etat_ceduleur, self._stop_event)
+#
+#     async def run(self):
+#
+#         ceduleur = Ceduleur(self._etat_ceduleur, self._stop_event)
+#         threads = [
+#             self.__rabbitmq_dao.run(),
+#             self._etat_ceduleur.run(self._stop_event, self.__rabbitmq_dao),
+#             ceduleur.run(),
+#         ]
+#
+#         await asyncio.gather(*threads)
+#
+#         logger.info("run() stopping")
+#
+#     def exit_gracefully(self, signum=None, frame=None):
+#         logger.info("Fermer application, signal: %d" % signum)
+#         self.__loop.call_soon_threadsafe(self._stop_event.set)
+#
+#
+# def parse() -> argparse.Namespace:
+#     parser = argparse.ArgumentParser(description="Demarrer le gestionnaire de taches media pour MilleGrilles")
+#     parser.add_argument(
+#         '--verbose', action="store_true", required=False,
+#         help="Active le logging maximal"
+#     )
+#
+#     args = parser.parse_args()
+#     adjust_logging(args)
+#
+#     return args
+#
+#
+# def adjust_logging(args: argparse.Namespace):
+#     if args.verbose is True:
+#         loggers = [__name__, 'millegrilles_messages', 'millegrilles_ceduleur']
+#         for log in loggers:
+#             logging.getLogger(log).setLevel(logging.DEBUG)
+#
+#
+# async def demarrer(args: argparse.Namespace):
+#     main = ESMain(args)
+#
+#     signal.signal(signal.SIGINT, main.exit_gracefully)
+#     signal.signal(signal.SIGTERM, main.exit_gracefully)
+#
+#     await main.configurer()
+#     logger.info("Run main millegrilles_ceduleur")
+#     await main.run()
+#     logger.info("Fin main millegrilles_ceduleur")
+#
+#
+# def main():
+#     """
+#     Methode d'execution de l'application
+#     :return:
+#     """
+#     logging.basicConfig()
+#     logging.getLogger(__name__).setLevel(logging.INFO)
+#     logging.getLogger('millegrilles_ceduleur').setLevel(logging.INFO)
+#     args = parse()
+#     asyncio.run(demarrer(args))
+#
+#
+# if __name__ == '__main__':
+#     main()
