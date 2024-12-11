@@ -24,15 +24,19 @@ class EntretienMongoDb:
             'username': 'admin',
             'password': self.__etat_midcompte.password_mongo,
             'tls': True,
-            # 'authSource': '',
-            'tlsCertificateKeyFile': self.__etat_midcompte.configuration.key_pem_path,
+            'tlsCertificateKeyFile': self.__etat_midcompte.configuration.key_pem_path,  # this must be a key and cert PEM file
             'tlsCAFile': self.__etat_midcompte.configuration.ca_pem_path,
         }
         self.__logger.debug("Connexion a MongoDB")
         client_mongo = MongoClient(**configuration_mongo)
         self.__logger.debug("Verify if connection established")
         client_mongo.admin.command('ismaster')
-        self.__logger.info("Connexion MongoDB etablie")
+        self.__logger.info("Connection to MongoDB established")
+        try:
+            client_mongo.admin.command('replSetInitiate')
+            self.__logger.info("Mongo replica set initialized")
+        except OperationFailure:
+            self.__logger.debug("Mongo replica set already initialized")
         self.__client_mongo = client_mongo
 
     async def entretien(self):
