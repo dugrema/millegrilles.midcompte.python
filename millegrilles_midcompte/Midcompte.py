@@ -13,7 +13,7 @@ from millegrilles_midcompte.EtatMidcompte import EtatMidcompte
 from millegrilles_midcompte.EntretienRabbitMq import EntretienRabbitMq
 from millegrilles_midcompte.EntretienMongoDb import EntretienMongoDb
 from millegrilles_midcompte.WebServer import WebServer
-from millegrilles_messages.docker.Entretien import TacheEntretien
+from millegrilles_messages.docker_obsolete.Entretien import TacheEntretien
 
 
 class ApplicationInstance:

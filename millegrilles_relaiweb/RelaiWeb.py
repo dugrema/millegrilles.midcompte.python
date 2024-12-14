@@ -11,7 +11,7 @@ import signal
 from os import listdir, path, unlink, makedirs
 from typing import Optional
 
-from millegrilles_messages.docker.Entretien import TacheEntretien
+from millegrilles_messages.docker_obsolete.Entretien import TacheEntretien
 from millegrilles_messages.messages import Constantes
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 from millegrilles_messages.messages.FormatteurMessages import SignateurTransactionSimple, FormatteurMessageMilleGrilles
