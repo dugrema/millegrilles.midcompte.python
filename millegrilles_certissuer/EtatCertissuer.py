@@ -109,22 +109,23 @@ class EtatCertissuer:
         # Supprimer CSR en memoire (signature valide)
         self.__csr = None
 
-        if self.__validateur_certificats is not None:
-            # Valider le certificat intermediaire. Doit correspondre au cert CA de la millegrille.
-            await self.__validateur_certificats.valider(cert_pem)
-        else:
-            enveloppe_ca = EnveloppeCertificat.from_pem(cert_ca)
-            if enveloppe_ca.is_root_ca is False:
-                raise Exception("Certificat CA n'est pas root")
+        # Since 2024.9 - Always using same validation check and saving CA cert (validation of signing was failing)
+        # if self.__validateur_certificats is not None:
+        #     # Valider le certificat intermediaire. Doit correspondre au cert CA de la millegrille.
+        #     await self.__validateur_certificats.valider(cert_pem)
+        # else:
+        enveloppe_ca = EnveloppeCertificat.from_pem(cert_ca)
+        if enveloppe_ca.is_root_ca is False:
+            raise Exception("Certificat CA n'est pas root")
 
-            if self.__idmg is not None:
-                if self.__idmg != enveloppe_ca.idmg:
-                    raise Exception("Mismatch idmg avec systeme local et cert CA recu")
-            else:
-                # On n'a pas de lock pour la millegrille, on accepte le nouveau certificat
-                path_ca = path.join(path_certissuer, 'millegrille.pem')
-                with open(path_ca, 'w') as fichier:
-                    fichier.write(cert_ca)
+        if self.__idmg is not None:
+            if self.__idmg != enveloppe_ca.idmg:
+                raise Exception("Mismatch idmg avec systeme local et cert CA recu")
+        else:
+            # On n'a pas de lock pour la millegrille, on accepte le nouveau certificat
+            path_ca = path.join(path_certissuer, 'millegrille.pem')
+            with open(path_ca, 'w') as fichier:
+                fichier.write(cert_ca)
 
         path_cle = path.join(path_certissuer, 'key.pem')
         path_cert = path.join(path_certissuer, 'cert.pem')
