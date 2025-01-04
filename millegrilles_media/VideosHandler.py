@@ -117,8 +117,16 @@ class VideoConversionJob:
         await self.__process()
 
     def __inject_params(self):
-        params = self.job['params']
-        if params.get('defaults'):
+        try:
+            params = self.job['params']
+            defaults_flag = params.get('defaults')
+        except KeyError:
+            # Empty params - assume defaults
+            params = {'defaults': True}
+            self.job['params'] = params
+            defaults_flag = True
+
+        if defaults_flag:
             # Apply low resolution fallback video format for browsers
             params['mimetype'] = 'video/mp4'
             params['codecVideo'] = 'h264'
@@ -128,7 +136,8 @@ class VideoConversionJob:
     async def annuler(self):
         if not self.termine:
             self.cancel_event.set()
-            await self.progress_handler.annuler()
+            if self.progress_handler:
+                await self.progress_handler.annuler()
 
     async def __process(self):
         """
