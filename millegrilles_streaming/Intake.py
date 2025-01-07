@@ -11,8 +11,6 @@ from asyncio import TaskGroup
 from typing import Optional, Union
 from urllib.parse import urljoin
 
-from gridfs.errors import FileExists
-
 from millegrilles_messages.bus.BusContext import ForceTerminateExecution
 from millegrilles_messages.messages import Constantes
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher_cle_secrete

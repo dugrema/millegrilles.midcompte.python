@@ -12,8 +12,6 @@ from aiohttp.web_request import Request
 from ssl import SSLContext
 from typing import Optional, Union
 
-from gridfs.errors import FileExists
-
 from millegrilles_messages.messages import Constantes
 
 from millegrilles_streaming.StreamingManager import StreamingManager
