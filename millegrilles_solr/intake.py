@@ -150,7 +150,9 @@ class IntakeHandler:
         # decrypted_key_bytes: bytes = multibase.decode('m'+decrypted_key)
 
         metadata = job['metadata']
-        key_id = metadata.get('cle_id') or metadata['ref_hachage_bytes']
+        key_id = metadata.get('cle_id') or metadata.get('ref_hachage_bytes')
+        if key_id is None:
+            key_id = job['version']['fuuid']
         decrypted_key = job['keys'][key_id]['cle_secrete_base64']
         decrypted_key_bytes: bytes = multibase.decode('m'+decrypted_key)
 
