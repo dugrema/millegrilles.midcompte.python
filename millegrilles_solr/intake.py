@@ -254,7 +254,7 @@ class IntakeHandler:
             pass  # OK
 
         try:
-            cuuids: Optional[list] = job['path_cuuids']
+            cuuids: Optional[list] = job['cuuids']
             if cuuids is not None:
                 # Path cuuids commence par le parent immediat (idx:0 est le parent)
                 # Inverser l'ordre pour l'indexation

@@ -106,14 +106,17 @@ class SolrDao:
                     else:
                         self.__logger.info("supprimer_tuuids Status DELETE de id:%s collections %s OK (200)" % (tuuid, nom_collection))
 
-    async def requete(self, nom_collection, user_id, query, qf='name^2 content', cuuids: Optional[list] = None, start=0, limit=100):
+    async def requete(self, nom_collection, user_id, query, qf='name^2 content', shared_cuuids: Optional[list] = None, cuuid: Optional[str] = None, start=0, limit=100):
         timeout = aiohttp.ClientTimeout(total=5)  # Timeout requete 5 secondes
 
-        if cuuids is not None:
-            cuuids_str = ' OR cuuids:'.join(cuuids)
+        if shared_cuuids is not None and len(shared_cuuids) > 0:
+            cuuids_str = ' OR cuuids:'.join(shared_cuuids)
             fq = f'user_id:{user_id} OR cuuids:{cuuids_str}'
         else:
             fq = f'user_id:{user_id}'
+
+        if cuuid:
+            fq = f'({fq}) AND cuuids:{cuuid}'
 
         async with self.__session(timeout) as session:
             requete_url = f'{self.solr_url}/solr/{nom_collection}/select'
