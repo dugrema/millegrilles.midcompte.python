@@ -2,6 +2,7 @@ REQUETE_FICHIERS = 'fichiers'
 
 EVENEMENT_CONSIGNATION_PRIMAIRE = 'consignationPrimaire'
 EVENEMENT_FUUID_NOUVELLEVERSION = 'fuuidNouvelleVersion'
+EVENEMENT_NEW_FUUID = 'filehostNewFuuid'
 COMMANDE_REINDEXER_CONSIGNATION = 'reindexerConsignation'
 COMMANDE_SUPPRIMER_TUUIDS = 'supprimerTuuids'
 

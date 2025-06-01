@@ -1,4 +1,5 @@
 # Intake de fichiers a indexer
+from asyncio import TaskGroup
 from urllib.parse import urljoin
 
 import aiohttp
@@ -23,9 +24,103 @@ class IntakeHandler:
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__context = context
         self.__solr_dao = solr_dao
-        self.__event_fichiers = asyncio.Event()
+        # self.__event_fichiers = asyncio.Event()
+        self.__event_fetch_jobs = asyncio.Event()
+        self.__processing_queue: asyncio.Queue[Optional[dict]] = asyncio.Queue(maxsize=100)
 
-    async def process_job(self, job: dict):
+    async def trigger_fetch_jobs(self):
+        self.__event_fetch_jobs.set()
+        return {'ok': True}
+
+    async def run(self):
+        async with TaskGroup() as group:
+            group.create_task(self.__stop_thread())
+            group.create_task(self.__fetch_jobs_timer())
+            group.create_task(self.__fetch_jobs_thread())
+            group.create_task(self.__process_queue())
+
+    async def __stop_thread(self):
+        await self.__context.wait()
+        # Free resources
+        await self.__processing_queue.put(None)
+        self.__event_fetch_jobs.set()
+
+    async def __fetch_jobs_timer(self):
+        """
+        Triggers a fetch operation regularly
+        :return:
+        """
+        while self.__context.stopping is False:
+            self.__event_fetch_jobs.set()
+            await self.__context.wait(300)
+
+    async def __fetch_jobs_thread(self):
+        while self.__context.stopping is False:
+            self.__event_fetch_jobs.clear()
+            try:
+                await self.__fetch_jobs()
+            except:
+                self.__logger.exception("Unhandled error fetching jobs")
+            await self.__event_fetch_jobs.wait()
+
+    async def __fetch_jobs(self):
+        # Fetch enough items to fill the queue
+        batch_size = self.__processing_queue.maxsize - self.__processing_queue.qsize()
+        try:
+            filehost_id = self.__context.filehost.filehost_id
+        except AttributeError:
+            # The filehost is not loaded, wait and try again
+            await self.__context.wait(5)
+            filehost_id = self.__context.filehost.filehost_id
+
+        command = {'batch_size': batch_size, 'filehost_id': filehost_id}
+        producer = await self.__context.get_producer()
+        response = await producer.command(command, Constantes.DOMAINE_GROS_FICHIERS, "leaseForIndex", Constantes.SECURITE_PROTEGE)
+        if response.parsed.get('ok') is True:
+            response_code = response.parsed.get('code')
+            self.__logger.debug(f"Response code: {response_code}, response message: {response.parsed.get('message')}")
+            if response_code == 1:
+                pass  # No more files available to index
+            else:
+                await self.__process_response(response.parsed)
+        else:
+            self.__logger.error(f"Error fetching files: {response.parsed.get('err')}")
+
+    async def __process_response(self, message: dict):
+        leases = message['leases']
+        secret_keys = message['secret_keys']
+
+        # Index keys by cle_id
+        keys = dict()
+        for key in secret_keys:
+            keys[key['cle_id']] = key
+
+        # Inject key dict in all jobs
+        for job in leases:
+            job['keys'] = keys
+            await self.__processing_queue.put(job)
+
+    async def __process_queue(self):
+        while self.__context.stopping is False:
+            if self.__processing_queue.qsize() < 2:
+                # The queue is emptied, fetch more jobs when available
+                self.__event_fetch_jobs.set()
+
+            job = await self.__processing_queue.get()
+            if job is None or self.__context.stopping:
+                return  # Stopping
+
+            try:
+                try:
+                    await self.__process_job(job)
+                except* Exception:
+                    self.__logger.exception("Error* processing job")
+                    await self.annuler_job(job, True)
+            except Exception:
+                self.__logger.exception("Error processing job")
+                await self.annuler_job(job, True)
+
+    async def __process_job(self, job: dict):
         try:
             decrypted_key: bytes = await self.__get_key(job)
             job['decrypted_key'] = decrypted_key
@@ -42,16 +137,21 @@ class IntakeHandler:
             self.__logger.exception("Unhandled exception in process_job - will retry")
 
     async def __get_key(self, job: dict) -> bytes:
-        producer = await self.__context.get_producer()
-        response = await producer.command({'job_id': job['job_id'], 'queue': 'index'},
-                                          'GrosFichiers', 'jobGetKey', Constantes.SECURITE_PROTEGE,
-                                          domain_check=["GrosFichiers", "MaitreDesCles"])
-        parsed = response.parsed
+        # producer = await self.__context.get_producer()
+        # response = await producer.command({'job_id': job['job_id'], 'queue': 'index'},
+        #                                   'GrosFichiers', 'jobGetKey', Constantes.SECURITE_PROTEGE,
+        #                                   domain_check=["GrosFichiers", "MaitreDesCles"])
+        # parsed = response.parsed
+        #
+        # if parsed.get('ok') is not True:
+        #     raise KeyRetrievalException('Error getting key: %s' % parsed.get('err'))
 
-        if parsed.get('ok') is not True:
-            raise KeyRetrievalException('Error getting key: %s' % parsed.get('err'))
+        # decrypted_key = parsed['cles'][0]['cle_secrete_base64']
+        # decrypted_key_bytes: bytes = multibase.decode('m'+decrypted_key)
 
-        decrypted_key = parsed['cles'][0]['cle_secrete_base64']
+        metadata = job['metadata']
+        key_id = metadata.get('cle_id') or metadata['ref_hachage_bytes']
+        decrypted_key = job['keys'][key_id]['cle_secrete_base64']
         decrypted_key_bytes: bytes = multibase.decode('m'+decrypted_key)
 
         return decrypted_key_bytes
@@ -65,7 +165,7 @@ class IntakeHandler:
     #     # Supprimer tous les documents indexes
     #     await self.__solr_dao.reset_index(self.__solr_dao.nom_collection_fichiers)
     #
-    #     # Redemarrer l'indexaction
+    #     # Redemarrer l'indexation
     #     self.__event_fichiers.set()
 
     # async def supprimer_tuuids(self, message: MessageWrapper):
@@ -86,8 +186,9 @@ class IntakeHandler:
             return
 
         try:
-            fuuid = job['fuuid']
-            mimetype = job['mimetype']
+            version = job['version']
+            fuuid = version['fuuid']
+            mimetype = job.get('mimetype') or version['mimetype']
             # if fuuid is None or mimetype is None:
             #     self.__logger.error('fuuid ou mimetype None - annuler indexation')
             #     await self.annuler_job(job, True)
@@ -96,13 +197,14 @@ class IntakeHandler:
             # Aucun fichier (e.g. un repertoire
             mimetype = None
             fuuid = None
+            version = None
 
         # Traiter le fichier avec indexation du contenu si applicable
         try:
             if mimetype_supporte_fulltext(mimetype) and fuuid:
                 with tempfile.TemporaryFile() as tmp_file:
                     try:
-                        await self.__downloader_dechiffrer_fichier(job['decrypted_key'], job, tmp_file)
+                        await self.__downloader_dechiffrer_fichier(job['decrypted_key'], version, tmp_file)
                     except:
                         self.__logger.exception("Unhandled exception in download - will retry later")
                         return
@@ -128,11 +230,11 @@ class IntakeHandler:
     async def __traiter_fichier(self, job: dict, tmp_file: Optional[tempfile.TemporaryFile]):
         user_id = job['user_id']
         tuuid = job['tuuid']
-        job_id = job['job_id']
 
         try:
-            fuuid = job['fuuid']
-            mimetype = job['mimetype']
+            version = job['version']
+            fuuid = version['fuuid']
+            mimetype = job.get('mimetype') or version['mimetype']
         except (KeyError, TypeError):
             # Aucun fichier (e.g. un repertoire
             mimetype = None
@@ -171,8 +273,8 @@ class IntakeHandler:
         # Confirmer succes de l'indexation
         producer = await self.__context.get_producer()
         await producer.command(
-            {'ok': True, 'job_id': job_id, 'fuuid': fuuid, 'user_id': user_id, 'tuuid': tuuid},
-            'GrosFichiers', 'confirmerFichierIndexe', exchange='3.protege',
+            {'ok': True, 'user_id': user_id, 'tuuid': tuuid},
+            'GrosFichiers', 'confirmIndex', exchange='3.protege',
             nowait=True
         )
 
@@ -182,15 +284,15 @@ class IntakeHandler:
 
         reponse = {
             'ok': False,
-            'job_id': job['job_id'],
+            # 'job_id': job['job_id'],
             'tuuid': job['tuuid'],
-            'fuuid': job['fuuid'],
+            # 'fuuid': job['fuuid'],
             'supprimer': True,
         }
 
         producer = await self.__context.get_producer()
         await producer.command(
-            reponse, 'GrosFichiers', 'confirmerFichierIndexe', exchange='3.protege',
+            reponse, 'GrosFichiers', 'confirmIndex', exchange='3.protege',
             nowait=True
         )
 
@@ -237,7 +339,10 @@ MIMETYPES_FULLTEXT = [
 BASE_FULLTEXT = ['text']
 
 
-def mimetype_supporte_fulltext(mimetype) -> bool:
+def mimetype_supporte_fulltext(mimetype: Optional[str]) -> bool:
+
+    if mimetype is None:
+        return False
 
     if mimetype in MIMETYPES_FULLTEXT:
         return True

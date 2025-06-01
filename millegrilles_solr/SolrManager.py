@@ -94,10 +94,16 @@ class SolrManager:
         for l in self.__filehost_listeners:
             await l(self.__context.filehost)
 
+    async def trigger_fetch_jobs(self):
+        await self.__intake.trigger_fetch_jobs()
+
     async def reset_index_fichiers(self):
         self.__logger.info('IntakeHandler trigger fichiers recu')
         # Supprimer tous les documents indexes
         await self.__solr_dao.reset_index(self.__solr_dao.nom_collection_fichiers)
+
+        # Start fetching new jobs
+        await self.__intake.trigger_fetch_jobs()
 
     async def supprimer_tuuids(self, params: dict):
         tuuids = params['tuuids']
