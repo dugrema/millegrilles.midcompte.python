@@ -1,4 +1,4 @@
-FROM docker.maple.maceroc.com:5000/millegrilles_messages_python:2024.9.92
+FROM docker.maple.maceroc.com:5000/millegrilles_messages_python:2024.9.92 as stage1
 
 ENV BUILD_FOLDER=/opt/millegrilles/build \
     BUNDLE_FOLDER=/opt/millegrilles/dist \
@@ -14,12 +14,11 @@ ENV BUILD_FOLDER=/opt/millegrilles/build \
     MG_REDIS_PORT=6379 \
     WEB_PORT=1443
 
-COPY . $BUILD_FOLDER
-
 WORKDIR /opt/millegrilles/build
 
+COPY requirements.txt $BUILD_FOLDER/requirements.txt
+
 RUN pip3 install --no-cache-dir -r $BUILD_FOLDER/requirements.txt && \
-    python3 ./setup.py install && \
     mkdir -p /var/opt/millegrilles/consignation/backup && \
     mkdir -p /var/opt/millegrilles/consignation/data && \
     mkdir -p /var/opt/millegrilles/staging && \
@@ -27,6 +26,12 @@ RUN pip3 install --no-cache-dir -r $BUILD_FOLDER/requirements.txt && \
     chown 984:980 /var/opt/millegrilles/consignation/backup && \
     chown 984:980 /var/opt/millegrilles/consignation/data && \
     chown 984:980 /var/opt/millegrilles/staging
+
+FROM stage1
+
+COPY . $BUILD_FOLDER
+
+RUN python3 ./setup.py install
 
 # UID fichiers = 984
 # GID millegrilles = 980
