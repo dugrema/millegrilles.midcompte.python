@@ -122,8 +122,9 @@ class IntakeHandler:
 
     async def __process_job(self, job: dict):
         try:
-            decrypted_key: bytes = await self.__get_key(job)
+            decrypted_key, key = await self.__get_key(job)
             job['decrypted_key'] = decrypted_key
+            job['key'] = key
         except asyncio.TimeoutError:
             self.__logger.error("Timeout getting decryption key, aborting")
             return
@@ -136,7 +137,7 @@ class IntakeHandler:
         except:
             self.__logger.exception("Unhandled exception in process_job - will retry")
 
-    async def __get_key(self, job: dict) -> bytes:
+    async def __get_key(self, job: dict) -> (bytes, dict):
         # producer = await self.__context.get_producer()
         # response = await producer.command({'job_id': job['job_id'], 'queue': 'index'},
         #                                   'GrosFichiers', 'jobGetKey', Constantes.SECURITE_PROTEGE,
@@ -153,10 +154,11 @@ class IntakeHandler:
         key_id = metadata.get('cle_id') or metadata.get('ref_hachage_bytes')
         if key_id is None:
             key_id = job['version']['fuuid']
-        decrypted_key = job['keys'][key_id]['cle_secrete_base64']
+        key = job['keys'][key_id]
+        decrypted_key = key['cle_secrete_base64']
         decrypted_key_bytes: bytes = multibase.decode('m'+decrypted_key)
 
-        return decrypted_key_bytes
+        return decrypted_key_bytes, key
 
     # async def reset_index_fichiers(self):
     #     self.__logger.info('IntakeHandler trigger fichiers recu')
@@ -188,13 +190,17 @@ class IntakeHandler:
             return
 
         try:
-            version = job['version']
+            version = job['key'].copy()
+            # Add all job info to the key, copies the format/nonce when using new format
+            version.update(job['version'])
+
             fuuid = version['fuuid']
             mimetype = job.get('mimetype') or version['mimetype']
             # if fuuid is None or mimetype is None:
             #     self.__logger.error('fuuid ou mimetype None - annuler indexation')
             #     await self.annuler_job(job, True)
             #     return
+
         except (KeyError, TypeError):
             # Aucun fichier (e.g. un repertoire
             mimetype = None
@@ -205,6 +211,7 @@ class IntakeHandler:
         try:
             if mimetype_supporte_fulltext(mimetype) and fuuid:
                 with tempfile.TemporaryFile() as tmp_file:
+
                     try:
                         await self.__downloader_dechiffrer_fichier(job['decrypted_key'], version, tmp_file)
                     except:
