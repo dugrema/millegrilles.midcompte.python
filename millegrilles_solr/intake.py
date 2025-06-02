@@ -126,6 +126,10 @@ class IntakeHandler:
             decrypted_key, key = await self.__get_key(job)
             job['decrypted_key'] = decrypted_key
             job['key'] = key
+        except KeyError as e:
+            self.__logger.error(f"Job fuuid:{job.get('fuuid')}, missing decryption key, SKIPPING. Error: {str(e)}")
+            await self.annuler_job(job, emettre_evenement=True, err=e)
+            return
         except asyncio.TimeoutError:
             self.__logger.error("Timeout getting decryption key, aborting")
             return
