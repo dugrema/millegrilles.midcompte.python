@@ -194,52 +194,33 @@ def preparer_commande_associer(
         commande_associer['anime'] = True
 
     if info_video is not None:
-        raise NotImplementedError('Obsolete')
-        # # video_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'video'].__iter__())
-        # # try:
-        # #     audio_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'audio'].__iter__())
-        # # except StopIteration:
-        # #     audio_stream = None
-        # commande_associer['mimetype'] = mimetype  # Override mimetype image snapshot
-        # try:
-        #     commande_associer['duration'] = float(info_video['duration'])
-        # except KeyError:
-        #     pass  # Duration non disponible
-        #
-        # try:
-        #     commande_associer['videoCodec'] = info_video['videoCodec']
-        # except KeyError:
-        #     pass
-        # try:
-        #     commande_associer['audioCodec'] = info_video['audioCodec']
-        # except KeyError:
-        #     pass
-        # try:
-        #     commande_associer['metadata'] = {"nb_frames": info_video['metadata']['nbFrames']}
-        # except KeyError:
-        #     pass
-        #
-        # # if video_stream is not None:
-        # #     codec_video = video_stream['codec_name']
-        # #     commande_associer['videoCodec'] = info_video['videoCodec']
-        # #     try:
-        # #         nb_frames = video_stream['nb_frames']
-        # #         commande_associer['metadata'] = {'nbFrames': nb_frames}
-        # #     except KeyError:
-        # #         pass
-        # #
-        # # if audio_stream is not None:
-        # #     codec_audio = audio_stream['codec_name']
-        # #     commande_associer['audioCodec'] = codec_audio
-        #
-        # try:
-        #     commande_associer['audio'] = info_video['audio']
-        # except KeyError:
-        #     pass
-        #
-        # try:
-        #     commande_associer['subtitles'] = info_video['subtitles']
-        # except KeyError:
-        #     pass
+        commande_associer['mimetype'] = mimetype  # Override mimetype image snapshot
+        try:
+            commande_associer['duration'] = float(info_video['duration'])
+        except KeyError:
+            pass  # Duration non disponible
+
+        try:
+            commande_associer['videoCodec'] = info_video['videoCodec']
+        except KeyError:
+            pass
+        try:
+            commande_associer['audioCodec'] = info_video['audioCodec']
+        except KeyError:
+            pass
+        try:
+            commande_associer['metadata'] = {"nb_frames": info_video['metadata']['nbFrames']}
+        except KeyError:
+            pass
+
+        try:
+            commande_associer['audio'] = info_video['audio']
+        except KeyError:
+            pass
+
+        try:
+            commande_associer['subtitles'] = info_video['subtitles']
+        except KeyError:
+            pass
 
     return commande_associer

@@ -168,7 +168,7 @@ class IntakeJobPuller(IntakeHandler):
         while self._context.stopping is False:
             self._file_event.clear()
             try:
-                self.__logger.info("Fetching new jobs")
+                self.__logger.debug("Fetching new jobs")
                 await self.__fetch_jobs()
             except:
                 self.__logger.exception("Error fetching jobs")
