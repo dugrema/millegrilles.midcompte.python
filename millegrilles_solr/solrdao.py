@@ -7,6 +7,8 @@ from tempfile import TemporaryFile
 from typing import Optional
 from ssl import SSLContext
 
+from aiohttp import ClientResponseError
+
 from millegrilles_solr.Context import SolrContext
 
 
@@ -136,10 +138,19 @@ class SolrDao:
                 return await resp.json()
 
     async def indexer(self, nom_collection, user_id, doc_id: str, metadata: dict, fichier: Optional[TemporaryFile]):
-        if fichier is None:
-            await self._indexer_document(nom_collection, user_id, doc_id, metadata)
-        else:
-            await self._indexer_fichier(nom_collection, user_id, doc_id, metadata, fichier)
+        try:
+            if fichier is not None:
+                await self._indexer_fichier(nom_collection, user_id, doc_id, metadata, fichier)
+                return  # Indexing complete
+        except ClientResponseError as cre:
+            if cre.status == 500:
+                self.__logger.warning(f"Error indexing file content tuuid:{doc_id}, indexing metadata only")
+            else:
+                # Retry later
+                raise cre
+
+        # Index metadata only
+        await self._indexer_document(nom_collection, user_id, doc_id, metadata)
 
     async def _indexer_document(self, nom_collection, user_id, doc_id: str, metadata: dict):
         data = {"id": doc_id, "user_id": [user_id]}
