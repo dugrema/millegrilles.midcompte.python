@@ -1,5 +1,6 @@
 # Intake de fichiers a indexer
 from asyncio import TaskGroup
+from json import JSONDecodeError
 from urllib.parse import urljoin
 
 import aiohttp
@@ -250,7 +251,13 @@ class IntakeHandler:
             fuuid = None
             tmp_file = None
 
-        info_fichier = await self.__dechiffrer_metadata(job)
+        try:
+            info_fichier = await self.__dechiffrer_metadata(job)
+        except (UnicodeDecodeError, JSONDecodeError) as e:
+            self.__logger.error(f"intake.__traiter_fichier Error decrypting file tuuid:{tuuid} metadata, SKIPPING. Error: {str(e)}")
+            await self.annuler_job(job, emettre_evenement=True, err=e)
+            return
+
         info_fichier['mimetype'] = mimetype
         info_fichier['fuuid'] = fuuid
 
@@ -287,17 +294,19 @@ class IntakeHandler:
             nowait=True
         )
 
-    async def annuler_job(self, job, emettre_evenement=False):
+    async def annuler_job(self, job, emettre_evenement=False, err: Optional[Exception] = None):
         if not emettre_evenement:
             return
 
         reponse = {
             'ok': False,
-            # 'job_id': job['job_id'],
             'tuuid': job['tuuid'],
-            # 'fuuid': job['fuuid'],
+            'user_id': job['user_id'],
             'supprimer': True,
         }
+
+        if err:
+            reponse['err'] = str(err)
 
         producer = await self.__context.get_producer()
         await producer.command(
