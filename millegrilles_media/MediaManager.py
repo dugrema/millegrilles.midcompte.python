@@ -14,7 +14,7 @@ from millegrilles_messages.structs.Filehost import Filehost
 
 class MediaManager:
 
-    def __init__(self, context: MediaContext, intake_images: IntakeJobImage, intake_videos: IntakeJobVideo):
+    def __init__(self, context: MediaContext, intake_images: Optional[IntakeJobImage] = None, intake_videos: Optional[IntakeJobVideo] = None):
         self.__logger = logging.getLogger(__name__+'.'+self.__class__.__name__)
         self.__context = context
         self.__intake_images = intake_images
@@ -31,11 +31,24 @@ class MediaManager:
             group.create_task(self.__reload_filehost_thread())
             group.create_task(self.__staging_cleanup())
 
-    async def process_image_job(self, job: dict):
-        await self.__intake_images.process_job(job)
+    # async def process_image_job(self, job: dict):
+    #     await self.__intake_images.process_job(job)
 
     async def process_video_job(self, job: dict):
         await self.__intake_videos.process_job(job)
+
+    async def newfile_event_received(self, event: MessageWrapper):
+        content = event.parsed
+        filehost_id = content['filehost_id']
+        if self.__context.filehost.filehost_id == filehost_id:
+            try:
+                await self.__intake_images.new_file(event)
+            except AttributeError:
+                pass  # Not running
+            try:
+                await self.__intake_videos.new_file(event)
+            except AttributeError:
+                pass  # Not running
 
     def add_filehost_listener(self, listener: Callable[[Optional[Filehost]], Awaitable[None]]):
         self.__filehost_listeners.append(listener)

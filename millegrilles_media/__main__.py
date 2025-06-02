@@ -52,11 +52,21 @@ async def wiring(context: MediaContext) -> list[Awaitable]:
     loop = asyncio.get_event_loop()
     loop.set_default_executor(ThreadPoolExecutor(max_workers=10))
 
+    config = context.configuration
+
     # Create instances
     bus_connector = MilleGrillesPikaConnector(context)
     context.bus_connector = bus_connector
-    intake_images = IntakeJobImage(context)
-    intake_videos = IntakeJobVideo(context)
+
+    if config.image_processing:
+        intake_images = IntakeJobImage(context)
+    else:
+        intake_images = None
+
+    if config.video_processing:
+        intake_videos = IntakeJobVideo(context)
+    else:
+        intake_videos = None
 
     manager = MediaManager(context, intake_images, intake_videos)
 
@@ -72,6 +82,12 @@ async def wiring(context: MediaContext) -> list[Awaitable]:
         manager.run(),
         command_handler.run(),
     ]
+
+    if intake_images:
+        coros.append(intake_images.run())
+
+    if intake_videos:
+        coros.append(intake_videos.run())
 
     return coros
 

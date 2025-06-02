@@ -30,6 +30,10 @@ def _parse_command_line():
         help="Desactive le traitement video"
     )
     parser.add_argument(
+        '--noimage', action="store_true", required=False,
+        help="Desactive le traitement image"
+    )
+    parser.add_argument(
         '--fallback', action="store_true", required=False,
         help="Active le traitement video pour fallback seulement (h264 270p)"
     )
@@ -71,6 +75,8 @@ class ConfigurationMedia(MilleGrillesBusConfiguration):
         else:
             if args.novideo:
                 self.video_processing = False
+            if args.noimage:
+                self.image_processing = False
 
     @staticmethod
     def load():

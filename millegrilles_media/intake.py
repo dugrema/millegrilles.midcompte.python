@@ -6,11 +6,12 @@ import logging
 import tempfile
 import multibase
 
-from typing import Optional
+from typing import Optional, TypedDict
 from ssl import SSLContext
 
-from asyncio import Event
+from asyncio import Event, TaskGroup
 
+from millegrilles_media.Structs import VersionJob, SecretKeyDict
 from millegrilles_messages.messages import Constantes
 from millegrilles_media.Context import MediaContext
 from millegrilles_media.TransfertFichiers import filehost_authenticate
@@ -18,6 +19,7 @@ from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher_cle_se
 from millegrilles_messages.Mimetypes import est_video
 from millegrilles_media.ImagesHandler import traiter_image
 from millegrilles_media.VideosHandler import VideoConversionJob
+from millegrilles_messages.messages.MessagesModule import MessageWrapper
 
 
 class IntakeHandler:
@@ -39,9 +41,12 @@ class IntakeHandler:
     def get_job_type(self) -> str:
         raise NotImplementedError('must implement')
 
+    async def run(self):
+        await self._context.wait()
+
     async def process_job(self, job: dict):
         try:
-            decrypted_key: bytes = await self.__get_key(job)
+            decrypted_key: bytes = await self._get_key(job)
             job['decrypted_key'] = decrypted_key
         except asyncio.TimeoutError:
             self.__logger.error("Timeout getting decryption key, aborting")
@@ -51,11 +56,11 @@ class IntakeHandler:
             return
 
         try:
-            await self.__run_job(job)
+            await self._run_job(job)
         except:
             self.__logger.exception("Unhandled exception in process_job - will retry")
 
-    async def __get_key(self, job: dict) -> bytes:
+    async def _get_key(self, job: dict) -> bytes:
         producer = await self._context.get_producer()
         response = await producer.command({'job_id': job['job_id'], 'queue': self.get_job_type()},
                                           'GrosFichiers', 'jobGetKey', Constantes.SECURITE_PROTEGE,
@@ -70,7 +75,7 @@ class IntakeHandler:
 
         return decrypted_key_bytes
 
-    async def __run_job(self, job: dict):
+    async def _run_job(self, job: dict):
         dir_staging = self._context.dir_media_staging
 
         # Downloader/dechiffrer
@@ -131,39 +136,143 @@ class IntakeHandler:
 
         tmp_file.write(decipher.finalize())
 
+    async def new_file(self, event: MessageWrapper):
+        pass
 
-class IntakeJobImage(IntakeHandler):
+class IntakeJobPuller(IntakeHandler):
+    """
+    Pulls jobs from GrosFichiers. Listens to new file events.
+    """
+    def __init__(self, context: MediaContext, qsize=1):
+        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+        super().__init__(context)
+        self._file_event = asyncio.Event()
+        self._processing_queue: asyncio.Queue[Optional[VersionJob]] = asyncio.Queue(maxsize=qsize)
+
+    async def run(self):
+        async with TaskGroup() as group:
+            group.create_task(self.__fetch_jobs_thread())
+            group.create_task(self.__process_jobs_thread())
+            group.create_task(self.__stop_thread())
+
+    async def __stop_thread(self):
+        await self._context.wait()
+        # Free all threads
+        self._file_event.set()
+        await self._processing_queue.put(None)
+
+    async def new_file(self, event: MessageWrapper):
+        self._file_event.set()
+
+    async def __fetch_jobs_thread(self):
+        while self._context.stopping is False:
+            self._file_event.clear()
+            try:
+                self.__logger.info("Fetching new jobs")
+                await self.__fetch_jobs()
+            except:
+                self.__logger.exception("Error fetching jobs")
+            try:
+                await asyncio.wait_for(self._file_event.wait(), 300)
+            except asyncio.TimeoutError:
+                pass
+
+    async def __fetch_jobs(self):
+        batch_size = self._processing_queue.maxsize - self._processing_queue.qsize()
+        try:
+            filehost_id = self._context.filehost.filehost_id
+        except (AttributeError, KeyError):
+            # Filehost not loaded, wait a while
+            await self._context.wait(5)
+            filehost_id = self._context.filehost.filehost_id
+
+        command = {'batch_size': batch_size, 'filehost_id': filehost_id}
+        producer = await self._context.get_producer()
+        response = await producer.command(command, Constantes.DOMAINE_GROS_FICHIERS, "leaseForImage", Constantes.SECURITE_PROTEGE)
+        await self.__process_response(response.parsed)
+
+    async def __process_response(self, response: dict):
+        if response.get('ok') is not True:
+            self.__logger.error(f"Error getting jobs: {response.get('err')}")
+            return
+        elif response.get('code') == 1:
+            self.__logger.debug("No more jobs to process")
+            return
+
+        keys: dict[str, SecretKeyDict] = dict()
+        for key in response['secret_keys']:
+            keys[key['cle_id']] = key
+
+        leases = response['leases']
+        for lease in leases:
+            # Inject keys in leases
+            lease['keys'] = keys
+            # Add job to queue
+            await self._processing_queue.put(lease)
+
+    async def __process_jobs_thread(self):
+        while self._context.stopping is False:
+            if self._processing_queue.qsize() == 0:
+                self._file_event.set()  # Q empty, try to fetch new jobs
+
+            job = await self._processing_queue.get()
+
+            if self._context.stopping or job is None:
+                return  # Stopping
+
+            try:
+                await self._process_version_job(job)
+            except:
+                self.__logger.exception("Error processing job")
+
+    async def _process_version_job(self, job: VersionJob):
+        raise NotImplementedError('must implement')
+
+
+class IntakeJobImage(IntakeJobPuller):
 
     def __init__(self, context: MediaContext):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-        super().__init__(context)
+        super().__init__(context, qsize=5)
 
     def get_job_type(self) -> str:
         return 'image'
 
-    async def _traiter_fichier(self, job, tmp_file):
-        self.__logger.debug("Traiter image %s" % job)
-        mimetype: str = job['mimetype']
+    async def _process_version_job(self, job: VersionJob):
+        # Find key to decrypt file
+        decrypted_key, key_info = decrypt_job_key(job)
+        key_info.update(job)  # Inject nonce, format
+        job['decrypted_key'] = decrypted_key  # Inject key for update of results
 
-        if est_video(mimetype):
-            raise ValueError("Mimetype video/* is not supported")
-            # await traiter_poster_video(job, tmp_file, self._context)
-        else:
-            await traiter_image(job, tmp_file, self._context)
+        # Download/decrypt
+        fuuid = job['fuuid']
+
+        self.__logger.debug("_process_version_job Download %s", fuuid)
+        dir_staging = self._context.dir_media_staging
+        with tempfile.TemporaryFile(dir=dir_staging) as tmp_file:
+            try:
+                await self._downloader_dechiffrer_fichier(decrypted_key, key_info, tmp_file)
+                tmp_file.seek(0)  # Rewind for processing
+                self.__logger.debug("File has been decrypted (fp tmp)")
+            except:
+                self.__logger.exception("Unhandled exception in download - will retry later")
+                return
+
+            try:
+                await traiter_image(job, tmp_file, self._context)
+            except Exception as e:
+                self.__logger.exception("Erreur traitement - annuler pour %s : %s", job, e)
+                await self.annuler_job(job, True)
 
     async def annuler_job(self, job, emettre_evenement=False):
         if not emettre_evenement:
             return
 
-        reponse = {
-            'job_id': job['job_id'],
-            'tuuid': job['tuuid'],
-            'fuuid': job['fuuid'],
-        }
+        command = {'fuuid': job['fuuid']}
 
         producer = await self._context.get_producer()
         await producer.command(
-            reponse, 'GrosFichiers', 'supprimerJobImageV2', exchange='3.protege',
+            command, 'GrosFichiers', 'supprimerJobImageV2', exchange='3.protege',
             nowait=True
         )
 
@@ -213,21 +322,15 @@ class IntakeJobVideo(IntakeHandler):
         else:
             self.__logger.debug("annuler_job courante : aucune job courante - emettre message d'annulation")
 
-        # if emettre_commande:
-        #     commande = {
-        #         'ok': False,
-        #         'job_id': job['job_id'],
-        #         'fuuid': job['fuuid'],
-        #         'tuuid': job['tuuid'],
-        #         'user_id': job['user_id'],
-        #     }
-        #
-        #     producer = await self._context.get_producer()
-        #     await producer.command(
-        #         commande, 'GrosFichiers', 'supprimerJobVideoV2', exchange='3.protege',
-        #         nowait=True
-        #     )
-
 
 class KeyRetrievalException(Exception):
     pass
+
+
+def decrypt_job_key(job: VersionJob) -> (bytes, dict):
+    key_id = job.get('cle_id') or job['fuuid']
+    key = job['keys'][key_id]
+    decrypted_key = key['cle_secrete_base64']
+    decrypted_key_bytes: bytes = multibase.decode('m'+decrypted_key)
+
+    return decrypted_key_bytes, key

@@ -9,11 +9,12 @@ from wand.image import Image
 from wand.color import Color
 
 from millegrilles_media.Context import MediaContext
+from millegrilles_media.Structs import VersionJob
 from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4WithSecret
 from millegrilles_media.TransfertFichiers import uploader_fichier, filehost_authenticate
 
 
-async def traiter_image(job, tmp_file, context: MediaContext, info_video: Optional[dict] = None):
+async def traiter_image(job: VersionJob, tmp_file, context: MediaContext, info_video: Optional[dict] = None):
     """
     Converti une image en jpg thumbnail, small et webp large
     :param job:
@@ -141,7 +142,7 @@ def chiffrer_image(img: Image, cle_bytes: bytes, cle_id: str, tmp_out: Optional[
 
 
 async def uploader_images(
-        context: MediaContext, job: dict, info_original: dict, thumbnail, small, large,
+        context: MediaContext, job: VersionJob, info_original: dict, thumbnail, small, large,
         tmpfile_small: tempfile.TemporaryFile, tmpfile_large: tempfile.TemporaryFile,
         info_video: Optional[dict] = None):
 
@@ -162,9 +163,8 @@ async def uploader_images(
     producer = await context.get_producer()
     await producer.command(commande_associer, domain='GrosFichiers', action='associerConversions', exchange='3.protege')
 
-
 def preparer_commande_associer(
-        job: dict, info_original: dict, thumbnail, small, large,
+        job: VersionJob, info_original: dict, thumbnail, small, large,
         info_video: Optional[dict] = None) -> dict:
 
     mimetype = job['mimetype']
@@ -180,8 +180,8 @@ def preparer_commande_associer(
     }
 
     commande_associer = {
-        'job_id': job['job_id'],
-        'tuuid': job['tuuid'],
+        # 'job_id': job['job_id'],
+        # 'tuuid': job['tuuid'],
         'fuuid': job['fuuid'],
         # 'user_id': job['user_id'],
         'width': info_original['width'],
@@ -194,51 +194,52 @@ def preparer_commande_associer(
         commande_associer['anime'] = True
 
     if info_video is not None:
-        # video_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'video'].__iter__())
+        raise NotImplementedError('Obsolete')
+        # # video_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'video'].__iter__())
+        # # try:
+        # #     audio_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'audio'].__iter__())
+        # # except StopIteration:
+        # #     audio_stream = None
+        # commande_associer['mimetype'] = mimetype  # Override mimetype image snapshot
         # try:
-        #     audio_stream = next([s for s in info_video['streams'] if s['codec_type'] == 'audio'].__iter__())
-        # except StopIteration:
-        #     audio_stream = None
-        commande_associer['mimetype'] = mimetype  # Override mimetype image snapshot
-        try:
-            commande_associer['duration'] = float(info_video['duration'])
-        except KeyError:
-            pass  # Duration non disponible
-
-        try:
-            commande_associer['videoCodec'] = info_video['videoCodec']
-        except KeyError:
-            pass
-        try:
-            commande_associer['audioCodec'] = info_video['audioCodec']
-        except KeyError:
-            pass
-        try:
-            commande_associer['metadata'] = {"nb_frames": info_video['metadata']['nbFrames']}
-        except KeyError:
-            pass
-
-        # if video_stream is not None:
-        #     codec_video = video_stream['codec_name']
-        #     commande_associer['videoCodec'] = info_video['videoCodec']
-        #     try:
-        #         nb_frames = video_stream['nb_frames']
-        #         commande_associer['metadata'] = {'nbFrames': nb_frames}
-        #     except KeyError:
-        #         pass
+        #     commande_associer['duration'] = float(info_video['duration'])
+        # except KeyError:
+        #     pass  # Duration non disponible
         #
-        # if audio_stream is not None:
-        #     codec_audio = audio_stream['codec_name']
-        #     commande_associer['audioCodec'] = codec_audio
-
-        try:
-            commande_associer['audio'] = info_video['audio']
-        except KeyError:
-            pass
-
-        try:
-            commande_associer['subtitles'] = info_video['subtitles']
-        except KeyError:
-            pass
+        # try:
+        #     commande_associer['videoCodec'] = info_video['videoCodec']
+        # except KeyError:
+        #     pass
+        # try:
+        #     commande_associer['audioCodec'] = info_video['audioCodec']
+        # except KeyError:
+        #     pass
+        # try:
+        #     commande_associer['metadata'] = {"nb_frames": info_video['metadata']['nbFrames']}
+        # except KeyError:
+        #     pass
+        #
+        # # if video_stream is not None:
+        # #     codec_video = video_stream['codec_name']
+        # #     commande_associer['videoCodec'] = info_video['videoCodec']
+        # #     try:
+        # #         nb_frames = video_stream['nb_frames']
+        # #         commande_associer['metadata'] = {'nbFrames': nb_frames}
+        # #     except KeyError:
+        # #         pass
+        # #
+        # # if audio_stream is not None:
+        # #     codec_audio = audio_stream['codec_name']
+        # #     commande_associer['audioCodec'] = codec_audio
+        #
+        # try:
+        #     commande_associer['audio'] = info_video['audio']
+        # except KeyError:
+        #     pass
+        #
+        # try:
+        #     commande_associer['subtitles'] = info_video['subtitles']
+        # except KeyError:
+        #     pass
 
     return commande_associer
