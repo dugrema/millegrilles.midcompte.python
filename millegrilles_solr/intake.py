@@ -28,6 +28,7 @@ class IntakeHandler:
         # self.__event_fichiers = asyncio.Event()
         self.__event_fetch_jobs = asyncio.Event()
         self.__processing_queue: asyncio.Queue[Optional[dict]] = asyncio.Queue(maxsize=100)
+        self.__session: Optional[aiohttp.ClientSession] = None
 
     async def trigger_fetch_jobs(self):
         self.__event_fetch_jobs.set()
@@ -324,32 +325,91 @@ class IntakeHandler:
         doc_dechiffre = dechiffrer_document_secrete(cle, metadata)
         return doc_dechiffre
 
-    async def __downloader_dechiffrer_fichier(self, decrypted_key: bytes, job: dict, tmp_file) -> int:
+    async def __downloader_dechiffrer_fichier(self, decrypted_key: bytes, job: dict, tmp_file: tempfile.TemporaryFile) -> int:
         fuuid = job['fuuid']
-        decipher = get_decipher_cle_secrete(decrypted_key, job)
 
-        timeout = aiohttp.ClientTimeout(connect=5, total=600)
-        connector = self.__context.get_tcp_connector()
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-            await filehost_authenticate(self.__context, session)
+        file_size = 0
+
+        for i in range(0, 3):
+            decipher = get_decipher_cle_secrete(decrypted_key, job)
+            tmp_file.seek(0)  # Ensure we are at the beginning in case of client issue later on
+
+            if self.__session is None:
+                timeout = aiohttp.ClientTimeout(connect=5, total=600)
+                connector = self.__context.get_tcp_connector()
+                session = aiohttp.ClientSession(timeout=timeout, connector=connector)
+                session.verify = self.__context.tls_method != 'nocheck'
+                try:
+                    await filehost_authenticate(self.__context, session)
+                    self.__session = session
+                except aiohttp.ClientResponseError:
+                    self.__logger.exception("Error authenticating")
+                    await self.__context.wait(2)
+                    continue  # Retry
 
             filehost_url = self.__context.filehost_url
             url_fichier = urljoin(filehost_url, f'filehost/files/{fuuid}')
-            async with session.get(url_fichier) as resp:
-                resp.raise_for_status()
+            try:
+                async with self.__session.get(url_fichier) as resp:
+                    resp.raise_for_status()
 
-                async for chunk in resp.content.iter_chunked(64 * 1024):
-                    tmp_file.write(decipher.update(chunk))
+                    async for chunk in resp.content.iter_chunked(64*1024):
+                        await asyncio.to_thread(tmp_file.write, decipher.update(chunk))
+                        file_size += len(chunk)
 
-        tmp_file.write(decipher.finalize())
+                    # Download successful
+                    chunk = decipher.finalize()
+                    await asyncio.to_thread(tmp_file.write, chunk)
+                    file_size += len(chunk)
 
-        # Trouver position pour obtenir la taille dechiffree du fichier
-        file_size = tmp_file.tell()
-        if file_size == 0:
-            raise FichierVide()  # Aucunes donnees, indiquer que le contenu ne peut pas etre indexe
+                    return file_size
+            except aiohttp.ClientResponseError as cre:
+                if cre.status in [400, 401, 403]:
+                    self.__logger.debug("Not authenticated")
 
-        tmp_file.seek(0)
-        return file_size
+                    # Close session
+                    session = self.__session
+                    self.__session = None
+                    if session:
+                        await session.close()
+
+                    continue  # Retry with a new session
+                elif 500 <= cre.status < 600:
+                    self.__logger.info(f"Filehost server error: {cre.status}")
+                    await self.__context.wait(3)  # Wait in case the server is restarting
+                    continue  # Retry
+                else:
+                    raise cre
+
+        raise Exception("Attached file download - Too many retries")
+
+    #
+    # async def __downloader_dechiffrer_fichier(self, decrypted_key: bytes, job: dict, tmp_file) -> int:
+    #     fuuid = job['fuuid']
+    #     decipher = get_decipher_cle_secrete(decrypted_key, job)
+    #
+    #     timeout = aiohttp.ClientTimeout(connect=5, total=600)
+    #     connector = self.__context.get_tcp_connector()
+    #     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+    #         await filehost_authenticate(self.__context, session)
+    #
+    #         filehost_url = self.__context.filehost_url
+    #         url_fichier = urljoin(filehost_url, f'filehost/files/{fuuid}')
+    #         async with session.get(url_fichier) as resp:
+    #             resp.raise_for_status()
+    #
+    #             async for chunk in resp.content.iter_chunked(64 * 1024):
+    #                 tmp_file.write(decipher.update(chunk))
+    #
+    #     tmp_file.write(decipher.finalize())
+    #
+    #     # Trouver position pour obtenir la taille dechiffree du fichier
+    #     file_size = tmp_file.tell()
+    #     if file_size == 0:
+    #         raise FichierVide()  # Aucunes donnees, indiquer que le contenu ne peut pas etre indexe
+    #
+    #     tmp_file.seek(0)
+    #     return file_size
 
 
 MIMETYPES_FULLTEXT = [
