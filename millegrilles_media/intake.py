@@ -30,6 +30,8 @@ class IntakeHandler:
         self.__event_fichiers: Event = None
         self.__ssl_context: Optional[SSLContext] = None
 
+        self.__session: Optional[aiohttp.ClientSession] = None
+
     async def configurer(self):
         self.__event_fichiers = Event()
 
@@ -117,24 +119,51 @@ class IntakeHandler:
 
     async def _downloader_dechiffrer_fichier(self, decrypted_key: bytes, job: dict, tmp_file):
         fuuid = job['fuuid']
-        decipher = get_decipher_cle_secrete(decrypted_key, job)
+        filehost_url = self._context.filehost_url
+        url_fichier = urljoin(filehost_url, f'filehost/files/{fuuid}')
 
-        timeout = aiohttp.ClientTimeout(connect=5, total=600)
-        connector = self._context.get_tcp_connector()
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-            session.verify = self._context.tls_method != 'nocheck'
+        for i in range(0, 3):
+            tmp_file.seek(0)  # Put file back at beginning
+            decipher = get_decipher_cle_secrete(decrypted_key, job)
 
-            await filehost_authenticate(self._context, session)
+            if self.__session is None:
+                timeout = aiohttp.ClientTimeout(connect=5, total=600)
+                connector = self._context.get_tcp_connector()
+                session = aiohttp.ClientSession(timeout=timeout, connector=connector)
+                session.verify = self._context.tls_method != 'nocheck'
+                try:
+                    await filehost_authenticate(self._context, session)
+                    self.__session = session
+                except aiohttp.ClientResponseError:
+                    self.__logger.exception("Error authenticating")
+                    await self._context.wait(2)
+                    continue  # Retry
 
-            filehost_url = self._context.filehost_url
-            url_fichier = urljoin(filehost_url, f'filehost/files/{fuuid}')
-            async with session.get(url_fichier) as resp:
-                resp.raise_for_status()
+            try:
+                async with self.__session.get(url_fichier) as resp:
+                    resp.raise_for_status()
 
-                async for chunk in resp.content.iter_chunked(64*1024):
-                    tmp_file.write(decipher.update(chunk))
+                    async for chunk in resp.content.iter_chunked(64*1024):
+                        tmp_file.write(decipher.update(chunk))
 
-        tmp_file.write(decipher.finalize())
+                tmp_file.write(decipher.finalize())
+
+                return  # Success
+            except aiohttp.ClientResponseError as cre:
+                if cre.status in [400, 401, 403]:
+                    session = self.__session
+                    self.__session = None
+                    if session is not None:
+                        await session.close()
+                    continue  # Retry with new session
+                elif 500 <= cre.status < 600:
+                    # Server error, wait and retry
+                    await self._context.wait(2)
+                    continue
+                else:
+                    raise cre
+
+        raise Exception('Too many retries')
 
     async def new_file(self, event: MessageWrapper):
         pass
