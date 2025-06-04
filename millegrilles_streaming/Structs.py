@@ -58,3 +58,6 @@ class InformationFuuid:
 
 class FilehostInvalidException(Exception):
     pass
+
+class TooManyRetries(Exception):
+    pass

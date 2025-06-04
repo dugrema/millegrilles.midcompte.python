@@ -15,7 +15,7 @@ from millegrilles_messages.messages import Constantes
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher_cle_secrete
 
 from millegrilles_streaming.Context import StreamingContext
-from millegrilles_streaming.Structs import InformationFuuid, FilehostInvalidException
+from millegrilles_streaming.Structs import InformationFuuid, FilehostInvalidException, TooManyRetries
 
 LOGGER = logging.getLogger(__name__)
 
@@ -198,8 +198,12 @@ class IntakeHandler:
                     self.__session = session
                 except aiohttp.ClientResponseError:
                     self.__logger.exception("Error authenticating")
+                    await session.close()
                     await self._context.wait(2)
                     continue  # Retry
+                except Exception as e:
+                    await session.close()
+                    raise e
 
             decryption_info = {'nonce': job.file_information.nonce, 'format': job.file_information.format, 'header': job.file_information.header}
             decipher = get_decipher_cle_secrete(decrypted_key, decryption_info)
@@ -228,7 +232,7 @@ class IntakeHandler:
                 else:
                     raise e
 
-        raise Exception('Too many retries')
+        raise TooManyRetries('Too many retries')
 
     async def get_fuuid_header(self, fuuid: str) -> dict:
         """
@@ -243,8 +247,12 @@ class IntakeHandler:
             timeout = aiohttp.ClientTimeout(connect=5, total=900)
             if self.__session is None:
                 session = self._context.get_http_session(timeout)
-                await filehost_authenticate(self._context, session)
-                self.__session = session
+                try:
+                    await filehost_authenticate(self._context, session)
+                    self.__session = session
+                except Exception as e:
+                    await session.close()
+                    raise e
 
             response = await self.__session.head(file_url)
             if response.status in [401, 403]:
@@ -262,7 +270,7 @@ class IntakeHandler:
             response.raise_for_status()
             return {'taille': response.headers.get('Content-Length'), 'status': response.status}
 
-        raise Exception('Too many retries')
+        raise TooManyRetries('Too many retries')
 
     async def __get_key(self, user_id: str, fuuid: str, jwt_token: str, timeout=15) -> bytes:
         producer = await self._context.get_producer()

@@ -1,3 +1,5 @@
+import asyncio
+
 import aiohttp
 import logging
 
@@ -8,7 +10,7 @@ from millegrilles_messages.bus.BusContext import ForceTerminateExecution
 from millegrilles_messages.structs.Filehost import Filehost
 from millegrilles_streaming.Context import StreamingContext
 from millegrilles_streaming.Intake import IntakeHandler, IntakeJob
-from millegrilles_streaming.Structs import InformationFuuid, FilehostInvalidException
+from millegrilles_streaming.Structs import InformationFuuid, FilehostInvalidException, TooManyRetries
 
 
 class StreamingManager:
@@ -46,25 +48,24 @@ class StreamingManager:
     async def __reload_filehost_thread(self):
         while self.__context.stopping is False:
             try:
-                await self.reload_filehost_configuration()
+                await self.reload_filehost_configuration(timeout=15)
                 await self.__context.wait(900)
+            except asyncio.TimeoutError:
+                self.__logger.warning("Timeout loading filehost information, retrying")
+                await self.__context.wait(15)
             except:
                 self.__logger.exception("Error loading filehost configuration")
-                await self.__context.wait(30)
+                await self.__context.wait(60)
 
-    async def reload_filehost_configuration(self):
+    async def reload_filehost_configuration(self, timeout=3):
         producer = await self.__context.get_producer()
         response = await producer.request(
-            dict(), 'CoreTopologie', 'getFilehostForInstance', exchange="1.public")
+            dict(), 'CoreTopologie', 'getFilehostForInstance', exchange="1.public", timeout=timeout)
 
-        try:
-            filehost_response = response.parsed
-            filehost_dict = filehost_response['filehost']
-            filehost = Filehost.load_from_dict(filehost_dict)
-            self.__context.filehost = filehost
-        except:
-            self.__logger.exception("Error loading filehost")
-            self.__context.filehost = None
+        filehost_response = response.parsed
+        filehost_dict = filehost_response['filehost']
+        filehost = Filehost.load_from_dict(filehost_dict)
+        self.__context.filehost = filehost
 
         for l in self.__filehost_listeners:
             await l(self.__context.filehost)
@@ -78,7 +79,11 @@ class StreamingManager:
             except FilehostInvalidException:
                 if i > 0:  # Throttle retries
                     await self.__context.wait(CONST_WAIT_RETRY)
-                await self.reload_filehost_configuration()
+                try:
+                    await self.reload_filehost_configuration()
+                except (TimeoutError, asyncio.TimeoutError):
+                    self.__logger.info("add_job Timeout reloading filehost information")
+                    await self.__context.wait(CONST_WAIT_RETRY)
             except aiohttp.ClientConnectionError as e:
                 try:
                     errno = e.errno
@@ -94,7 +99,7 @@ class StreamingManager:
 
                 raise e
 
-        raise Exception('Too many retries')
+        raise TooManyRetries('Too many retries')
 
     async def load_decrypted_information(self, file_information: InformationFuuid):
             return await self.__intake.load_decrypted_information(file_information)
