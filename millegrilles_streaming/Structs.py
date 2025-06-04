@@ -54,3 +54,7 @@ class InformationFuuid:
             'nonce': nonce,
             'format': self.format,
         }
+
+
+class FilehostInvalidException(Exception):
+    pass

@@ -67,7 +67,7 @@ class MgbusHandler:
 
         action = message.routage['action']
 
-        if Constantes.DOMAINE_CORE_TOPOLOGIE in domaines and action == 'filehostingUpdate':
+        if Constantes.DOMAINE_CORE_TOPOLOGIE in domaines and action == 'filehostUpdate':
             # File hosts updated, reload configuration
             return await self.__manager.reload_filehost_configuration()
 
@@ -78,6 +78,6 @@ def create_exclusive_q_channel(context: MilleGrillesBusContext,
                                on_message: Callable[[MessageWrapper], Coroutine[Any, Any, None]]) -> MilleGrillesPikaChannel:
     exclusive_q_channel = MilleGrillesPikaChannel(context, prefetch_count=20)
     exclusive_q = MilleGrillesPikaQueueConsumer(context, on_message, None, exclusive=True, arguments={'x-message-ttl': 30_000})
-    exclusive_q.add_routing_key(RoutingKey(Constantes.SECURITE_PUBLIC, 'evenement.CoreTopologie.filehostingUpdate'))
+    exclusive_q.add_routing_key(RoutingKey(Constantes.SECURITE_PUBLIC, 'evenement.CoreTopologie.filehostUpdate'))
     exclusive_q_channel.add_queue(exclusive_q)
     return exclusive_q_channel

@@ -15,8 +15,7 @@ from millegrilles_messages.messages import Constantes
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher_cle_secrete
 
 from millegrilles_streaming.Context import StreamingContext
-from millegrilles_streaming.Structs import InformationFuuid
-
+from millegrilles_streaming.Structs import InformationFuuid, FilehostInvalidException
 
 LOGGER = logging.getLogger(__name__)
 
@@ -238,24 +237,32 @@ class IntakeHandler:
         :param session:
         :return:
         """
-        timeout = aiohttp.ClientTimeout(connect=5, total=900)
-        if self.__session is None:
-            session = self._context.get_http_session(timeout)
-            await filehost_authenticate(self._context, session)
-            self.__session = session
-
         file_url = urljoin(self._context.filehost_url, f'filehost/files/{fuuid}')
-        response = await self.__session.head(file_url)
-        if response.status in [401, 403]:
-            # Cookie expired, try again
-            await self.__session.close()
-            session = self._context.get_http_session(timeout)
-            await filehost_authenticate(self._context, session)
-            self.__session = session
-            response = await self.__session.head(file_url)
 
-        response.raise_for_status()
-        return {'taille': response.headers.get('Content-Length'), 'status': response.status}
+        for i in range(0, 3):
+            timeout = aiohttp.ClientTimeout(connect=5, total=900)
+            if self.__session is None:
+                session = self._context.get_http_session(timeout)
+                await filehost_authenticate(self._context, session)
+                self.__session = session
+
+            response = await self.__session.head(file_url)
+            if response.status in [401, 403]:
+                # Cookie expired, try again
+                session = self.__session
+                self.__session = None
+                if session:
+                    await session.close()
+                continue
+            elif 500 <= response.status < 600:
+                # Server error, retry
+                await self._context.wait(1)
+                continue
+
+            response.raise_for_status()
+            return {'taille': response.headers.get('Content-Length'), 'status': response.status}
+
+        raise Exception('Too many retries')
 
     async def __get_key(self, user_id: str, fuuid: str, jwt_token: str, timeout=15) -> bytes:
         producer = await self._context.get_producer()
@@ -341,6 +348,8 @@ class IntakeHandler:
 
 async def filehost_authenticate(context: StreamingContext, session: aiohttp.ClientSession):
     filehost_url = context.filehost_url
+    if filehost_url is None:
+        raise FilehostInvalidException()
     url_authenticate = urljoin(filehost_url, '/filehost/authenticate')
     authentication_message, message_id = context.formatteur.signer_message(
         Constantes.KIND_COMMANDE, dict(), domaine='filehost', action='authenticate')

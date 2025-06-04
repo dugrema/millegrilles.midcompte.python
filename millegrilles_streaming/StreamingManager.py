@@ -1,4 +1,6 @@
+import aiohttp
 import logging
+
 from asyncio import TaskGroup
 from typing import Callable, Awaitable, Optional
 
@@ -6,7 +8,7 @@ from millegrilles_messages.bus.BusContext import ForceTerminateExecution
 from millegrilles_messages.structs.Filehost import Filehost
 from millegrilles_streaming.Context import StreamingContext
 from millegrilles_streaming.Intake import IntakeHandler, IntakeJob
-from millegrilles_streaming.Structs import InformationFuuid
+from millegrilles_streaming.Structs import InformationFuuid, FilehostInvalidException
 
 
 class StreamingManager:
@@ -32,7 +34,6 @@ class StreamingManager:
             async with TaskGroup() as group:
                 group.create_task(self.__reload_filehost_thread())
                 group.create_task(self.__intake.run())
-                group.create_task(self.__staging_cleanup())
         except* Exception:
             if self.__context.stopping is False:
                 self.__logger.exception("StreamingManager taskGroup threw exception - quitting")
@@ -68,14 +69,32 @@ class StreamingManager:
         for l in self.__filehost_listeners:
             await l(self.__context.filehost)
 
-    async def __staging_cleanup(self):
-        while self.__context.stopping is False:
-            # TODO - cleanup
-
-            await self.__context.wait(300)
-
     async def add_job(self, file: InformationFuuid) -> IntakeJob:
-        return await self.__intake.add_job(file)
+        CONST_WAIT_RETRY = 1
+        CONST_MAX_RETRY = 3
+        for i in range(0, CONST_MAX_RETRY):
+            try:
+                return await self.__intake.add_job(file)
+            except FilehostInvalidException:
+                if i > 0:  # Throttle retries
+                    await self.__context.wait(CONST_WAIT_RETRY)
+                await self.reload_filehost_configuration()
+            except aiohttp.ClientConnectionError as e:
+                try:
+                    errno = e.errno
+                    if errno == -2:
+                        self.__logger.error(
+                            f"The server (DNS hostname) is unknown, the filehost information is wrong, reloading: {str(e)}")
+                        if i > 0:  # Throttle retries
+                            await self.__context.wait(CONST_WAIT_RETRY)
+                        await self.reload_filehost_configuration()
+                        continue
+                except AttributeError:
+                    pass
+
+                raise e
+
+        raise Exception('Too many retries')
 
     async def load_decrypted_information(self, file_information: InformationFuuid):
-        return await self.__intake.load_decrypted_information(file_information)
+            return await self.__intake.load_decrypted_information(file_information)
