@@ -67,6 +67,8 @@ class StreamingManager:
         filehost = Filehost.load_from_dict(filehost_dict)
         self.__context.filehost = filehost
 
+        self.__logger.info(f"Using filehost {filehost.filehost_id}, external url: {filehost.url_external}")
+
         for l in self.__filehost_listeners:
             await l(self.__context.filehost)
 
