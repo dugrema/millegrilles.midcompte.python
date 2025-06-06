@@ -68,6 +68,9 @@ class IntakeHandler:
     async def __fetch_jobs(self):
         # Fetch enough items to fill the queue
         batch_size = self.__processing_queue.maxsize - self.__processing_queue.qsize()
+        if batch_size == 0:
+            return  # Queue full
+
         try:
             filehost_id = self.__context.filehost.filehost_id
         except AttributeError:
@@ -104,7 +107,7 @@ class IntakeHandler:
 
     async def __process_queue(self):
         while self.__context.stopping is False:
-            if self.__processing_queue.qsize() < 2:
+            if self.__processing_queue.qsize() == 0:
                 # The queue is emptied, fetch more jobs when available
                 self.__event_fetch_jobs.set()
 
@@ -144,18 +147,6 @@ class IntakeHandler:
             self.__logger.exception("Unhandled exception in process_job - will retry")
 
     async def __get_key(self, job: dict) -> (bytes, dict):
-        # producer = await self.__context.get_producer()
-        # response = await producer.command({'job_id': job['job_id'], 'queue': 'index'},
-        #                                   'GrosFichiers', 'jobGetKey', Constantes.SECURITE_PROTEGE,
-        #                                   domain_check=["GrosFichiers", "MaitreDesCles"])
-        # parsed = response.parsed
-        #
-        # if parsed.get('ok') is not True:
-        #     raise KeyRetrievalException('Error getting key: %s' % parsed.get('err'))
-
-        # decrypted_key = parsed['cles'][0]['cle_secrete_base64']
-        # decrypted_key_bytes: bytes = multibase.decode('m'+decrypted_key)
-
         metadata = job['metadata']
         key_id = metadata.get('cle_id') or metadata.get('ref_hachage_bytes')
         if key_id is None:
@@ -382,35 +373,6 @@ class IntakeHandler:
                     raise cre
 
         raise Exception("Attached file download - Too many retries")
-
-    #
-    # async def __downloader_dechiffrer_fichier(self, decrypted_key: bytes, job: dict, tmp_file) -> int:
-    #     fuuid = job['fuuid']
-    #     decipher = get_decipher_cle_secrete(decrypted_key, job)
-    #
-    #     timeout = aiohttp.ClientTimeout(connect=5, total=600)
-    #     connector = self.__context.get_tcp_connector()
-    #     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-    #         await filehost_authenticate(self.__context, session)
-    #
-    #         filehost_url = self.__context.filehost_url
-    #         url_fichier = urljoin(filehost_url, f'filehost/files/{fuuid}')
-    #         async with session.get(url_fichier) as resp:
-    #             resp.raise_for_status()
-    #
-    #             async for chunk in resp.content.iter_chunked(64 * 1024):
-    #                 tmp_file.write(decipher.update(chunk))
-    #
-    #     tmp_file.write(decipher.finalize())
-    #
-    #     # Trouver position pour obtenir la taille dechiffree du fichier
-    #     file_size = tmp_file.tell()
-    #     if file_size == 0:
-    #         raise FichierVide()  # Aucunes donnees, indiquer que le contenu ne peut pas etre indexe
-    #
-    #     tmp_file.seek(0)
-    #     return file_size
-
 
 MIMETYPES_FULLTEXT = [
     'application/pdf',
