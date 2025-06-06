@@ -77,7 +77,7 @@ class IntakeHandler:
 
         command = {'batch_size': batch_size, 'filehost_id': filehost_id}
         producer = await self.__context.get_producer()
-        response = await producer.command(command, Constantes.DOMAINE_GROS_FICHIERS, "leaseForIndex", Constantes.SECURITE_PROTEGE)
+        response = await producer.command(command, Constantes.DOMAINE_GROS_FICHIERS, "leaseForIndex", Constantes.SECURITE_PROTEGE, timeout=60)
         if response.parsed.get('ok') is True:
             response_code = response.parsed.get('code')
             self.__logger.debug(f"Response code: {response_code}, response message: {response.parsed.get('message')}")
