@@ -217,7 +217,7 @@ class IntakeJobPuller(IntakeHandler):
 
         command = {'batch_size': batch_size, 'filehost_id': filehost_id}
         producer = await self._context.get_producer()
-        response = await producer.command(command, Constantes.DOMAINE_GROS_FICHIERS, "leaseForImage", Constantes.SECURITE_PROTEGE)
+        response = await producer.command(command, Constantes.DOMAINE_GROS_FICHIERS, "leaseForImage", Constantes.SECURITE_PRIVE)
         await self.__process_response(response.parsed)
 
     async def __process_response(self, response: dict):
