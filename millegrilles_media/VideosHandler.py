@@ -15,6 +15,7 @@ from typing import Optional
 import ffmpeg
 import multibase
 
+from millegrilles_messages.messages import Constantes
 from millegrilles_media.Context import MediaContext
 from millegrilles_media.ImagesHandler import traiter_image
 from millegrilles_media.TransfertFichiers import uploader_fichier, chiffrer_fichier, filehost_authenticate
@@ -287,7 +288,7 @@ async def uploader_video(context: MediaContext, job, info_chiffrage, tmp_output_
 
     # Transmettre commande associer
     producer = await context.get_producer()
-    await producer.command(commande_associer, domain='GrosFichiers', action='associerVideo', exchange='3.protege')
+    await producer.command(commande_associer, domain='GrosFichiers', action='associerVideo', exchange=Constantes.SECURITE_PRIVE)
 
 
 def preparer_commande_associer(job: dict, info_chiffrage: dict) -> dict:

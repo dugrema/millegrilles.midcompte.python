@@ -109,33 +109,6 @@ class CommandHandler:
         self.__logger.info("on_exclusive_message Ignoring unknown action %s" % action)
         return None
 
-    # async def on_image_processing_message(self, message: MessageWrapper):
-    #     # Authorization check - 3.protege/CoreTopologie
-    #     enveloppe = message.certificat
-    #     try:
-    #         domaines = enveloppe.get_domaines
-    #     except ExtensionNotFound:
-    #         domaines = list()
-    #     try:
-    #         exchanges = enveloppe.get_exchanges
-    #     except ExtensionNotFound:
-    #         exchanges = list()
-    #     try:
-    #         delegation_globale = enveloppe.get_delegation_globale
-    #     except ExtensionNotFound:
-    #         delegation_globale = None
-    #
-    #     action = message.routage['action']
-    #     estampille = message.estampille
-    #     message_age = datetime.datetime.now().timestamp() - estampille
-    #     payload = message.parsed
-    #
-    #     if action == 'processImage':
-    #         if Constantes.SECURITE_PROTEGE in exchanges and Constantes.DOMAINE_GROS_FICHIERS in domaines and message_age < 180:
-    #             return await self.__media_manager.process_image_job(payload)
-    #
-    #     self.__logger.info("on_volatile_message Ignoring unknown image action / wrong security %s" % action)
-
     async def on_video_processing_message(self, message: MessageWrapper):
         # Authorization check - 3.protege/CoreTopologie
         enveloppe = message.certificat
@@ -158,7 +131,7 @@ class CommandHandler:
         payload = message.parsed
 
         if action == 'processVideo':
-            if Constantes.SECURITE_PROTEGE in exchanges and Constantes.DOMAINE_GROS_FICHIERS in domaines and message_age < 600:
+            if Constantes.SECURITE_PRIVE in exchanges and Constantes.DOMAINE_GROS_FICHIERS in domaines and message_age < 600:
                 return await self.__media_manager.process_video_job(payload)
 
         self.__logger.info("on_volatile_message Ignoring unknown video action %s" % action)
@@ -175,18 +148,6 @@ class CommandHandler:
         await self.__remove_processing_listeners()
         self.__current_filehost_id = filehost_id
 
-        # if self.__channel_image_processing:
-        #     q_name = f'media/{filehost_id}/image'
-        #     self.__logger.debug("Activating processing listener on %s" % q_name)
-        #     image_consumer = MilleGrillesPikaQueueConsumer(
-        #         self.__context, self.on_image_processing_message, q_name,
-        #         auto_delete=True,  # remove queue to avoid piling up messages for a filehost with no processors
-        #         arguments={'x-message-ttl': 180000})
-        #     image_consumer.add_routing_key(
-        #         RoutingKey(Constantes.SECURITE_PROTEGE, f'commande.media.{filehost_id}.processImage'))
-        #     self.__current_image_processing_consumer = image_consumer
-        #     await self.__channel_image_processing.add_queue_consume(self.__current_image_processing_consumer)
-
         if self.__channel_video_processing:
             q_name = f'media/{filehost_id}/video'
             self.__logger.debug("Activating processing listener on %s" % q_name)
@@ -195,17 +156,11 @@ class CommandHandler:
                 auto_delete=True,  # remove queue to avoid piling up messages for a filehost with no processors
                 arguments={'x-message-ttl': 600000})
             video_consumer.add_routing_key(
-                RoutingKey(Constantes.SECURITE_PROTEGE, f'commande.media.{filehost_id}.processVideo'))
+                RoutingKey(Constantes.SECURITE_PRIVE, f'commande.media.{filehost_id}.processVideo'))
             self.__current_video_processing_consumer = video_consumer
             await self.__channel_video_processing.add_queue_consume(self.__current_video_processing_consumer)
 
     async def __remove_processing_listeners(self):
-        # image_consumer = self.__current_image_processing_consumer
-        # if image_consumer:
-        #     self.__logger.debug("Removing processing listener on images")
-        #     self.__current_image_processing_consumer = None
-        #     await self.__channel_image_processing.remove_queue(image_consumer)
-
         video_consumer = self.__current_video_processing_consumer
         if video_consumer:
             self.__logger.debug("Removing processing listener on videos")

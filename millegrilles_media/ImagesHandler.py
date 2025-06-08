@@ -8,6 +8,7 @@ from typing import Optional
 from wand.image import Image
 from wand.color import Color
 
+from millegrilles_messages.messages import Constantes
 from millegrilles_media.Context import MediaContext
 from millegrilles_media.Structs import VersionJob
 from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4WithSecret
@@ -161,7 +162,7 @@ async def uploader_images(
 
     # Transmettre commande associer
     producer = await context.get_producer()
-    await producer.command(commande_associer, domain='GrosFichiers', action='associerConversions', exchange='3.protege')
+    await producer.command(commande_associer, domain='GrosFichiers', action='associerConversions', exchange=Constantes.SECURITE_PRIVE)
 
 def preparer_commande_associer(
         job: VersionJob, info_original: dict, thumbnail, small, large,

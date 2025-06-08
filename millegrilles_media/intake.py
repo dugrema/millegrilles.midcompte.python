@@ -65,7 +65,7 @@ class IntakeHandler:
     async def _get_key(self, job: dict) -> bytes:
         producer = await self._context.get_producer()
         response = await producer.command({'job_id': job['job_id'], 'queue': self.get_job_type()},
-                                          'GrosFichiers', 'jobGetKey', Constantes.SECURITE_PROTEGE,
+                                          'GrosFichiers', 'jobGetKey', Constantes.SECURITE_PRIVE,
                                           domain_check=["GrosFichiers", "MaitreDesCles"])
         parsed = response.parsed
 
@@ -301,7 +301,7 @@ class IntakeJobImage(IntakeJobPuller):
 
         producer = await self._context.get_producer()
         await producer.command(
-            command, 'GrosFichiers', 'supprimerJobImageV2', exchange='3.protege',
+            command, 'GrosFichiers', 'supprimerJobImageV2', exchange=Constantes.SECURITE_PRIVE,
             nowait=True
         )
 
