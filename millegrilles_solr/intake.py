@@ -157,25 +157,6 @@ class IntakeHandler:
 
         return decrypted_key_bytes, key
 
-    # async def reset_index_fichiers(self):
-    #     self.__logger.info('IntakeHandler trigger fichiers recu')
-    #
-    #     # Bloquer temporairement traitement de l'indexation
-    #     self.__event_fichiers.clear()
-    #
-    #     # Supprimer tous les documents indexes
-    #     await self.__solr_dao.reset_index(self.__solr_dao.nom_collection_fichiers)
-    #
-    #     # Redemarrer l'indexation
-    #     self.__event_fichiers.set()
-
-    # async def supprimer_tuuids(self, message: MessageWrapper):
-    #     contenu = message.parsed
-    #     tuuids = contenu['tuuids']
-    #     self.__logger.debug("Supprimer tuuids de l'index: %s" % tuuids)
-    #     await self.__solr_dao.supprimer_tuuids(self.__solr_dao.nom_collection_fichiers, tuuids)
-    #     return {'ok': True}
-
     async def __run_job(self, job: dict):
         # Downloader/dechiffrer
         tuuid = job['tuuid']
@@ -193,10 +174,6 @@ class IntakeHandler:
 
             fuuid = version['fuuid']
             mimetype = job.get('mimetype') or version['mimetype']
-            # if fuuid is None or mimetype is None:
-            #     self.__logger.error('fuuid ou mimetype None - annuler indexation')
-            #     await self.annuler_job(job, True)
-            #     return
 
         except (KeyError, TypeError):
             # Aucun fichier (e.g. un repertoire

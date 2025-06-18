@@ -1,14 +1,10 @@
 import aiohttp
 import logging
 import pathlib
-import ssl
 
 from typing import Optional, Callable
-from urllib.parse import urlparse
 
 from millegrilles_messages.bus.BusContext import MilleGrillesBusContext
-from millegrilles_messages.bus.PikaConnector import MilleGrillesPikaConnector
-from millegrilles_messages.structs.Filehost import Filehost
 from millegrilles_streaming.Configuration import StreamingConfiguration
 
 
@@ -18,7 +14,6 @@ class StreamingContext(MilleGrillesBusContext):
         self.__reload_listeners: list[Callable[[], None]] = list()
         super().__init__(configuration)
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
-        self.__bus_connector: Optional[MilleGrillesPikaConnector] = None
 
     def reload(self):
         super().reload()
