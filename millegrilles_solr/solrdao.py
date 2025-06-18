@@ -5,7 +5,6 @@ import logging
 
 from tempfile import TemporaryFile
 from typing import Optional
-from ssl import SSLContext
 
 from aiohttp import ClientResponseError
 
@@ -154,11 +153,18 @@ class SolrDao:
 
     async def _indexer_document(self, nom_collection, user_id, doc_id: str, metadata: dict):
         data = {"id": doc_id, "user_id": [user_id]}
-        data.update(metadata)
-        try:
-            data['name'] = filtrer_nom(data['nom'])
-        except KeyError:
-            pass
+        for k, v in metadata.items():
+            # params[f'literal.{k}'] = v
+            if k == 'nom':
+                data['name'] = filtrer_nom(v)
+            elif k == 'dateFichier':
+                # date_value = datetime.datetime.fromtimestamp(v)
+                # date_string = date_value.strftime('%Y-%m-%dT%H:%M:%SZ')
+                # data['dateFichier'] = date_string
+                data['dateFichier'] = v
+            else:
+                data[k] = v
+
         timeout = aiohttp.ClientTimeout(connect=5, total=15)
         async with self.__session(timeout) as session:
             data_update_url = f'{self.solr_url}/api/collections/{nom_collection}/update?commit=true'
@@ -177,9 +183,16 @@ class SolrDao:
         }
 
         for k, v in metadata.items():
-            params[f'literal.{k}'] = v
+            # params[f'literal.{k}'] = v
             if k == 'nom':
                 params['literal.name'] = filtrer_nom(v)
+            elif k == 'dateFichier':
+                # date_value = datetime.datetime.fromtimestamp(v)
+                # date_string = date_value.strftime('%Y-%m-%dT%H:%M:%SZ')
+                # params['literal.dateFichier'] = date_string
+                params['literal.dateFichier'] = v
+            else:
+                params[f'literal.{k}'] = v
 
         mimetype = metadata.get('mimetype') or 'application/octet-stream'
 
