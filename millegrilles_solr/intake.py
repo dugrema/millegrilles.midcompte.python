@@ -130,7 +130,7 @@ class IntakeHandler:
             decrypted_key, key = await self.__get_key(job)
             job['decrypted_key'] = decrypted_key
             job['key'] = key
-        except KeyError as e:
+        except (TypeError, KeyError) as e:
             self.__logger.error(f"Job fuuid:{job.get('fuuid')}, missing decryption key, SKIPPING. Error: {str(e)}")
             await self.annuler_job(job, emettre_evenement=True, err=e)
             return
@@ -148,9 +148,7 @@ class IntakeHandler:
 
     async def __get_key(self, job: dict) -> (bytes, dict):
         metadata = job['metadata']
-        key_id = metadata.get('cle_id') or metadata.get('ref_hachage_bytes')
-        if key_id is None:
-            key_id = job['version']['fuuid']
+        key_id = metadata.get('cle_id') or metadata.get('ref_hachage_bytes') or job['version']['fuuid']
         key = job['keys'][key_id]
         decrypted_key = key['cle_secrete_base64']
         decrypted_key_bytes: bytes = multibase.decode('m'+decrypted_key)
