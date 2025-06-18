@@ -58,15 +58,8 @@ class StreamingManager:
                 await self.__context.wait(60)
 
     async def reload_filehost_configuration(self, timeout=3):
-        producer = await self.__context.get_producer()
-        response = await producer.request(
-            dict(), 'CoreTopologie', 'getFilehostForInstance', exchange="1.public", timeout=timeout)
-
-        filehost_response = response.parsed
-        filehost_dict = filehost_response['filehost']
-        filehost = Filehost.load_from_dict(filehost_dict)
-        self.__context.filehost = filehost
-
+        await self.context.reload_filehost_configuration()
+        filehost = self.context.filehost
         self.__logger.info(f"Using filehost {filehost.filehost_id}, external url: {filehost.url_external}")
 
         for l in self.__filehost_listeners:
