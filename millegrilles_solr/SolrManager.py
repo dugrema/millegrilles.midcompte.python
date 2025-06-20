@@ -99,8 +99,10 @@ class SolrManager:
 
     async def reset_index_fichiers(self):
         self.__logger.info('IntakeHandler trigger fichiers recu')
+        await self.__intake.clear_procesing_queue()
+
         # Supprimer tous les documents indexes
-        await self.__solr_dao.reset_index(self.__solr_dao.nom_collection_fichiers)
+        await self.__solr_dao.reset_index(self.__solr_dao.nom_collection_fichiers, True)
 
         # Start fetching new jobs
         await self.__intake.trigger_fetch_jobs()

@@ -1,4 +1,5 @@
 import aiohttp
+import datetime
 import json
 import re
 import logging
@@ -69,13 +70,17 @@ class SolrDao:
                 #     self.__logger.debug("initialiser_solr Status collections : %d" % resp.status)
                 if resp.status != 200:
                     self.__logger.debug("initialiser_solr Collections")
-                    await self.initialiser_collection_fichiers(session)
+                    try:
+                        await self.initialiser_collection_fichiers(session)
+                    except aiohttp.ClientResponseError as e:
+                        self.__logger.exception(f"Error initializing file index: {e}")
+                        self.__context.stop()
                 else:
                     resultat = await resp.json()
                     self.__logger.debug("initialiser_solr Collections : %s" % resultat)
 
     async def reset_index(self, nom_collection, delete=False):
-        timeout = aiohttp.ClientTimeout(total=60)
+        timeout = aiohttp.ClientTimeout(total=120)
         async with self.__session(timeout) as session:
             if delete:
                 # Delete collections
@@ -84,6 +89,7 @@ class SolrDao:
                     if resp.status != 200:
                         self.__logger.warning("reset_index Status DELETE de collections %s : %d" % (nom_collection, resp.status))
                     resp.raise_for_status()
+                await self.setup()
             else:
                 # Delete data
                 data = {'delete': {'query': '*:*'}}
@@ -107,7 +113,7 @@ class SolrDao:
                     else:
                         self.__logger.info("supprimer_tuuids Status DELETE de id:%s collections %s OK (200)" % (tuuid, nom_collection))
 
-    async def requete(self, nom_collection, user_id, query, qf='name^2 content', shared_cuuids: Optional[list] = None, cuuid: Optional[str] = None, start=0, limit=100):
+    async def requete(self, nom_collection, user_id, query, qf='name^2 tags^1.5 content comments', shared_cuuids: Optional[list] = None, cuuid: Optional[str] = None, start=0, limit=100):
         timeout = aiohttp.ClientTimeout(total=5)  # Timeout requete 5 secondes
 
         if shared_cuuids is not None and len(shared_cuuids) > 0:
@@ -134,7 +140,8 @@ class SolrDao:
             async with session.get(requete_url, params=params) as resp:
                 self.__logger.debug("requete response status : %d" % resp.status)
                 resp.raise_for_status()
-                return await resp.json()
+                result = await resp.json()
+            return result
 
     async def indexer(self, nom_collection, user_id, doc_id: str, metadata: dict, fichier: Optional[TemporaryFile]):
         try:
@@ -152,23 +159,36 @@ class SolrDao:
         await self._indexer_document(nom_collection, user_id, doc_id, metadata)
 
     async def _indexer_document(self, nom_collection, user_id, doc_id: str, metadata: dict):
-        data = {"id": doc_id, "user_id": [user_id]}
+        params = {"id": doc_id, "user_id": [user_id]}
         for k, v in metadata.items():
-            # params[f'literal.{k}'] = v
             if k == 'nom':
-                data['name'] = filtrer_nom(v)
+                params['name'] = filtrer_nom(v)
             elif k == 'dateFichier':
-                # date_value = datetime.datetime.fromtimestamp(v)
-                # date_string = date_value.strftime('%Y-%m-%dT%H:%M:%SZ')
-                # data['dateFichier'] = date_string
-                data['dateFichier'] = v
+                date_value = datetime.datetime.fromtimestamp(v)
+                date_string = date_value.strftime('%Y-%m-%dT%H:%M:%SZ')
+                params['filedate'] = date_string
+                # data['dateFichier'] = v
+            elif k == 'comments':
+                comments = []
+                for comment in v:
+                    try:
+                        comments.append(comment['comment'])
+                    except KeyError:
+                        pass
+
+                    try:
+                        params['tags'] = comment['tags']
+                    except KeyError:
+                        pass
+                if len(comments) > 0:
+                    params['comments'] = filtrer_nom('\n\n'.join(comments))
             else:
-                data[k] = v
+                params[k] = v
 
         timeout = aiohttp.ClientTimeout(connect=5, total=15)
         async with self.__session(timeout) as session:
             data_update_url = f'{self.solr_url}/api/collections/{nom_collection}/update?commit=true'
-            async with session.post(data_update_url, json=data) as resp:
+            async with session.post(data_update_url, json=params) as resp:
                 self.__logger.debug("_indexer_document Ajout data status: %d" % resp.status)
                 resp.raise_for_status()
                 self.__logger.debug("_indexer_document Reponse : %s", await resp.json())
@@ -187,10 +207,24 @@ class SolrDao:
             if k == 'nom':
                 params['literal.name'] = filtrer_nom(v)
             elif k == 'dateFichier':
-                # date_value = datetime.datetime.fromtimestamp(v)
-                # date_string = date_value.strftime('%Y-%m-%dT%H:%M:%SZ')
-                # params['literal.dateFichier'] = date_string
-                params['literal.dateFichier'] = v
+                date_value = datetime.datetime.fromtimestamp(v)
+                date_string = date_value.strftime('%Y-%m-%dT%H:%M:%SZ')
+                params['literal.filedate'] = date_string
+                # params['literal.dateFichier'] = v
+            elif k == 'comments':
+                comments = []
+                for comment in v:
+                    try:
+                        comments.append(comment['comment'])
+                    except KeyError:
+                        pass
+
+                    try:
+                        params['literal.tags'] = comment['tags']
+                    except KeyError:
+                        pass
+                if len(comments) > 0:
+                    params['literal.comments'] = filtrer_nom('\n\n'.join(comments))
             else:
                 params[f'literal.{k}'] = v
 
@@ -242,12 +276,15 @@ class SolrDao:
         schema_url = f'{self.solr_url}/api/collections/{nom_collection}/schema'
         data = {'add-field': [
             {"name": "name", "type": "text_en_splitting_tight", "stored": False, "required": True},
-            {"name": "user_id", "type": "string", "stored": True, "required": True},
+            {"name": "user_id", "type": "string", "stored": True, "multiValued": False, "required": True},
             # {"name": "tuuid", "type": "string", "stored": True},
-            {"name": "fuuid", "type": "string", "stored": True},
+            # {"name": "filedate", "type": "solr.DatePointField", "multiValued": False, "indexed": True, "stored": True},
+            {"name": "fuuid", "type": "string", "multiValued": False, "stored": True},
             {"name": "cuuids", "type": "ancestor_path", "multiValued": True, "stored": True},
             {"name": "content", "type": "text_general", "stored": False},
             {"name": "hachage_original_hex", "type": "string", "stored": False},
+            {"name": "comments", "type": "text_en_splitting_tight", "multiValued": False, "stored": False},
+            {"name": "tags", "type": "string", "multiValued": True, "stored": False},
             # {"name": "series_t", "type": "text_en_splitting_tight", "multiValued": False},
             # {"name": "manu", "type": "string"},
             # {"name": "features", "type": "text_general", "multiValued": True},

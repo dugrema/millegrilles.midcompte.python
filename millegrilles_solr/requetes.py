@@ -34,7 +34,7 @@ class RequetesHandler:
 
         return await self.__solr_dao.requete(
             nom_collection, user_id, query,
-            qf='name^2 content id fuuid hachage_original',
+            qf='name^2 tags^2 comments content id fuuid hachage_original',
             shared_cuuids=shared_cuuids,
             cuuid=cuuid,
             start=start,

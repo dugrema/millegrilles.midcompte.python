@@ -41,9 +41,15 @@ class IntakeHandler:
             group.create_task(self.__fetch_jobs_thread())
             group.create_task(self.__process_queue())
 
+    async def clear_procesing_queue(self):
+        self.__event_fetch_jobs.clear()
+        while not self.__processing_queue.empty():
+            self.__processing_queue.get_nowait()
+
     async def __stop_thread(self):
         await self.__context.wait()
         # Free resources
+        await self.clear_procesing_queue()
         await self.__processing_queue.put(None)
         self.__event_fetch_jobs.set()
 
@@ -289,6 +295,19 @@ class IntakeHandler:
         cle: bytes = job['decrypted_key']
         metadata = job['metadata']
         doc_dechiffre = dechiffrer_document_secrete(cle, metadata)
+
+        try:
+            comments = job['comments']
+        except KeyError:
+            pass
+        else:
+            pass
+            decrypted_comments = list()
+            for comment in comments:
+                decrypted_comment = dechiffrer_document_secrete(cle, comment['encrypted_data'])
+                decrypted_comments.append(decrypted_comment)
+            doc_dechiffre['comments'] = decrypted_comments
+
         return doc_dechiffre
 
     async def __downloader_dechiffrer_fichier(self, decrypted_key: bytes, job: dict, tmp_file: tempfile.TemporaryFile) -> int:
