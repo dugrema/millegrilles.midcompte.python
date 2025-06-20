@@ -6,7 +6,7 @@ import logging
 import tempfile
 import multibase
 
-from typing import Optional, TypedDict
+from typing import Optional, TypedDict, Union
 from ssl import SSLContext
 
 from asyncio import Event, TaskGroup
@@ -77,12 +77,13 @@ class IntakeHandler:
 
         return decrypted_key_bytes
 
-    async def _run_job(self, job: dict):
+    async def _run_job(self, job: Union[dict, VersionJob]):
         dir_staging = self._context.dir_media_staging
 
+        version = job.get('version') or job
         # Downloader/dechiffrer
-        fuuid = job['fuuid']
-        mimetype = job['mimetype']
+        fuuid = version['fuuid']
+        mimetype = version['mimetype']
 
         # Les videos (ffmpeg) utilisent un fichier avec nom
         if est_video(mimetype):
@@ -94,7 +95,7 @@ class IntakeHandler:
         tmp_file = class_tempfile(dir=dir_staging)
         try:
             try:
-                await self._downloader_dechiffrer_fichier(job['decrypted_key'], job, tmp_file)
+                await self._downloader_dechiffrer_fichier(job['decrypted_key'], version, tmp_file)
                 tmp_file.seek(0)  # Rewind pour traitement
                 self.__logger.debug("File has been decrypted (fp tmp)")
             except:
@@ -117,7 +118,7 @@ class IntakeHandler:
     async def annuler_job(self, job, emettre_evenement=False):
         raise NotImplementedError('must override')
 
-    async def _downloader_dechiffrer_fichier(self, decrypted_key: bytes, job: dict, tmp_file):
+    async def _downloader_dechiffrer_fichier(self, decrypted_key: bytes, job: Union[dict, TypedDict], tmp_file):
         fuuid = job['fuuid']
         filehost_url = self._context.filehost_url
         url_fichier = urljoin(filehost_url, f'filehost/files/{fuuid}')
@@ -273,14 +274,16 @@ class IntakeJobImage(IntakeJobPuller):
         key_info.update(job)  # Inject nonce, format
         job['decrypted_key'] = decrypted_key  # Inject key for update of results
 
+        version = job['version']
+
         # Download/decrypt
-        fuuid = job['fuuid']
+        fuuid = version['fuuid']
 
         self.__logger.debug("_process_version_job Download %s", fuuid)
         dir_staging = self._context.dir_media_staging
         with tempfile.TemporaryFile(dir=dir_staging) as tmp_file:
             try:
-                await self._downloader_dechiffrer_fichier(decrypted_key, key_info, tmp_file)
+                await self._downloader_dechiffrer_fichier(decrypted_key, version, tmp_file)
                 tmp_file.seek(0)  # Rewind for processing
                 self.__logger.debug("File has been decrypted (fp tmp)")
             except:
@@ -288,7 +291,10 @@ class IntakeJobImage(IntakeJobPuller):
                 return
 
             try:
-                await traiter_image(job, tmp_file, self._context)
+                # Create new image dict to pass in the decrypted key (old way)
+                image_info = version.copy()
+                image_info['decrypted_key'] = job['decrypted_key']
+                await traiter_image(image_info, tmp_file, self._context)
             except Exception as e:
                 self.__logger.exception("Erreur traitement - annuler pour %s : %s", job, e)
                 await self.annuler_job(job, True)
@@ -297,7 +303,9 @@ class IntakeJobImage(IntakeJobPuller):
         if not emettre_evenement:
             return
 
-        command = {'fuuid': job['fuuid']}
+        fuuid = job.get('fuuid') or job['version']['fuuid']
+
+        command = {'fuuid': fuuid}
 
         producer = await self._context.get_producer()
         await producer.command(
@@ -357,7 +365,8 @@ class KeyRetrievalException(Exception):
 
 
 def decrypt_job_key(job: VersionJob) -> (bytes, dict):
-    key_id = job.get('cle_id') or job['fuuid']
+    version = job['version']
+    key_id = version.get('cle_id') or version['fuuid']
     key = job['keys'][key_id]
     decrypted_key = key['cle_secrete_base64']
     decrypted_key_bytes: bytes = multibase.decode('m'+decrypted_key)

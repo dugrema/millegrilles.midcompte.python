@@ -15,7 +15,7 @@ from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4WithSecret
 from millegrilles_media.TransfertFichiers import uploader_fichier, filehost_authenticate
 
 
-async def traiter_image(job: VersionJob, tmp_file, context: MediaContext, info_video: Optional[dict] = None):
+async def traiter_image(job: dict, tmp_file, context: MediaContext, info_video: Optional[dict] = None):
     """
     Converti une image en jpg thumbnail, small et webp large
     :param job:
@@ -143,7 +143,7 @@ def chiffrer_image(img: Image, cle_bytes: bytes, cle_id: str, tmp_out: Optional[
 
 
 async def uploader_images(
-        context: MediaContext, job: VersionJob, info_original: dict, thumbnail, small, large,
+        context: MediaContext, job: dict, info_original: dict, thumbnail, small, large,
         tmpfile_small: tempfile.TemporaryFile, tmpfile_large: tempfile.TemporaryFile,
         info_video: Optional[dict] = None):
 
@@ -165,7 +165,7 @@ async def uploader_images(
     await producer.command(commande_associer, domain='GrosFichiers', action='associerConversions', exchange=Constantes.SECURITE_PRIVE)
 
 def preparer_commande_associer(
-        job: VersionJob, info_original: dict, thumbnail, small, large,
+        job: dict, info_original: dict, thumbnail, small, large,
         info_video: Optional[dict] = None) -> dict:
 
     mimetype = job['mimetype']

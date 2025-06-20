@@ -9,7 +9,7 @@ class SecretKeyDict(TypedDict):
     nonce: Optional[str]
     secret: Optional[bytes]
 
-class VersionJob(TypedDict):
+class VersionItem(TypedDict):
     fuuid: str
     mimetype: str
     taille: int
@@ -18,5 +18,12 @@ class VersionJob(TypedDict):
     cle_id: Optional[str]
     format: Optional[str]
     nonce: Optional[str]
+
+class MediaItem(TypedDict):
+    pass
+
+class VersionJob(TypedDict):
+    version: VersionItem
+    media: Optional[MediaItem]
     keys: Optional[dict[str, SecretKeyDict]]
     decrypted_key: Optional[bytes]
