@@ -53,13 +53,19 @@ class MgbusHandler:
 
         if 'CoreTopologie' in domaines and Constantes.SECURITE_PROTEGE in exchanges and action == 'filehostingUpdate':
             # File hosts updated, reload configuration
-            return await self.__solr_manager.reload_filehost_configuration()
+            await self.__solr_manager.reload_filehost_configuration()
+            return None
         elif 'filecontroler' in roles and Constantes.SECURITE_PUBLIC in exchanges and action == ConstantesRelaiSolr.EVENEMENT_NEW_FUUID:
             # File hosts updated, reload configuration
-            return await self.__solr_manager.trigger_fetch_jobs()
+            await self.__solr_manager.trigger_fetch_jobs()
+            return None
+        elif Constantes.DOMAINE_GROS_FICHIERS in domaines and Constantes.SECURITE_PROTEGE in exchanges:
+            if action == ConstantesRelaiSolr.EVENEMENT_FILES_TO_INDEX:
+                await self.__solr_manager.trigger_fetch_jobs()
+                return None
 
         self.__logger.info("on_exclusive_message Ignoring unknown action %s" % action)
-        return False
+        return None
 
     async def on_request_message(self, message: MessageWrapper):
 
@@ -116,6 +122,7 @@ def create_exclusive_q_channel(context: MilleGrillesBusContext, on_message: Call
     exclusive_q = MilleGrillesPikaQueueConsumer(context, on_message, None, exclusive=True, arguments={'x-message-ttl': 30_000})
     exclusive_q.add_routing_key(RoutingKey(Constantes.SECURITE_PUBLIC, 'evenement.CoreTopologie.filehostingUpdate'))
     exclusive_q.add_routing_key(RoutingKey(Constantes.SECURITE_PUBLIC, f'evenement.filecontroler.{ConstantesRelaiSolr.EVENEMENT_NEW_FUUID}'))
+    exclusive_q.add_routing_key(RoutingKey(Constantes.SECURITE_PROTEGE, f'evenement.GrosFichiers.{ConstantesRelaiSolr.EVENEMENT_FILES_TO_INDEX}'))
     exclusive_q_channel.add_queue(exclusive_q)
     return exclusive_q_channel
 
