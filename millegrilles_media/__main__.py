@@ -68,6 +68,9 @@ async def wiring(context: MediaContext) -> list[Awaitable]:
     else:
         intake_videos = None
 
+    if intake_images is None and intake_videos is None:
+        raise ValueError('Provide at least one of --images or --videos')
+
     manager = MediaManager(context, intake_images, intake_videos)
 
     command_handler = CommandHandler(context, manager)

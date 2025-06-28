@@ -75,8 +75,18 @@ class CommandHandler:
 
         action = message.routage['action']
 
+        # Volatile messages expire after 90 seconds
+        estampille = message.estampille
+        expired_timestamp = (datetime.datetime.now() - datetime.timedelta(seconds=90)).timestamp()
+        if estampille < expired_timestamp:
+            return None  # Ignore
+
         if 'filecontroler' in roles and Constantes.SECURITE_PUBLIC in exchanges and action == 'filehostNewFuuid':
-            await self.__media_manager.newfile_event_received(message)
+            # Create task with 3 second delay before setting flag, this gives time to GrosFichiers to process the visit
+            asyncio.create_task(self.__media_manager.newfile_event_received(message, 3))
+            return None
+
+        return None
 
     async def on_exclusive_message(self, message: MessageWrapper):
 

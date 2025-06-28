@@ -21,6 +21,7 @@ class MediaManager:
         self.__intake_videos = intake_videos
         # Listeners for changes on the filehost
         self.__filehost_listeners: list[Callable[[Optional[Filehost]], Awaitable[None]]] = list()
+        self.__trigger_pending = False
 
     async def setup(self):
         # Create staging folders
@@ -37,10 +38,16 @@ class MediaManager:
     async def process_video_job(self, job: dict):
         await self.__intake_videos.process_job(job)
 
-    async def newfile_event_received(self, event: MessageWrapper):
+    async def newfile_event_received(self, event: MessageWrapper, delay: Optional[float] = None):
         content = event.parsed
         filehost_id = content['filehost_id']
-        if self.__context.filehost.filehost_id == filehost_id:
+        if self.__context.filehost.filehost_id == filehost_id and not self.__trigger_pending:
+            # Handle delay
+            self.__trigger_pending = True
+            if delay:
+                await self.__context.wait(delay)
+            self.__trigger_pending = False
+
             try:
                 await self.__intake_images.new_file(event)
             except AttributeError:

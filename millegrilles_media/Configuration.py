@@ -25,17 +25,26 @@ def _parse_command_line():
         '--verbose', action="store_true", required=False,
         help="More logging"
     )
+    # parser.add_argument(
+    #     '--novideo', action="store_true", required=False,
+    #     help="Desactive le traitement video"
+    # )
+    # parser.add_argument(
+    #     '--noimage', action="store_true", required=False,
+    #     help="Desactive le traitement image"
+    # )
+    # parser.add_argument(
+    #     '--fallback', action="store_true", required=False,
+    #     help="Active le traitement video pour fallback seulement (h264 270p)"
+    # )
+
     parser.add_argument(
-        '--novideo', action="store_true", required=False,
-        help="Desactive le traitement video"
+        '--images', action="store_true", required=False,
+        help="Processes images and makes thumbnails of files (excluding videos)"
     )
     parser.add_argument(
-        '--noimage', action="store_true", required=False,
-        help="Desactive le traitement image"
-    )
-    parser.add_argument(
-        '--fallback', action="store_true", required=False,
-        help="Active le traitement video pour fallback seulement (h264 270p)"
+        '--videos', action="store_true", required=False,
+        help="Processes videos and creates video thumbnails"
     )
 
     args = parser.parse_args()
@@ -50,8 +59,8 @@ class ConfigurationMedia(MilleGrillesBusConfiguration):
         super().__init__()
         self.dir_staging = '/var/opt/millegrilles/staging'
         self.fallback_only = False
-        self.image_processing = True
-        self.video_processing = True
+        self.image_processing = False
+        self.video_processing = False
         # self.filehost_url: Optional[str] = None
 
     def parse_config(self):
@@ -65,18 +74,8 @@ class ConfigurationMedia(MilleGrillesBusConfiguration):
         # self.filehost_url = environ.get(Constantes.ENV_FILEHOST_URL)
 
     def parse_args(self, args: argparse.Namespace):
-        if args.fallback:
-            self.fallback_only = True
-        else:
-            self.fallback_only = environ.get('fallback') or False
-
-        if self.fallback_only:
-            self.image_processing = False
-        else:
-            if args.novideo:
-                self.video_processing = False
-            if args.noimage:
-                self.image_processing = False
+        self.image_processing = args.images
+        self.video_processing = args.videos
 
     @staticmethod
     def load():
