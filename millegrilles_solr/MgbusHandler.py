@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from typing import Callable, Coroutine, Any
@@ -56,8 +57,8 @@ class MgbusHandler:
             await self.__solr_manager.reload_filehost_configuration()
             return None
         elif 'filecontroler' in roles and Constantes.SECURITE_PUBLIC in exchanges and action == ConstantesRelaiSolr.EVENEMENT_NEW_FUUID:
-            # File hosts updated, reload configuration
-            await self.__solr_manager.trigger_fetch_jobs()
+            # New file detected, use a delay of 3 seconds to let GrosFichiers register the visit before fetching jobs
+            asyncio.create_task(self.__solr_manager.trigger_fetch_jobs(3))
             return None
         elif Constantes.DOMAINE_GROS_FICHIERS in domaines and Constantes.SECURITE_PROTEGE in exchanges:
             if action == ConstantesRelaiSolr.EVENEMENT_FILES_TO_INDEX:

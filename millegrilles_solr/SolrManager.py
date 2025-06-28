@@ -94,7 +94,9 @@ class SolrManager:
         for l in self.__filehost_listeners:
             await l(self.__context.filehost)
 
-    async def trigger_fetch_jobs(self):
+    async def trigger_fetch_jobs(self, delay: Optional[float] = None):
+        if delay:
+            await self.__context.wait(delay)
         await self.__intake.trigger_fetch_jobs()
 
     async def reset_index_fichiers(self):
