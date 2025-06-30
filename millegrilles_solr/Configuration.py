@@ -8,6 +8,9 @@ from millegrilles_messages.bus.BusConfiguration import MilleGrillesBusConfigurat
 from millegrilles_messages.messages import Constantes as ConstantesMessages
 from millegrilles_solr import Constantes
 
+ENV_PROCESS_COUNT = "PROCESS_COUNT"
+DEFAULT_PROCESS_COUNT = 1
+
 CONST_RELAISOLR_PARAMS = [
     # ConstantesMessages.ENV_CA_PEM,
     # ConstantesMessages.ENV_CERT_PEM,
@@ -54,6 +57,7 @@ class ConfigurationRelaiSolr(MilleGrillesBusConfiguration):
         self.filehost_url: Optional[str] = None
         self.solr_url = 'https://solr:8983'
         self.nom_collection_fichiers = 'fichiers'
+        self.process_count = DEFAULT_PROCESS_COUNT
 
     def parse_config(self):
         """
@@ -65,6 +69,10 @@ class ConfigurationRelaiSolr(MilleGrillesBusConfiguration):
         self.dir_staging = environ.get(ConstantesMessages.ENV_DIR_STAGING) or self.dir_staging
         self.filehost_url = environ.get(Constantes.ENV_FILEHOST_URL)
         self.solr_url = environ.get(ConstantesMessages.ENV_SOLR_URL) or self.solr_url
+
+        process_count = environ.get(ENV_PROCESS_COUNT)
+        if process_count:
+            self.process_count = int(process_count)
 
     def parse_args(self, args: argparse.Namespace):
         pass

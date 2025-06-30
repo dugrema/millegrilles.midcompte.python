@@ -29,17 +29,31 @@ class IntakeHandler:
         self.__event_fetch_jobs = asyncio.Event()
         self.__processing_queue: asyncio.Queue[Optional[dict]] = asyncio.Queue(maxsize=100)
         self.__session: Optional[aiohttp.ClientSession] = None
+        self.__trigger_waiting = False
 
     async def trigger_fetch_jobs(self):
-        self.__event_fetch_jobs.set()
+        if not self.__trigger_waiting:
+            self.__trigger_waiting = True
+            asyncio.create_task(self.__trigger_fetch_delay())
         return {'ok': True}
+
+    async def __trigger_fetch_delay(self, delay=3):
+        try:
+            await self.__context.wait(delay)
+        finally:
+            self.__trigger_waiting = False
+        self.__event_fetch_jobs.set()
 
     async def run(self):
         async with TaskGroup() as group:
             group.create_task(self.__stop_thread())
             group.create_task(self.__fetch_jobs_timer())
             group.create_task(self.__fetch_jobs_thread())
-            group.create_task(self.__process_queue())
+
+            process_count = self.__context.configuration.process_count
+            self.__logger.info(f"Create {process_count} indexing processes")
+            for i in range(0, process_count):
+                group.create_task(self.__process_queue())
 
     async def clear_procesing_queue(self):
         self.__event_fetch_jobs.clear()
@@ -115,7 +129,7 @@ class IntakeHandler:
         while self.__context.stopping is False:
             if self.__processing_queue.qsize() == 0:
                 # The queue is emptied, fetch more jobs when available
-                self.__event_fetch_jobs.set()
+                await self.trigger_fetch_jobs()
 
             job = await self.__processing_queue.get()
             if job is None or self.__context.stopping:
