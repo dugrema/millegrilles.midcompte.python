@@ -26,22 +26,22 @@ class CommandHandler:
         self.__context = context
         self.__media_manager = media_manager
         self.__current_filehost_id: Optional[str] = None
-        # self.__channel_image_processing: Optional[MilleGrillesPikaChannel] = None
-        # self.__current_image_processing_consumer: Optional[MilleGrillesPikaQueueConsumer] = None
+        self.__channel_image_processing: Optional[MilleGrillesPikaChannel] = None
+        self.__current_image_processing_consumer: Optional[MilleGrillesPikaQueueConsumer] = None
         self.__channel_video_processing: Optional[MilleGrillesPikaChannel] = None
         self.__current_video_processing_consumer: Optional[MilleGrillesPikaQueueConsumer] = None
         self.__filehost_update_queue = asyncio.Queue(maxsize=2)
 
     async def setup(self):
-        channel_triggers = create_trigger_q_channel(self.__context, self.on_trigger)
-        await self.__context.bus_connector.add_channel(channel_triggers)
         channel_exclusive = create_exclusive_q_channel(self.__context, self.on_exclusive_message)
         await self.__context.bus_connector.add_channel(channel_exclusive)
 
         configuration: ConfigurationMedia = self.__context.configuration
-        # if configuration.image_processing:
-        #     self.__channel_image_processing = MilleGrillesPikaChannel(self.__context, prefetch_count=1)
-        #     await self.__context.bus_connector.add_channel(self.__channel_image_processing)
+        if configuration.image_processing:
+            self.__channel_image_processing = MilleGrillesPikaChannel(self.__context, prefetch_count=5)
+            await self.__context.bus_connector.add_channel(self.__channel_image_processing)
+            # self.__channel_image_processing = MilleGrillesPikaChannel(self.__context, prefetch_count=1)
+            # await self.__context.bus_connector.add_channel(self.__channel_image_processing)
         if configuration.video_processing:
             self.__channel_video_processing = MilleGrillesPikaChannel(self.__context, prefetch_count=1)
             await self.__context.bus_connector.add_channel(self.__channel_video_processing)
@@ -62,7 +62,7 @@ class CommandHandler:
             if self.__current_filehost_id != filehost_id:
                 await self.__activate_processing_listeners(filehost_id)
 
-    async def on_trigger(self, message: MessageWrapper):
+    async def on_image(self, message: MessageWrapper):
         enveloppe = message.certificat
         try:
             roles = set(enveloppe.get_roles)
@@ -158,6 +158,17 @@ class CommandHandler:
         await self.__remove_processing_listeners()
         self.__current_filehost_id = filehost_id
 
+        if self.__channel_image_processing:
+            q_name = f'media/{filehost_id}/image'
+            self.__logger.debug("Activating processing listener on %s" % q_name)
+            image_consumer = MilleGrillesPikaQueueConsumer(
+                self.__context, self.on_image, q_name,
+                auto_delete=True,  # remove queue to avoid piling up messages for a filehost with no processors
+                arguments={'x-message-ttl': 90000})
+            image_consumer.add_routing_key(RoutingKey(Constantes.SECURITE_PUBLIC, 'evenement.filecontroler.filehostNewFuuid'))
+            self.__current_image_processing_consumer = image_consumer
+            await self.__channel_image_processing.add_queue_consume(image_consumer)
+
         if self.__channel_video_processing:
             q_name = f'media/{filehost_id}/video'
             self.__logger.debug("Activating processing listener on %s" % q_name)
@@ -178,16 +189,16 @@ class CommandHandler:
             await self.__channel_video_processing.remove_queue(video_consumer)
 
 
-def create_trigger_q_channel(context: MilleGrillesBusContext, on_message: Callable[[MessageWrapper], Coroutine[Any, Any, None]]) -> MilleGrillesPikaChannel:
-    # System triggers
-    trigger_q_channel = MilleGrillesPikaChannel(context, prefetch_count=1)
-    trigger_q = MilleGrillesPikaQueueConsumer(context, on_message, 'media/triggers', arguments={'x-message-ttl': 90000})
-    trigger_q.add_routing_key(RoutingKey(Constantes.SECURITE_PUBLIC, f'evenement.ceduleur.{Constantes.EVENEMENT_PING_CEDULE}'))
-    trigger_q.add_routing_key(RoutingKey(Constantes.SECURITE_PUBLIC, 'evenement.filecontroler.filehostNewFuuid'))
-
-    trigger_q_channel.add_queue(trigger_q)
-
-    return trigger_q_channel
+# def create_image_q_channel(context: MilleGrillesBusContext, on_message: Callable[[MessageWrapper], Coroutine[Any, Any, None]]) -> MilleGrillesPikaChannel:
+#     # System triggers
+#     image_q_channel = MilleGrillesPikaChannel(context, prefetch_count=1)
+#     image_q = MilleGrillesPikaQueueConsumer(context, on_message, 'media/image', arguments={'x-message-ttl': 90000})
+#     # trigger_q.add_routing_key(RoutingKey(Constantes.SECURITE_PUBLIC, f'evenement.ceduleur.{Constantes.EVENEMENT_PING_CEDULE}'))
+#     image_q.add_routing_key(RoutingKey(Constantes.SECURITE_PUBLIC, 'evenement.filecontroler.filehostNewFuuid'))
+#
+#     image_q_channel.add_queue(image_q)
+#
+#     return image_q_channel
 
 def create_exclusive_q_channel(context: MilleGrillesBusContext, on_message: Callable[[MessageWrapper], Coroutine[Any, Any, None]]) -> MilleGrillesPikaChannel:
     volatile_q_channel = MilleGrillesPikaChannel(context, prefetch_count=20)
