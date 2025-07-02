@@ -44,9 +44,11 @@ class MediaManager:
         if self.__context.filehost.filehost_id == filehost_id and not self.__trigger_pending:
             # Handle delay
             self.__trigger_pending = True
-            if delay:
-                await self.__context.wait(delay)
-            self.__trigger_pending = False
+            try:
+                if delay:
+                    await self.__context.wait(delay)
+            finally:
+                self.__trigger_pending = False
 
             try:
                 await self.__intake_images.new_file(event)
