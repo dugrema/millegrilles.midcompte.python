@@ -19,6 +19,8 @@ from millegrilles_media.Context import MediaContext
 from millegrilles_messages.structs.Filehost import Filehost
 
 
+LOGGER = logging.getLogger(__name__)
+
 class CommandHandler:
 
     def __init__(self, context: MediaContext, media_manager: MediaManager):
@@ -28,8 +30,8 @@ class CommandHandler:
         self.__current_filehost_id: Optional[str] = None
         self.__channel_image_processing: Optional[MilleGrillesPikaChannel] = None
         self.__current_image_processing_consumer: Optional[MilleGrillesPikaQueueConsumer] = None
-        self.__channel_video_processing: Optional[MilleGrillesPikaChannel] = None
-        self.__current_video_processing_consumer: Optional[MilleGrillesPikaQueueConsumer] = None
+        # self.__channel_video_processing: Optional[MilleGrillesPikaChannel] = None
+        # self.__current_video_processing_consumer: Optional[MilleGrillesPikaQueueConsumer] = None
         self.__filehost_update_queue = asyncio.Queue(maxsize=2)
 
     async def setup(self):
@@ -42,9 +44,12 @@ class CommandHandler:
             await self.__context.bus_connector.add_channel(self.__channel_image_processing)
             # self.__channel_image_processing = MilleGrillesPikaChannel(self.__context, prefetch_count=1)
             # await self.__context.bus_connector.add_channel(self.__channel_image_processing)
-        if configuration.video_processing:
-            self.__channel_video_processing = MilleGrillesPikaChannel(self.__context, prefetch_count=1)
-            await self.__context.bus_connector.add_channel(self.__channel_video_processing)
+        # if configuration.video_processing:
+            # self.__channel_video_processing = MilleGrillesPikaChannel(self.__context, prefetch_count=1)
+            # await self.__context.bus_connector.add_channel(self.__channel_video_processing)
+            # Use the exclusive channel. A video message is received by all eligible video processes at the
+            # same time. Job sync is handled at the database level. This allows ACKing the message immediately
+            # even if the video transcoding takes hours.
 
     async def run(self):
         async with TaskGroup() as group:
@@ -101,13 +106,15 @@ class CommandHandler:
         except ExtensionNotFound:
             exchanges = list()
 
+        action = message.routage['action']
         if {'CoreTopologie', 'GrosFichiers'}.isdisjoint(domaines) is False and Constantes.SECURITE_PROTEGE in exchanges:
             pass  # CoreTopologie
+        elif 'media' in domaines and self.__context.configuration.video_processing and action == 'processVideo':
+            pass  # Video conversion
         else:
             return None  # Ignore message
 
         domain = message.routage['domaine']
-        action = message.routage['action']
 
         if domain == 'CoreTopologie' and action == 'filehostingUpdate':
             # File hosts updated, reload configuration
@@ -115,6 +122,8 @@ class CommandHandler:
         elif domain == 'GrosFichiers' and action == 'jobSupprimee':
             # File hosts updated, reload configuration
             return await self.__media_manager.cancel_job(message, enveloppe)
+        elif domain == 'media' and action == 'processVideo':
+            return await self.on_video_processing_message(message)
 
         self.__logger.info("on_exclusive_message Ignoring unknown action %s" % action)
         return None
@@ -140,9 +149,22 @@ class CommandHandler:
         message_age = datetime.datetime.now().timestamp() - estampille
         payload = message.parsed
 
-        if action == 'processVideo':
-            if Constantes.SECURITE_PRIVE in exchanges and Constantes.DOMAINE_GROS_FICHIERS in domaines and message_age < 600:
-                return await self.__media_manager.process_video_job(payload)
+        if message_age > 60:
+            self.__logger.warning("Video message expired, ignoring")
+            return  # Message expired, Ignore
+
+        if Constantes.SECURITE_PRIVE not in exchanges or Constantes.DOMAINE_GROS_FICHIERS not in domaines or action != 'processVideo':
+            self.__logger.warning("Video message of wrong type, ignoring")
+            return
+
+        partition_id = message.routage['partition']
+        filehost_id = self.__current_filehost_id
+        if partition_id != filehost_id:
+            self.__logger.debug("Video processing message for other filehost_id")
+            return
+
+        # Trigger video processing
+        await self.__media_manager.trigger_video_job(payload)
 
         self.__logger.info("on_volatile_message Ignoring unknown video action %s" % action)
 
@@ -169,24 +191,27 @@ class CommandHandler:
             self.__current_image_processing_consumer = image_consumer
             await self.__channel_image_processing.add_queue_consume(image_consumer)
 
-        if self.__channel_video_processing:
-            q_name = f'media/{filehost_id}/video'
-            self.__logger.debug("Activating processing listener on %s" % q_name)
-            video_consumer = MilleGrillesPikaQueueConsumer(
-                self.__context, self.on_video_processing_message, q_name,
-                auto_delete=True,  # remove queue to avoid piling up messages for a filehost with no processors
-                arguments={'x-message-ttl': 600000})
-            video_consumer.add_routing_key(
-                RoutingKey(Constantes.SECURITE_PRIVE, f'commande.media.{filehost_id}.processVideo'))
-            self.__current_video_processing_consumer = video_consumer
-            await self.__channel_video_processing.add_queue_consume(self.__current_video_processing_consumer)
+        # if self.__channel_video_processing:
+        if self.__context.configuration.video_processing:
+            pass
+            # q_name = f'media/{filehost_id}/video'
+            # self.__logger.debug("Activating processing listener on %s" % q_name)
+            # video_consumer = MilleGrillesPikaQueueConsumer(
+            #     self.__context, self.on_video_processing_message, q_name,
+            #     auto_delete=True,  # remove queue to avoid piling up messages for a filehost with no processors
+            #     arguments={'x-message-ttl': 600000})
+            # video_consumer.add_routing_key(
+            #     RoutingKey(Constantes.SECURITE_PRIVE, f'commande.media.{filehost_id}.processVideo'))
+            # self.__current_video_processing_consumer = video_consumer
+            # await self.__channel_video_processing.add_queue_consume(self.__current_video_processing_consumer)
 
     async def __remove_processing_listeners(self):
-        video_consumer = self.__current_video_processing_consumer
-        if video_consumer:
-            self.__logger.debug("Removing processing listener on videos")
-            self.__current_video_processing_consumer = None
-            await self.__channel_video_processing.remove_queue(video_consumer)
+        pass
+        # video_consumer = self.__current_video_processing_consumer
+        # if video_consumer:
+        #     self.__logger.debug("Removing processing listener on videos")
+        #     self.__current_video_processing_consumer = None
+        #     await self.__channel_video_processing.remove_queue(video_consumer)
 
 
 # def create_image_q_channel(context: MilleGrillesBusContext, on_message: Callable[[MessageWrapper], Coroutine[Any, Any, None]]) -> MilleGrillesPikaChannel:
@@ -205,6 +230,10 @@ def create_exclusive_q_channel(context: MilleGrillesBusContext, on_message: Call
     volatile_q = MilleGrillesPikaQueueConsumer(context, on_message, None, exclusive=True, arguments={'x-message-ttl': 300000})
     volatile_q.add_routing_key(RoutingKey(Constantes.SECURITE_PUBLIC, 'evenement.CoreTopologie.filehostingUpdate'))
     volatile_q.add_routing_key(RoutingKey(Constantes.SECURITE_PRIVE, 'evenement.GrosFichiers.*.jobSupprimee'))
+
+    if context.configuration.video_processing:
+        LOGGER.info("Activating processVideo listener")
+        volatile_q.add_routing_key(RoutingKey(Constantes.SECURITE_PRIVE, f'commande.media.*.processVideo'))
 
     volatile_q_channel.add_queue(volatile_q)
 

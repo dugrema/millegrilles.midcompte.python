@@ -32,6 +32,8 @@ class IntakeHandler:
 
         self.__session: Optional[aiohttp.ClientSession] = None
 
+        self.__job_queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=2)
+
     async def configurer(self):
         self.__event_fichiers = Event()
 
@@ -44,7 +46,25 @@ class IntakeHandler:
         raise NotImplementedError('must implement')
 
     async def run(self):
-        await self._context.wait()
+        await self.__process_jobs_thread()
+        # await self._context.wait()
+
+    async def process_job_nowait(self, job: dict):
+        try:
+            self.__job_queue.put_nowait(job)
+        except asyncio.QueueFull:
+            # Currently running, dropping trigger message
+            # Fetch new jobs is invoked at the end of the process so nothing is lost.
+            return
+
+    async def __process_jobs_thread(self):
+        while self._context.stopping is False:
+            job = await self.__job_queue.get()
+            if not job or self._context.stopping:
+                return  # Stopping
+            self.__logger.debug("Processing job")
+            await self.process_job(job)
+            self.__logger.debug("Job done")
 
     async def process_job(self, job: dict):
         try:

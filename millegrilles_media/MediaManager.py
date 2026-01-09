@@ -35,8 +35,13 @@ class MediaManager:
     # async def process_image_job(self, job: dict):
     #     await self.__intake_images.process_job(job)
 
-    async def process_video_job(self, job: dict):
-        await self.__intake_videos.process_job(job)
+    async def trigger_video_job(self, job: dict):
+        """
+        Triggers a video job if no job is currently running. Will enqueue jobs until buffer is full.
+        :param job:
+        :return:
+        """
+        await self.__intake_videos.process_job_nowait(job)
 
     async def newfile_event_received(self, event: MessageWrapper, delay: Optional[float] = None):
         content = event.parsed
