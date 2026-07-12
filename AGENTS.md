@@ -1,29 +1,28 @@
-# MilleGrilles midcompte project
+# MilleGrilles Midcompte Project
 
-This is a python project that supports multiple applications for the MilleGrilles system.
+This repository contains several independent Python applications for the MilleGrilles system.
 
-## Development environment
-+ Basic technology stack for python 3.13.
+## Architecture & Entrypoints
+- **Structure**: Multi-package repository. Each application is a standalone module.
+- **Run Applications**: Use `python -m <package_name>` (e.g., `python -m millegrilles_midcompte`).
+- **Main Packages**:
+  - `millegrilles_ceduleur`
+  - `millegrilles_certissuer`
+  - `millegrilles_media`
+  - `millegrilles_midcompte`
+  - `millegrilles_relaiweb`
+  - `millegrilles_solr`
+  - `millegrilles_streaming`
 
-## Project description
+## Development Environment
+- **Python Version**: 3.13
+- **Core Dependencies**: `pytz`, `pymongo`, `aiohttp`, `requests`, `pyjwt`.
+- **Required Services**: Many modules require external services (MongoDB, RabbitMQ, Redis, Solr, Zookeeper) typically run via Docker.
+- **Configuration**: Most modules require specific environment variables for certificates (`CERT_PEM`, `KEY_PEM`, `CA_PEM`) and connections (`MQ_HOSTNAME`, `MONGO_HOSTNAME`, `REDIS_HOSTNAME`, etc.).
+  - For detailed environment variable requirements, refer to `doc/env.dev.md`.
+  - Some modules require specific IDs (e.g., `INSTANCE_ID` for `millegrilles_certissuer`).
+- **Environment Note**: `millegrilles_messages` is required and is included in the virtual environment when running outside Docker (e.g., for dev/testing). Ensure the venv is loaded when running any application.
 
-This library contains several independant applications.
-
-**Layout**
-
-+ millegrilles_ceduleur: Moduler for the timing module that emits *pings* every minute on the bus.
-+ millegrilles_certissuer: Certificat signing application.
-+ millegrilles_media: Media extraction and conversion application.
-+ millegrilles_midcompte: Middleware account handler for databases (MongoDB) and RabbitMQ.
-+ millegrilles_relaiweb: Web command relay using the requests module.
-+ millegrilles_solr: Solr full-text index relay connected to the MilleGrilles bus.
-+ millegrilles_streaming: Media streaming application.
-
-## Tool usage
-+ When using tool **edit_file** to update an existing file, the tool will likely fail to apply the changes. When the tool fails to apply changes on the first try, switch to the **overwrite** operation.
-
-> **Important:** All future modifications to the project should be performed with the `overwrite` mode of the `edit_file` tool.  The `edit` mode is unreliable for inserting new lines or making non‑trivial changes, so to avoid accidental omissions, always supply the complete file content when editing.
-
-## Development
-
-- Do not add dependencies unless it is explicitly requested.
+## Debugging & Testing
+- **Verbose Mode**: Many modules support a `--verbose` flag for increased logging.
+- **Testing**: Tests are located in the `tests/` directory.

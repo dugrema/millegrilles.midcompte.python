@@ -114,7 +114,7 @@ class CertIssuer:
         self.__logger.debug("Fin cycle d'entretien")
 
     def fermer(self):
-        if self.__loop is not None:
+        if self.__loop is not None and not self.__loop.is_closed():
             self.__loop.call_soon_threadsafe(self._stop_event.set)
 
     async def executer(self):

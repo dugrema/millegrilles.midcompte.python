@@ -50,7 +50,7 @@ class ConfigurationCertissuer:
             dict_params.update(configuration)
 
         self.path_certissuer = dict_params.get(Constantes.CERTISSUER_PATH) or self.path_certissuer
-        self.instance_id = dict_params[Constantes.PARAM_INSTANCE_ID]
+        self.instance_id = dict_params.get(Constantes.PARAM_INSTANCE_ID)
         self.duree_certificats_jours = dict_params.get(Constantes.PARAM_DUREE_CERTIFICAT_JOURS) or self.duree_certificats_jours
         self.duree_certificats_minutes = dict_params.get(Constantes.PARAM_DUREE_CERTIFICAT_MINUTES) or self.duree_certificats_minutes
 
