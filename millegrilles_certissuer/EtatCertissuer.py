@@ -1,9 +1,10 @@
 import logging
-
+import tempfile
 from os import path, remove, chmod
 from typing import Optional
 
 from millegrilles_certissuer.Configuration import ConfigurationCertissuer
+...
 from millegrilles_messages.certificats.CertificatsMillegrille import generer_csr_intermediaire
 from millegrilles_messages.certificats.Generes import CleCsrGenere
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
@@ -49,30 +50,72 @@ class EtatCertissuer:
 
     async def charger_init(self):
         path_certissuer = self.__configuration.path_certissuer
-        path_ca = path.join(path_certissuer, 'millegrille.pem')
+        path_ca = self.__configuration.path_ca
         try:
             self.__ca = EnveloppeCertificat.from_file(path_ca)
             self.__ca_str = self.__ca.certificat_pem
             self.__validateur_certificats = ValidateurCertificatCache(self.__ca)
             self.__validateur_messages = ValidateurMessage(self.__validateur_certificats)
         except FileNotFoundError:
-            pass
+            raise RuntimeError(f"Le certificat CA est introuvable à l'emplacement: {path_ca}")
+        except Exception as e:
+            raise RuntimeError(f"Erreur lors du chargement du certificat CA: {str(e)}")
 
-        path_cert = path.join(path_certissuer, 'cert.pem')
-        path_cle = path.join(path_certissuer, 'key.pem')
-        path_password = path.join(path_certissuer, 'password.txt')
-        try:
-            cle_intermediaire = CleCertificat.from_files(path_cle, path_cert, path_password)
-            await self.__validateur_certificats.valider(cle_intermediaire.enveloppe.chaine_pem())
-            if cle_intermediaire.cle_correspondent():
-                self.__cle_intermediaire = cle_intermediaire
-            else:
-                # Cleanup, le cert/cle ne correspondent pas
-                remove(path_cle)
-                remove(path_cert)
-                remove(path_password)
-        except FileNotFoundError:
-            pass
+        if self.__configuration.signing_cert_path and path.exists(self.__configuration.signing_cert_path):
+            import tempfile
+            try:
+                with open(self.__configuration.signing_cert_path, 'r') as f:
+                    content = f.read()
+                
+                key_end_marker = '-----END PRIVATE KEY-----'
+                if key_end_marker in content:
+                    parts = content.split(key_end_marker)
+                    key_part = parts[0] + key_end_marker
+                    cert_part = parts[1].strip()
+                    if not cert_part.startswith('-----BEGIN CERTIFICATE-----'):
+                        cert_part = '-----BEGIN CERTIFICATE-----' + cert_part
+                    
+                    with tempfile.NamedTemporaryFile(delete=False, mode='w') as f_key, \
+                         tempfile.NamedTemporaryFile(delete=False, mode='w') as f_cert:
+                        f_key.write(key_part)
+                        f_cert.write(cert_part)
+                        f_key.flush()
+                        f_cert.flush()
+                        path_key_tmp = f_key.name
+                        path_cert_tmp = f_cert.name
+
+                    try:
+                        cle_intermediaire = CleCertificat.from_files(path_key_tmp, path_cert_tmp, password=None)
+                        if self.__validateur_certificats is not None:
+                            await self.__validateur_certificats.valider(cle_intermediaire.enveloppe.chaine_pem())
+                        if cle_intermediaire.cle_correspondent():
+                            self.__cle_intermediaire = cle_intermediaire
+                        else:
+                            self.__logger.error("Le certificat de signature ne correspond pas à la clé")
+                    finally:
+                        remove(path_key_tmp)
+                        remove(path_cert_tmp)
+                else:
+                    self.__logger.error("Le fichier de signature ne contient pas de clé privée valide")
+            except Exception as e:
+                self.__logger.error("Erreur lors du chargement du certificat de signature: %s" % str(e))
+        else:
+            path_cert = path.join(path_certissuer, 'cert.pem')
+            path_cle = path.join(path_certissuer, 'key.pem')
+            path_password = path.join(path_certissuer, 'password.txt')
+            try:
+                cle_intermediaire = CleCertificat.from_files(path_cle, path_cert, path_password)
+                if self.__validateur_certificats is not None:
+                    await self.__validateur_certificats.valider(cle_intermediaire.enveloppe.chaine_pem())
+                if cle_intermediaire.cle_correspondent():
+                    self.__cle_intermediaire = cle_intermediaire
+                else:
+                    # Cleanup, le cert/cle ne correspondent pas
+                    remove(path_cle)
+                    remove(path_cert)
+                    remove(path_password)
+            except FileNotFoundError:
+                pass
 
     async def entretien(self):
         if self.__validateur_certificats is not None:
@@ -123,7 +166,7 @@ class EtatCertissuer:
                 raise Exception("Mismatch idmg avec systeme local et cert CA recu")
         else:
             # On n'a pas de lock pour la millegrille, on accepte le nouveau certificat
-            path_ca = path.join(path_certissuer, 'millegrille.pem')
+            path_ca = self.__configuration.path_ca
             with open(path_ca, 'w') as fichier:
                 fichier.write(cert_ca)
 
