@@ -17,6 +17,7 @@ The module requires certain environment variables to be set, typically provided 
 
 **Key Environment Variables:**
 - `INSTANCE_ID`: A unique identifier for the instance.
+- `CA_CERT_PATH`: The MilleGrille's CA file under `$MILLEGRILLES_ROOT/etc/millegrille.pem`.
 - `CERTISSUER_PATH`: The directory where certificates are stored.
     - Default (Docker): `/var/opt/millegrilles/certissuer`
     - Dev/Test: Usually relative to `$MILLEGRILLES_ROOT/secrets/certissuer`

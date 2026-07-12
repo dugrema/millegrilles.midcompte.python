@@ -40,8 +40,8 @@ class WebServer:
 
     def _preparer_routes(self):
         self.__app.add_routes([
-            web.get('/csr', self.handle_csr),
-            web.post('/installer', self.handle_installer),
+            # web.get('/csr', self.handle_csr),
+            # web.post('/installer', self.handle_installer),
             web.post('/signerModule', self.handle_signer_module),
             web.post('/signerUsager', self.handle_signer_usager_interne),
             web.post('/renouvelerInstance', self.handle_renouveler_instance),
@@ -52,27 +52,27 @@ class WebServer:
             # web.post('/certissuer/signerModule', self.handle_signer_module),
         ])
 
-    async def handle_csr(self, request):
-        csr_str = self.__etat_certissuer.get_csr()
-        return web.Response(text=csr_str)
+    # async def handle_csr(self, request):
+    #     csr_str = self.__etat_certissuer.get_csr()
+    #     return web.Response(text=csr_str)
 
-    async def handle_installer(self, request):
-        info_cert = await request.json()
-        self.__logger.debug("handle_installer params\n%s" % json.dumps(info_cert, indent=2))
-        try:
-            await self.__etat_certissuer.sauvegarder_certificat(info_cert)
-            self.__logger.debug("Sauvegarde du certificat intermediaire OK")
-        except:
-            self.__logger.exception("Erreur sauvegarde certificat")
-            return web.HTTPForbidden()
-
-        # Generer le certificat pour l'application d'instance
-        csr_instance = info_cert['csr']
-        securite = info_cert['securite']
-        duree = self.get_duree_certificat()
-        cert_instance = self.__certificat_handler.generer_certificat_instance(csr_instance, securite, duree)
-        self.__logger.debug("Nouveau certificat d'instance\n%s" % cert_instance)
-        return web.json_response({'certificat': cert_instance}, status=201)
+    # async def handle_installer(self, request):
+    #     info_cert = await request.json()
+    #     self.__logger.debug("handle_installer params\n%s" % json.dumps(info_cert, indent=2))
+    #     try:
+    #         await self.__etat_certissuer.sauvegarder_certificat(info_cert)
+    #         self.__logger.debug("Sauvegarde du certificat intermediaire OK")
+    #     except:
+    #         self.__logger.exception("Erreur sauvegarde certificat")
+    #         return web.HTTPForbidden()
+    #
+    #     # Generer le certificat pour l'application d'instance
+    #     csr_instance = info_cert['csr']
+    #     securite = info_cert['securite']
+    #     duree = self.get_duree_certificat()
+    #     cert_instance = self.__certificat_handler.generer_certificat_instance(csr_instance, securite, duree)
+    #     self.__logger.debug("Nouveau certificat d'instance\n%s" % cert_instance)
+    #     return web.json_response({'certificat': cert_instance}, status=201)
 
     async def handle_renouveler_instance(self, request):
         info_cert = await request.json()
@@ -289,17 +289,3 @@ class WebServer:
         finally:
             self.__logger.info("Site arrete")
             await runner.cleanup()
-
-
-# def main():
-#     logging.basicConfig()
-#     logging.getLogger(__name__).setLevel(logging.DEBUG)
-#     logging.getLogger('millegrilles').setLevel(logging.DEBUG)
-#
-#     server = WebServer()
-#     server.setup()
-#     asyncio.run(server.run())
-#
-#
-# if __name__  == '__main__':
-#     main()

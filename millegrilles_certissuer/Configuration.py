@@ -56,7 +56,6 @@ class ConfigurationCertissuer:
             dict_params.update(configuration)
 
         self.millegrilles_root = dict_params.get(Constantes.MILLEGRILLES_ROOT) or self.millegrilles_root
-        self.path_certissuer = dict_params.get(Constantes.CERTISSUER_PATH) or self.path_certissuer
         self.path_ca = dict_params.get(Constantes.CA_CERT_PATH) or self.path_ca
         self.signing_cert_path = dict_params.get(Constantes.SIGNING_CERT_PATH)
         self.instance_id = dict_params.get(Constantes.PARAM_INSTANCE_ID)
