@@ -1,3 +1,4 @@
+import os
 import pathlib
 import requests
 
@@ -10,7 +11,7 @@ from millegrilles_messages.certificats.Generes import CleCsrGenere
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 from millegrilles_messages.messages.CleCertificat import CleCertificat
 
-ROOT_PATH = pathlib.Path("/tmp/millegrilles_dev1")
+ROOT_PATH = pathlib.Path(os.environ.get("MILLEGRILLES_ROOT") or "/tmp/millegrilles_dev1")
 
 def load_manager_certs():
     manager_pem_path = ROOT_PATH.joinpath("secrets/manager.pem")
