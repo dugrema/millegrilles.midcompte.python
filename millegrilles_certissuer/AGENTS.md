@@ -16,12 +16,9 @@ timeout 20s /tmp/millegrilles_dev1/venv/bin/python -m millegrilles_certissuer --
 The module requires certain environment variables to be set, typically provided by the `config.env` file in the `MILLEGRILLES_ROOT` directory.
 
 **Key Environment Variables:**
-- `INSTANCE_ID`: A unique identifier for the instance.
 - `CA_CERT_PATH`: The MilleGrille's CA file under `$MILLEGRILLES_ROOT/etc/millegrille.pem`.
-- `CERTISSUER_PATH`: The directory where certificates are stored.
-    - Default (Docker): `/var/opt/millegrilles/certissuer`
-    - Dev/Test: Usually relative to `$MILLEGRILLES_ROOT/secrets/certissuer`
-- `SIGNING_CERT_PATH`: Path to a single PEM file containing both the certificate and the private key (used for development/testing).
+- `SIGNING_CERT_PATH`: Path to a single PEM file containing both the certificate and the private key.
+- `WEB_PORT`: Defaults to 2080.
 
 **Running with an environment file:**
 If you are running outside of the established environment, you may need to export the variables from `config.env` first:
