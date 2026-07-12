@@ -100,20 +100,22 @@ class EtatCertissuer:
             except Exception as e:
                 self.__logger.error("Erreur lors du chargement du certificat de signature: %s" % str(e))
         else:
-            path_cert = path.join(path_certissuer, 'cert.pem')
-            path_cle = path.join(path_certissuer, 'key.pem')
-            path_password = path.join(path_certissuer, 'password.txt')
+            signing_cert_path = self.configuration.signing_cert_path
+            if not signing_cert_path:
+                raise FileNotFoundError(f"CA signing cert not found: {signing_cert_path}")
+            path_key_cert = path.join(signing_cert_path)
+            # path_password = path.join(path_certissuer, 'password.txt')
+            path_password = None
             try:
-                cle_intermediaire = CleCertificat.from_files(path_cle, path_cert, path_password)
+                cle_intermediaire = CleCertificat.from_files(path_key_cert, path_key_cert, path_password)
                 if self.__validateur_certificats is not None:
                     await self.__validateur_certificats.valider(cle_intermediaire.enveloppe.chaine_pem())
                 if cle_intermediaire.cle_correspondent():
                     self.__cle_intermediaire = cle_intermediaire
                 else:
                     # Cleanup, le cert/cle ne correspondent pas
-                    remove(path_cle)
-                    remove(path_cert)
-                    remove(path_password)
+                    remove(signing_cert_path)
+                    # remove(path_password)
             except FileNotFoundError:
                 pass
 

@@ -278,7 +278,7 @@ class WebServer:
         site = web.TCPSite(runner, '0.0.0.0', self.__configuration.port)
         try:
             await site.start()
-            self.__logger.info("Site demarre")
+            self.__logger.info(f"Site demarre sur port {self.__configuration.port}")
 
             while not self.__stop_event.is_set():
                 await self.entretien()
