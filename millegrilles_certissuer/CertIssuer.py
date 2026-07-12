@@ -83,13 +83,13 @@ class CertIssuer:
         self.__logger.info("Preparer l'environnement")
         # makedirs(self.__configuration.path_secrets, 0o700, exist_ok=True)
 
-        self.preparer_folder_configuration()
+        # self.preparer_folder_configuration()
 
         self.__web_server = WebServer(self.__etat_certissuer)
         self.__web_server.setup()
 
-    def preparer_folder_configuration(self):
-        makedirs(self.__configuration.path_certissuer, 0o700, exist_ok=True)
+    # def preparer_folder_configuration(self):
+    #     makedirs(self.__configuration.path_certissuer, 0o700, exist_ok=True)
 
     def exit_gracefully(self, signum=None, frame=None):
         self.__logger.info("Fermer application, signal: %d" % signum)
