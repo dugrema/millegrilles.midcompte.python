@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import sys
+
 from asyncio import TaskGroup
 from concurrent.futures.thread import ThreadPoolExecutor
 
@@ -46,7 +48,7 @@ async def main():
             context.register_stop_listener(stop_listener)
 
     except* (ForceTerminateExecution, asyncio.CancelledError):
-        pass  # Result of the termination task
+        sys.exit(1)  # Result of the termination task
 
 
 async def wiring(context: StreamingContext) -> list[Awaitable]:

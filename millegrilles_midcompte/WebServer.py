@@ -52,7 +52,7 @@ class WebServer:
     async def handle_ajouter_compte(self, request: Request):
         headers = request.headers
         dn = headers.get('DN')
-        self.__logger.debug("AJouter compte %s" % dn)
+        self.__logger.debug(f"Add account for {dn}")
 
         verified = headers.get('Verified')
         if verified == 'SUCCESS':
