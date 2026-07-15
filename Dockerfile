@@ -1,4 +1,4 @@
-FROM registry.millegrilles.com/millegrilles/messages_python:2025.4.106 as stage1
+FROM registry.millegrilles.com/millegrilles/messages_python:2026.3.5 as stage1
 
 ENV BUILD_FOLDER=/opt/millegrilles/build \
     BUNDLE_FOLDER=/opt/millegrilles/dist \
@@ -19,26 +19,19 @@ WORKDIR /opt/millegrilles/build
 COPY requirements.txt $BUILD_FOLDER/requirements.txt
 
 RUN pip3 install --no-cache-dir -r $BUILD_FOLDER/requirements.txt && \
-    mkdir -p /var/opt/millegrilles/consignation/backup && \
-    mkdir -p /var/opt/millegrilles/consignation/data && \
-    mkdir -p /var/opt/millegrilles/staging && \
-    chown 984:980 /var/opt/millegrilles/consignation && \
-    chown 984:980 /var/opt/millegrilles/consignation/backup && \
-    chown 984:980 /var/opt/millegrilles/consignation/data && \
-    chown 984:980 /var/opt/millegrilles/staging
+    mkdir -p /var/opt/millegrilles/staging
 
 FROM stage1
 
 COPY . $BUILD_FOLDER
 
-RUN python3 ./setup.py install
+RUN python3 ./setup.py install && \
+    chown -R 1000:1000 /var/opt/millegrilles
 
-# UID fichiers = 984
-# GID millegrilles = 980
-USER 984:980
-
-VOLUME ["/var/opt/millegrilles/consignation", "/var/opt/millegrilles/consignation/data", "/var/opt/millegrilles/staging", "/var/opt/millegrilles/consignation/backup"]
+VOLUME ["/var/opt/millegrilles/staging"]
 
 WORKDIR /opt/millegrilles/dist
+
+USER 1000:1000
 
 CMD ["-m", "millegrilles_midcompte", "--verbose"]
