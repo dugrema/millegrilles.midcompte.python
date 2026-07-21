@@ -1,0 +1,67 @@
+include:
+  - path: ../include/app_net.yml
+    project_directory: ..
+
+name: ${INSTANCE_NAME}
+
+services:
+  streaming:
+    image: "replace_me"
+    command: ["-m", "millegrilles_streaming"]
+    x-millegrilles-certificat:
+      roles:
+        - stream
+      exchanges:
+        - 2.prive
+        - 1.public
+      dns:
+        localhost: true
+        hostnames:
+          - mongoexpress
+        domain: true
+      split: true
+    environment:
+      - MQ_HOSTNAME=${MQ_HOSTNAME:-mq}
+      - MQ_PORT=${MQ_PORT:-5673}
+      - MG_REDIS_HOST=redis
+      - MG_REDIS_PORT=6379
+      - REDIS_PASSWORD_PATH=/run/secrets/passwd.redis.txt
+      - CERT_PATH=/run/secrets/cert.pem
+      - KEY_PATH=/run/secrets/key.pem
+      - CA_PATH=/run/secrets/millegrille.pem
+      - DIR_STAGING=/var/opt/millegrilles/staging/streaming
+    volumes:
+      - ${MILLEGRILLES_ROOT}/var/staging:/var/opt/millegrilles/staging
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 100M
+      restart_policy:
+        condition: on-failure
+        delay: 20s
+        max_attempts: 1000
+    configs:
+      - source: stream
+        target: /run/secrets/cert.pem
+      - source: mgca
+        target: /run/secrets/millegrille.pem
+    secrets:
+      - source: stream
+        target: key.pem
+      - source: passwd_redis
+        target: passwd.redis.txt
+    networks:
+      - app_net
+
+configs:
+  stream:
+    file: ${MILLEGRILLES_ROOT}/secrets/stream.cert.pem
+  mgca:
+    file: ${MILLEGRILLES_ROOT}/etc/millegrille.pem
+
+secrets:
+  stream:
+    file: ${MILLEGRILLES_ROOT}/secrets/stream.key.pem
+  passwd_redis:
+    file: ${MILLEGRILLES_ROOT}/secrets/redis.txt

@@ -1,0 +1,9 @@
+set $upstream_stream https://stream:1443;
+#set $upstream_stream https://[SERVEUR]:3029;
+proxy_pass $upstream_stream;
+
+proxy_ssl_certificate         /run/secrets/nginx.cert.pem;
+proxy_ssl_certificate_key     /run/secrets/nginx.key.pem;
+proxy_ssl_trusted_certificate /usr/share/nginx/files/certs/millegrille.cert.pem;
+proxy_ssl_verify       on;
+proxy_ssl_verify_depth 1;

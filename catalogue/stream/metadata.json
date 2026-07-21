@@ -1,0 +1,8 @@
+{
+  "name": "stream",
+  "version": "DEV",
+  "labels": {
+    "en": "Media streamer for Millegrilles",
+    "fr": "Module de streaming media pour MilleGrilles"
+  }
+}
