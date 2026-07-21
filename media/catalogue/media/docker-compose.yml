@@ -7,6 +7,7 @@ name: ${INSTANCE_NAME}
 services:
   media_images:
     image: "replace_me"
+    user: "${CONTAINER_UID}:${CONTAINER_GID}"
     command: ["-m", "millegrilles_media", "--images"]
     x-millegrilles-certificat:
       roles:
