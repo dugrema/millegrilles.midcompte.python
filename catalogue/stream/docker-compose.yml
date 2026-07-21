@@ -5,7 +5,7 @@ include:
 name: ${INSTANCE_NAME}
 
 services:
-  streaming:
+  stream:
     image: "replace_me"
     command: ["-m", "millegrilles_streaming"]
     x-millegrilles-certificat:

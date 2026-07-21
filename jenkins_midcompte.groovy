@@ -23,7 +23,7 @@ pipeline {
 
         stage('Build & Package & Deploy') {
             steps {
-                sh "cd media && make deploy VERSION_FULL=${VBUILD}"
+                sh "make deploy VERSION_FULL=${VBUILD}"
             }
         }
     }
