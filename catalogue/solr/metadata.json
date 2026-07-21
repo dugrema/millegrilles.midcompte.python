@@ -1,0 +1,8 @@
+{
+  "name": "solr",
+  "version": "DEV",
+  "labels": {
+    "en": "Full text indexing of documents with Solr",
+    "fr": "Recherche de texte avec Solr"
+  }
+}

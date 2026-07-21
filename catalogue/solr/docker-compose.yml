@@ -1,0 +1,111 @@
+include:
+  - path: ../include/app_net.yml
+    project_directory: ..
+
+name: ${INSTANCE_NAME}
+
+services:
+  solr_zookeeper:
+    image: "zookeeper:3.8"
+    volumes:
+      - ${MILLEGRILLES_ROOT}/var/solr/zookeeper_data:/data
+      - ${MILLEGRILLES_ROOT}/var/solr/zookeeper_datalog:/datalog
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 300M
+      restart_policy:
+        condition: on-failure
+        delay: 20s
+        max_attempts: 1000
+    hostname: solrzookeeper
+    networks:
+      - app_net
+
+  solr_server:
+    image: "solr:9.2"
+    command: ["solr-foreground", "-c", "-h", "solr", "-z", "solrzookeeper:2181"]
+    volumes:
+      - ${MILLEGRILLES_ROOT}/var/solr/solr_data:/var/solr
+    environment:
+      - SOLR_MODULES=extraction
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2500M
+      restart_policy:
+        condition: on-failure
+        delay: 20s
+        max_attempts: 1000
+    hostname: solr
+    networks:
+      - app_net
+    depends_on:
+      - solr_zookeeper
+
+  solr_relai:
+    image: "replace_me"
+    command: ["-m", "millegrilles_solr"]
+    x-millegrilles-certificat:
+      roles:
+        - solrrelai
+      exchanges:
+        - 4.secure
+        - 3.protege
+        - 2.prive
+        - 1.public
+      dns:
+        localhost: true
+        hostnames:
+          - stream
+        domain: true
+      split: true
+    environment:
+      - CA_PATH=/run/secrets/millegrille.pem
+      - CERT_PATH=/run/secrets/cert.pem
+      - KEY_PATH=/run/secrets/key.pem
+      - MQ_HOSTNAME=${MQ_HOSTNAME:-mq}
+      - MQ_PORT=${MQ_PORT:-5673}
+      - MG_REDIS_HOST=redis
+      - MG_REDIS_PORT=6379
+      - REDIS_PASSWORD_PATH=/run/secrets/passwd.redis.txt
+      - SOLR_URL=http://solr:8983
+      - PROCESS_COUNT=4
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 100M
+      restart_policy:
+        condition: on-failure
+        delay: 20s
+        max_attempts: 1000
+    configs:
+      - source: solr_relai
+        target: /run/secrets/cert.pem
+      - source: mgca
+        target: /run/secrets/millegrille.pem
+    secrets:
+      - source: solr_relai
+        target: key.pem
+      - source: passwd_redis
+        target: passwd.redis.txt
+    hostname: solrrelai
+    networks:
+      - app_net
+    depends_on:
+      - solr_server
+
+configs:
+  solr_relai:
+    file: ${MILLEGRILLES_ROOT}/secrets/solr_relai.cert.pem
+  mgca:
+    file: ${MILLEGRILLES_ROOT}/etc/millegrille.pem
+
+secrets:
+  solr_relai:
+    file: ${MILLEGRILLES_ROOT}/secrets/solr_relai.key.pem
+  passwd_redis:
+    file: ${MILLEGRILLES_ROOT}/secrets/redis.txt
