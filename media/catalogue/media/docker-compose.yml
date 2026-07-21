@@ -1,0 +1,105 @@
+include:
+  - path: ../include/app_net.yml
+    project_directory: ..
+
+name: ${INSTANCE_NAME}
+
+services:
+  media_images:
+    image: "replace_me"
+    command: ["-m", "millegrilles_media", "--images"]
+    x-millegrilles-certificat:
+      roles:
+        - media
+      exchanges:
+        - 2.prive
+        - 1.public
+      split: true
+    environment:
+      - MQ_HOSTNAME=${MQ_HOSTNAME:-mq}
+      - MQ_PORT=${MQ_PORT:-5673}
+      - REDIS_HOSTNAME=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD_PATH=/run/secrets/passwd.redis.txt
+      - CERT_PATH=/run/secrets/cert.pem
+      - KEY_PATH=/run/secrets/key.pem
+      - CA_PATH=/run/secrets/millegrille.pem
+      - DIR_STAGING=/var/opt/millegrilles/staging/media
+    volumes:
+      - ${MILLEGRILLES_ROOT}/var/staging:/var/opt/millegrilles/staging
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 100M
+      restart_policy:
+        condition: on-failure
+        delay: 20s
+        max_attempts: 1000
+    configs:
+      - source: media
+        target: /run/secrets/cert.pem
+      - source: mgca
+        target: /run/secrets/millegrille.pem
+    secrets:
+      - source: media
+        target: key.pem
+      - source: passwd_redis
+        target: passwd.redis.txt
+    networks:
+      - app_net
+  media_video:
+    image: "replace_me"
+    command: ["-m", "millegrilles_media", "--videos"]
+    x-millegrilles-certificat:
+      roles:
+        - media
+      exchanges:
+        - 2.prive
+        - 1.public
+      split: true
+    environment:
+      - MQ_HOSTNAME=${MQ_HOSTNAME:-mq}
+      - MQ_PORT=${MQ_PORT:-5673}
+      - REDIS_HOSTNAME=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD_PATH=/run/secrets/passwd.redis.txt
+      - CERT_PATH=/run/secrets/cert.pem
+      - KEY_PATH=/run/secrets/key.pem
+      - CA_PATH=/run/secrets/millegrille.pem
+      - DIR_STAGING=/var/opt/millegrilles/staging/media
+    volumes:
+      - ${MILLEGRILLES_ROOT}/var/staging:/var/opt/millegrilles/staging
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+      restart_policy:
+        condition: on-failure
+        delay: 20s
+        max_attempts: 1000
+    configs:
+      - source: media
+        target: /run/secrets/cert.pem
+      - source: mgca
+        target: /run/secrets/millegrille.pem
+    secrets:
+      - source: media
+        target: key.pem
+      - source: passwd_redis
+        target: passwd.redis.txt
+    networks:
+      - app_net
+
+configs:
+  media:
+    file: ${MILLEGRILLES_ROOT}/secrets/media.cert.pem
+  mgca:
+    file: ${MILLEGRILLES_ROOT}/etc/millegrille.pem
+
+secrets:
+  media:
+    file: ${MILLEGRILLES_ROOT}/secrets/media.key.pem
+  passwd_redis:
+    file: ${MILLEGRILLES_ROOT}/secrets/redis.txt

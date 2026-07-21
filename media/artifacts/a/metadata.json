@@ -1,0 +1,8 @@
+{
+  "name": "media",
+  "version": "2026.3.1",
+  "labels": {
+    "en": "Media handler and converter module",
+    "fr": "Module de traitement et conversion de media"
+  }
+}

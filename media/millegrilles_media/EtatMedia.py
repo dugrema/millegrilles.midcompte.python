@@ -3,10 +3,7 @@ import logging
 import ssl
 from ssl import SSLContext
 
-from asyncio import wait
 from typing import Optional
-
-from OpenSSL.SSL import VERIFY_NONE
 
 from millegrilles_messages.messages.CleCertificat import CleCertificat
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
@@ -14,7 +11,7 @@ from millegrilles_messages.messages.FormatteurMessages import SignateurTransacti
 from millegrilles_messages.messages.ValidateurCertificats import ValidateurCertificatCache
 from millegrilles_messages.messages.ValidateurMessage import ValidateurMessage
 from millegrilles_messages.messages.MessagesModule import MessageProducerFormatteur
-from millegrilles_media.Configuration import ConfigurationMedia
+from media.millegrilles_media.Configuration import ConfigurationMedia
 
 
 class EtatMedia:

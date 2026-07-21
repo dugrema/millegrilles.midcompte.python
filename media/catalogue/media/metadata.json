@@ -1,0 +1,8 @@
+{
+  "name": "media",
+  "version": "DEV",
+  "labels": {
+    "en": "Media handler and converter module",
+    "fr": "Module de traitement et conversion de media"
+  }
+}

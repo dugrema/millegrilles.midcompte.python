@@ -8,14 +8,14 @@ from typing import Any, Callable, Coroutine, Optional
 
 from cryptography.x509 import ExtensionNotFound
 
-from millegrilles_media.Configuration import ConfigurationMedia
-from millegrilles_media.MediaManager import MediaManager
+from media.millegrilles_media.Configuration import ConfigurationMedia
+from media.millegrilles_media.MediaManager import MediaManager
 from millegrilles_messages.messages.MessagesModule import MessageWrapper
 from millegrilles_messages.messages import Constantes
 from millegrilles_messages.bus.BusContext import MilleGrillesBusContext
 from millegrilles_messages.bus.PikaChannel import MilleGrillesPikaChannel
 from millegrilles_messages.bus.PikaQueue import MilleGrillesPikaQueueConsumer, RoutingKey
-from millegrilles_media.Context import MediaContext
+from media.millegrilles_media.Context import MediaContext
 from millegrilles_messages.structs.Filehost import Filehost
 
 

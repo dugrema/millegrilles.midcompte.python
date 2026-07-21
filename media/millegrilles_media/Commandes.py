@@ -5,7 +5,7 @@ from cryptography.x509.extensions import ExtensionNotFound
 from millegrilles_messages.messages import Constantes
 from millegrilles_messages.messages.MessagesModule import MessageProducerFormatteur
 from millegrilles_messages.messages.MessagesModule import MessageWrapper
-from millegrilles_media import Constantes as ConstantesMedia
+from media.millegrilles_media import Constantes as ConstantesMedia
 
 
 class CommandHandler:
