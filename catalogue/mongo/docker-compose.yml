@@ -1,0 +1,124 @@
+services:
+  mongo_init:
+    image: mongo:8.2.6
+    user: "${CONTAINER_UID}:${CONTAINER_GID}"
+    command: ["mongod", "--replSet", "rs0"]
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD_FILE=/run/secrets/mongo.root.password
+    volumes:
+      - ${MILLEGRILLES_ROOT}/var/mongo:/data/db
+    configs:
+      - source: mgca
+        target: /run/secrets/millegrille.cert.pem
+    secrets:
+      - source: mongo
+        target: mongo.key_cert.pem
+      - source: passwd_mongo
+        target: mongo.root.password
+  mongo:
+    image: mongo:8.2.6
+    x-millegrilles-certificat:
+      roles:
+        - mongo
+      dns:
+        localhost: true
+        hostnames:
+          - mongo
+        domain: true
+      split: false
+      passwords:
+        - mongo
+    hostname: mongo
+    user: "${CONTAINER_UID}:${CONTAINER_GID}"
+    command: [
+      "mongod",
+      "--tlsMode", "requireTLS",
+      "--tlsCertificateKeyFile", "/run/secrets/mongo.key_cert.pem",
+      "--tlsCAFile", "/run/secrets/millegrille.cert.pem",
+      "--replSet", "rs0",
+      "--clusterAuthMode", "x509",
+      "--tlsClusterFile", "/run/secrets/mongo.key_cert.pem"
+    ]
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD_FILE=/run/secrets/mongo.root.password
+    volumes:
+      - ${MILLEGRILLES_ROOT}/var/mongo:/data/db
+    networks:
+      - app_net
+    # ports:
+    #   - "27017:27017"
+    deploy:
+      resources:
+        limits:
+          cpus: '3.0'
+          memory: 2000M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 1000
+    configs:
+      - source: mgca
+        target: /run/secrets/millegrille.cert.pem
+    secrets:
+      - source: mongo
+        target: mongo.key_cert.pem
+      - source: passwd_mongo
+        target: mongo.root.password
+    depends_on:
+      - mongo_init
+  midcompte:
+    image: "change_me"
+    x-millegrilles-certificat:
+      roles:
+        - midcompte
+      dns:
+        localhost: true
+        hostnames:
+          - midcompte
+        domain: true
+      passwords:
+        - mqadmin
+    environment:
+      - WEB_PORT=2444
+      - CERT_PEM=/run/secrets/key.pem
+      - KEY_PEM=/run/secrets/key.pem
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 150M
+      restart_policy:
+        condition: on-failure
+        delay: 20s
+        max_attempts: 1000
+    configs:
+      - source: mgca
+        target: /run/secrets/pki.millegrille.cert
+    secrets:
+      - source: midcompte
+        target: key.pem
+      - source: passwd_mongo
+        target: passwd.mongo.txt
+      - source: passwd_mqadmin
+        target: passwd.mqadmin.txt
+    hostname: midcompte
+    networks:
+      - app_net
+    depends_on:
+      - redis
+      - mq
+      - mongo
+
+configs:
+  mgca:
+    file: ${MILLEGRILLES_ROOT}/etc/millegrille.pem
+
+secrets:
+  mongo:
+    file: ${MILLEGRILLES_ROOT}/secrets/mongo.pem
+  midcompte:
+    file: ${MILLEGRILLES_ROOT}/secrets/midcompte.pem
+  passwd_mongo:
+    file: ${MILLEGRILLES_ROOT}/secrets/mongo.txt
