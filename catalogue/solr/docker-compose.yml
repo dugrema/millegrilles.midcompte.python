@@ -7,6 +7,7 @@ name: ${INSTANCE_NAME}
 services:
   solr_zookeeper:
     image: "zookeeper:3.8"
+    user: "${CONTAINER_UID}:${CONTAINER_GID}"
     volumes:
       - ${MILLEGRILLES_ROOT}/var/solr/zookeeper_data:/data
       - ${MILLEGRILLES_ROOT}/var/solr/zookeeper_datalog:/datalog
@@ -25,6 +26,7 @@ services:
 
   solr_server:
     image: "solr:9.2"
+    user: "${CONTAINER_UID}:${CONTAINER_GID}"
     command: ["solr-foreground", "-c", "-h", "solr", "-z", "solrzookeeper:2181"]
     volumes:
       - ${MILLEGRILLES_ROOT}/var/solr/solr_data:/var/solr
