@@ -5,8 +5,8 @@ from typing import Callable, Awaitable, Optional
 from cryptography.x509 import ExtensionNotFound
 
 from millegrilles_messages.messages import Constantes
-from media.millegrilles_media.Context import MediaContext
-from media.millegrilles_media.intake import IntakeJobVideo, IntakeJobImage
+from millegrilles_media.Context import MediaContext
+from millegrilles_media.intake import IntakeJobVideo, IntakeJobImage
 from millegrilles_messages.messages.EnveloppeCertificat import EnveloppeCertificat
 from millegrilles_messages.messages.MessagesModule import MessageWrapper
 from millegrilles_messages.structs.Filehost import Filehost

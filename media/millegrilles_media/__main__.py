@@ -7,11 +7,11 @@ from concurrent.futures.thread import ThreadPoolExecutor
 
 from typing import Awaitable
 
-from media.millegrilles_media.Configuration import ConfigurationMedia
-from media.millegrilles_media.Context import MediaContext
-from media.millegrilles_media.CommandHandler import CommandHandler
-from media.millegrilles_media.MediaManager import MediaManager
-from media.millegrilles_media.intake import IntakeJobImage, IntakeJobVideo
+from millegrilles_media.Configuration import ConfigurationMedia
+from millegrilles_media.Context import MediaContext
+from millegrilles_media.CommandHandler import CommandHandler
+from millegrilles_media.MediaManager import MediaManager
+from millegrilles_media.intake import IntakeJobImage, IntakeJobVideo
 from millegrilles_messages.bus.BusContext import ForceTerminateExecution, StopListener
 from millegrilles_messages.bus.PikaConnector import MilleGrillesPikaConnector
 

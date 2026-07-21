@@ -11,7 +11,7 @@ from millegrilles_messages.messages.FormatteurMessages import SignateurTransacti
 from millegrilles_messages.messages.ValidateurCertificats import ValidateurCertificatCache
 from millegrilles_messages.messages.ValidateurMessage import ValidateurMessage
 from millegrilles_messages.messages.MessagesModule import MessageProducerFormatteur
-from media.millegrilles_media.Configuration import ConfigurationMedia
+from millegrilles_media.Configuration import ConfigurationMedia
 
 
 class EtatMedia:

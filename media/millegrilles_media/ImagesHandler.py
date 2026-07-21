@@ -9,9 +9,9 @@ from wand.image import Image
 from wand.color import Color
 
 from millegrilles_messages.messages import Constantes
-from media.millegrilles_media.Context import MediaContext
+from millegrilles_media.Context import MediaContext
 from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4WithSecret
-from media.millegrilles_media.TransfertFichiers import uploader_fichier, filehost_authenticate
+from millegrilles_media.TransfertFichiers import uploader_fichier, filehost_authenticate
 
 
 async def traiter_image(job: dict, tmp_file, context: MediaContext, info_video: Optional[dict] = None):

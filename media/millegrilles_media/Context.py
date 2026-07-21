@@ -6,7 +6,7 @@ import pathlib
 from typing import Optional
 from urllib.parse import urlparse
 
-from media.millegrilles_media.Configuration import ConfigurationMedia
+from millegrilles_media.Configuration import ConfigurationMedia
 from millegrilles_messages.bus.BusContext import MilleGrillesBusContext
 from millegrilles_messages.bus.PikaConnector import MilleGrillesPikaConnector
 from millegrilles_messages.structs.Filehost import Filehost

@@ -11,14 +11,14 @@ from ssl import SSLContext
 
 from asyncio import Event, TaskGroup
 
-from media.millegrilles_media.Structs import VersionJob, SecretKeyDict
+from millegrilles_media.Structs import VersionJob, SecretKeyDict
 from millegrilles_messages.messages import Constantes
-from media.millegrilles_media.Context import MediaContext
-from media.millegrilles_media.TransfertFichiers import filehost_authenticate
+from millegrilles_media.Context import MediaContext
+from millegrilles_media.TransfertFichiers import filehost_authenticate
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher_cle_secrete
 from millegrilles_messages.Mimetypes import est_video
-from media.millegrilles_media.ImagesHandler import traiter_image
-from media.millegrilles_media.VideosHandler import VideoConversionJob
+from millegrilles_media.ImagesHandler import traiter_image
+from millegrilles_media.VideosHandler import VideoConversionJob
 from millegrilles_messages.messages.MessagesModule import MessageWrapper
 
 

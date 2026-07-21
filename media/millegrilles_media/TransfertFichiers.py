@@ -4,7 +4,7 @@ from urllib.parse import urljoin
 import aiohttp
 import tempfile
 
-from media.millegrilles_media.Context import MediaContext
+from millegrilles_media.Context import MediaContext
 from millegrilles_messages.messages import Constantes
 from millegrilles_messages.chiffrage.Mgs4 import CipherMgs4WithSecret
 
