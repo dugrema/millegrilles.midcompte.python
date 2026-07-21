@@ -17,7 +17,7 @@ services:
       dns:
         localhost: true
         hostnames:
-          - mongoexpress
+          - stream
         domain: true
       split: true
     environment:
@@ -51,6 +51,7 @@ services:
         target: key.pem
       - source: passwd_redis
         target: passwd.redis.txt
+    hostname: stream
     networks:
       - app_net
 
