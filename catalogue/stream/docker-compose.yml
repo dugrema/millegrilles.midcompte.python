@@ -7,6 +7,7 @@ name: ${INSTANCE_NAME}
 services:
   stream:
     image: "replace_me"
+    user: "${CONTAINER_UID}:${CONTAINER_GID}"
     command: ["-m", "millegrilles_streaming"]
     x-millegrilles-certificat:
       roles:
