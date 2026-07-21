@@ -27,10 +27,4 @@ pipeline {
             }
         }
     }
-
-    post {
-        success {
-            archiveArtifacts artifacts: 'artifacts/', followSymlinks: false
-        }
-    }
 }

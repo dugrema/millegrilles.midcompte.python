@@ -10,21 +10,20 @@ pipeline {
     }
 
     environment {
-        NOM_APP="millegrilles_messages"
         VBUILD="${VERSION}.${BUILD_NUMBER}"
         DOCKER_IMAGE="${params.DOCKER_IMAGE}"
     }
 
     stages {
-        stage('docker build x86_64') {
+        stage('Checkout') {
             steps {
-                checkout scmGit(branches: [[name: params.BRANCH]], extensions: [submodule(recursiveSubmodules: true, reference: '')], userRemoteConfigs: [[credentialsId: params.CREDENTIALS_ID, url: params.GIT_URL]])
+                checkout scmGit(branches: [[name: params.BRANCH]], extensions: [], userRemoteConfigs: [[credentialsId: params.CREDENTIALS_ID, url: params.GIT_URL]])
+            }
+        }
 
-                sh '''
-                # Creer image docker
-                docker build -t ${DOCKER_IMAGE}:${VBUILD} .
-                docker push ${DOCKER_IMAGE}:${VBUILD}
-                '''
+        stage('Build & Package & Deploy') {
+            steps {
+                sh "cd media && make deploy VERSION_FULL=${VBUILD}"
             }
         }
     }
