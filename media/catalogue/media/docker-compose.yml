@@ -52,13 +52,6 @@ services:
   media_video:
     image: "replace_me"
     command: ["-m", "millegrilles_media", "--videos"]
-    x-millegrilles-certificat:
-      roles:
-        - media
-      exchanges:
-        - 2.prive
-        - 1.public
-      split: true
     environment:
       - MQ_HOSTNAME=${MQ_HOSTNAME:-mq}
       - MQ_PORT=${MQ_PORT:-5673}
@@ -94,12 +87,12 @@ services:
 
 configs:
   media:
-    file: ${MILLEGRILLES_ROOT}/secrets/media.cert.pem
+    file: ${MILLEGRILLES_ROOT}/secrets/media_images.cert.pem
   mgca:
     file: ${MILLEGRILLES_ROOT}/etc/millegrille.pem
 
 secrets:
   media:
-    file: ${MILLEGRILLES_ROOT}/secrets/media.key.pem
+    file: ${MILLEGRILLES_ROOT}/secrets/media_images.key.pem
   passwd_redis:
     file: ${MILLEGRILLES_ROOT}/secrets/redis.txt
