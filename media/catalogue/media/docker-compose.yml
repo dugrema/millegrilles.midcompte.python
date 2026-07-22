@@ -52,6 +52,7 @@ services:
       - app_net
   media_video:
     image: "replace_me"
+    user: "${CONTAINER_UID}:${CONTAINER_GID}"
     command: ["-m", "millegrilles_media", "--videos"]
     environment:
       - MQ_HOSTNAME=${MQ_HOSTNAME:-mq}
