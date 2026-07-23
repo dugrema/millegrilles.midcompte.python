@@ -1,6 +1,7 @@
 {
   "name": "media",
   "version": "DEV",
+  "securite": "2.prive",
   "labels": {
     "en": "Media handler and converter module",
     "fr": "Module de traitement et conversion de media"
