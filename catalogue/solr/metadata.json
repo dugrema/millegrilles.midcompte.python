@@ -1,6 +1,7 @@
 {
   "name": "solr",
   "version": "DEV",
+  "securite": "3.protege",
   "labels": {
     "en": "Full text indexing of documents with Solr",
     "fr": "Recherche de texte avec Solr"

@@ -1,8 +1,13 @@
 {
   "name": "stream",
   "version": "DEV",
+  "securite": "2.prive",
   "labels": {
     "en": "Media streamer for Millegrilles",
     "fr": "Module de streaming media pour MilleGrilles"
-  }
+  },
+  "web": [{
+    "path": "/stream",
+    "api": true
+  }]
 }

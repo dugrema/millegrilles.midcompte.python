@@ -1,6 +1,7 @@
 {
   "name": "mongo",
   "version": "DEV",
+  "securite": "4.secure",
   "labels": {
     "en": "Mongo database and dependencies for 4.secure nodes",
     "fr": "Base de données mongo et dépendances pour instances 4.secures"
