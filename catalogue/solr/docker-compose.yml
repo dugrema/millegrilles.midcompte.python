@@ -7,10 +7,9 @@ name: ${INSTANCE_NAME}
 services:
   solr_zookeeper:
     image: "zookeeper:3.8"
-    user: "${CONTAINER_UID}:${CONTAINER_GID}"
     volumes:
-      - ${MILLEGRILLES_ROOT}/var/solr/zookeeper_data:/data
-      - ${MILLEGRILLES_ROOT}/var/solr/zookeeper_datalog:/datalog
+      - zookeeper_data:/data
+      - zookeeper_datalog:/datalog
     deploy:
       resources:
         limits:
@@ -111,3 +110,9 @@ secrets:
     file: ${MILLEGRILLES_ROOT}/secrets/solr_relai.key.pem
   passwd_redis:
     file: ${MILLEGRILLES_ROOT}/secrets/redis.txt
+
+volumes:
+  zookeeper_data:
+    name: ${INSTANCE_NAME}_zookeeper_data
+  zookeeper_datalog:
+    name: ${INSTANCE_NAME}_zookeeper_datalog
