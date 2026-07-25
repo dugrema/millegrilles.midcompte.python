@@ -69,7 +69,7 @@ services:
     depends_on:
       - mongo_init
   midcompte:
-    image: "change_me"
+    image: "replace_me"
     x-millegrilles-certificat:
       roles:
         - midcompte
@@ -78,8 +78,6 @@ services:
         hostnames:
           - midcompte
         domain: true
-      passwords:
-        - mqadmin
     environment:
       - WEB_PORT=2444
       - CERT_PEM=/run/secrets/key.pem
@@ -101,14 +99,10 @@ services:
         target: key.pem
       - source: passwd_mongo
         target: passwd.mongo.txt
-      - source: passwd_mqadmin
-        target: passwd.mqadmin.txt
     hostname: midcompte
     networks:
       - app_net
     depends_on:
-      - redis
-      - mq
       - mongo
 
 configs:
