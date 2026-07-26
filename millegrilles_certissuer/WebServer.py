@@ -44,7 +44,7 @@ class WebServer:
             web.post('/signerModule', self.handle_signer_module),
             web.post('/signerUsager', self.handle_signer_usager_interne),
             web.post('/renouvelerInstance', self.handle_renouveler_instance),
-            web.post('/certificate.pem', self.handler_signing_pem_request),
+            web.get('/certificate.pem', self.handler_signing_pem_request),
 
             web.post('/certissuerInterne/signerUsager', self.handle_signer_usager_interne),
 
