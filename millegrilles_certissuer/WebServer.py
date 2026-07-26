@@ -14,7 +14,6 @@ from millegrilles_messages.messages import Constantes
 from millegrilles_certissuer.Configuration import ConfigurationWeb
 from millegrilles_certissuer.EtatCertissuer import EtatCertissuer
 from millegrilles_certissuer.CertificatHandler import CertificatHandler
-from millegrilles_messages.certificats.Generes import DUREE_CERT_DEFAUT
 
 
 # Roles qui peuvent se connecter directement (https)
@@ -45,10 +44,12 @@ class WebServer:
             web.post('/signerModule', self.handle_signer_module),
             web.post('/signerUsager', self.handle_signer_usager_interne),
             web.post('/renouvelerInstance', self.handle_renouveler_instance),
+            web.post('/certificate.pem', self.handler_signing_pem_request),
 
             web.post('/certissuerInterne/signerUsager', self.handle_signer_usager_interne),
 
             # Commandes relayees par nginx
+            # web.post('/certissuer/signing_info', self.handler_signing_info_request),
             # web.post('/certissuer/signerModule', self.handle_signer_module),
         ])
 
@@ -259,6 +260,17 @@ class WebServer:
         :return:
         """
         return web.HTTPNotImplemented()
+
+    async def handler_signing_pem_request(self, _request: web.Request):
+        """
+        Returns some information about the Signing CA certificate
+        :param _request:
+        :return:
+        """
+        cert = self.__etat_certissuer.cle_intermediaire.enveloppe
+        pem = cert.certificat_pem
+
+        return web.Response(content_type="application/x-pem-file", text=pem)
 
     async def entretien(self):
         self.__logger.debug('Entretien')
