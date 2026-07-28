@@ -60,7 +60,7 @@ class StreamingManager:
     async def reload_filehost_configuration(self, timeout=3):
         await self.context.reload_filehost_configuration()
         filehost = self.context.filehost
-        self.__logger.info(f"Using filehost {filehost.filehost_id}, external url: {filehost.url_external}")
+        self.__logger.info(f"Using filehost {filehost.filehost_id}, external url: {filehost.filehost_params.url}")
 
         for l in self.__filehost_listeners:
             await l(self.__context.filehost)
