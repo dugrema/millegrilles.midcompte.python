@@ -32,9 +32,6 @@ class MediaManager:
             group.create_task(self.__reload_filehost_thread())
             group.create_task(self.__staging_cleanup())
 
-    # async def process_image_job(self, job: dict):
-    #     await self.__intake_images.process_job(job)
-
     async def trigger_video_job(self, job: dict):
         """
         Triggers a video job if no job is currently running. Will enqueue jobs until buffer is full.
@@ -77,19 +74,12 @@ class MediaManager:
                 await self.__context.wait(30)
 
     async def reload_filehost_configuration(self):
-        producer = await self.__context.get_producer()
-        response = await producer.request(
-            dict(), 'CoreTopologie', 'getFilehostForInstance', exchange="1.public")
+        await self.__context.reload_filehost_configuration()
+        filehost = self.__context.filehost
+        self.__logger.info(f"Using filehost {filehost.filehost_id}, external url: {filehost.filehost_params.url}")
 
-        try:
-            filehost_response = response.parsed
-            filehost_dict = filehost_response['filehost']
-            filehost = Filehost.load_from_dict(filehost_dict)
-            self.__context.filehost = filehost
-        except:
-            self.__logger.exception("Error loading filehost")
-            self.__context.filehost = None
-
+        for l in self.__filehost_listeners:
+            await l(self.__context.filehost)
         for l in self.__filehost_listeners:
             await l(self.__context.filehost)
 

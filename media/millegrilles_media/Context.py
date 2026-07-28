@@ -4,7 +4,6 @@ import ssl
 import pathlib
 
 from typing import Optional
-from urllib.parse import urlparse
 
 from millegrilles_media.Configuration import ConfigurationMedia
 from millegrilles_messages.bus.BusContext import MilleGrillesBusContext
@@ -22,8 +21,8 @@ class MediaContext(MilleGrillesBusContext):
         self.__bus_connector: Optional[MilleGrillesPikaConnector] = None
 
         self.__filehost: Optional[Filehost] = None
-        self.__filehost_url: Optional[str] = None
-        self.__tls_method: Optional[str] = None
+        # self.__filehost_url: Optional[str] = None
+        # self.__tls_method: Optional[str] = None
         self.__ssl_context_filehost: Optional[ssl.SSLContext] = None
 
     @property
@@ -50,19 +49,19 @@ class MediaContext(MilleGrillesBusContext):
         self.__filehost = value
 
         # Pick URL
-        url, tls_method = MediaContext.__load_url(value)
-        self.__filehost_url = url.geturl()
-        self.__tls_method = tls_method
+        # url, tls_method = MediaContext.__load_url(value)
+        # self.__filehost_url = url.geturl()
+        # self.__tls_method = tls_method
 
         # Configure ssl context for the filehost
 
-    @property
-    def filehost_url(self):
-        return self.__filehost_url
-
-    @property
-    def tls_method(self):
-        return self.__tls_method
+    # @property
+    # def filehost_url(self):
+    #     return self.__filehost_url
+    #
+    # @property
+    # def tls_method(self):
+    #     return self.__tls_method
 
     # @property
     # def ssl_context_filehost(self):
@@ -70,11 +69,12 @@ class MediaContext(MilleGrillesBusContext):
 
     def get_tcp_connector(self) -> aiohttp.TCPConnector:
         # Prepare connection information (SSL)
-        ssl_context = None
+        ssl_context = False
         verify = True
-        if self.__tls_method == 'millegrille':
+        tls_method = self.filehost.filehost_params.method
+        if tls_method == 'millegrille':
             ssl_context = self.ssl_context
-        elif self.__tls_method == 'nocheck':
+        elif tls_method == 'nocheck':
             verify = False
 
         connector = aiohttp.TCPConnector(ssl=ssl_context, verify_ssl=verify)
@@ -85,15 +85,15 @@ class MediaContext(MilleGrillesBusContext):
     def dir_media_staging(self):
         return pathlib.Path(self.configuration.dir_staging, 'media')
 
-    @staticmethod
-    def __load_url(filehost: Filehost):
-        if filehost.url_external:
-            url = urlparse(filehost.url_external)
-            tls_method = filehost.tls_external
-        elif filehost.url_internal:
-            url = urlparse(filehost.url_internal)
-            tls_method = 'millegrille'
-        else:
-            raise ValueError("No valid URL")
-        return url, tls_method
-
+    # @staticmethod
+    # def __load_url(filehost: Filehost):
+    #     if filehost.url_external:
+    #         url = urlparse(filehost.url_external)
+    #         tls_method = filehost.tls_external
+    #     elif filehost.url_internal:
+    #         url = urlparse(filehost.url_internal)
+    #         tls_method = 'millegrille'
+    #     else:
+    #         raise ValueError("No valid URL")
+    #     return url, tls_method
+    #
