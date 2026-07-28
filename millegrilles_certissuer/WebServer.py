@@ -287,7 +287,7 @@ class WebServer:
 
         runner = web.AppRunner(self.__app)
         await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', self.__configuration.port)
+        site = web.TCPSite(runner, None, self.__configuration.port)
         try:
             await site.start()
             self.__logger.info(f"Site demarre sur port {self.__configuration.port}")

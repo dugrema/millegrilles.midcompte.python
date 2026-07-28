@@ -120,7 +120,7 @@ class WebServer:
 
         # Configuration du site avec SSL
         port = self.__manager.context.configuration.web_port
-        site = web.TCPSite(runner, '0.0.0.0', port, ssl_context=self.__ssl_context)
+        site = web.TCPSite(runner, None, port, ssl_context=self.__ssl_context)
 
         try:
             await site.start()

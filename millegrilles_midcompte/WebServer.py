@@ -120,7 +120,7 @@ class WebServer:
         runner = web.AppRunner(self.__app)
         await runner.setup()
         port = self.__configuration.port
-        site = web.TCPSite(runner, '0.0.0.0', port, ssl_context=self.__ssl_context)
+        site = web.TCPSite(runner, None, port, ssl_context=self.__ssl_context)
         try:
             await site.start()
             self.__logger.info("Site demarre")
