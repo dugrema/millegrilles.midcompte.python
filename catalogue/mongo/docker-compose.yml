@@ -70,6 +70,7 @@ services:
       - mongo_init
   midcompte:
     image: "replace_me"
+    command: ["-m", "millegrilles_midcompte"]
     x-millegrilles-certificat:
       roles:
         - midcompte

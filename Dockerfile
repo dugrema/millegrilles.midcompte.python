@@ -34,4 +34,4 @@ WORKDIR /opt/millegrilles/dist
 
 USER 1000:1000
 
-CMD ["-m", "millegrilles_midcompte", "--verbose"]
+CMD ["-m", "millegrilles_midcompte"]
