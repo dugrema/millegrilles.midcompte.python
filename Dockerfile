@@ -1,4 +1,4 @@
-FROM registry.millegrilles.com/millegrilles/messages_python:2026.3.8 AS stage1
+FROM registry.millegrilles.com/millegrilles/messages_python:2026.3.9 AS stage1
 
 ENV BUILD_FOLDER=/opt/millegrilles/build \
     BUNDLE_FOLDER=/opt/millegrilles/dist \

@@ -243,6 +243,8 @@ class IntakeHandler:
         """
         file_url = urljoin(self._context.filehost_url, f'filehost/files/{fuuid}')
 
+        self.__logger.debug(f"Downloading {file_url}")
+
         for i in range(0, 3):
             timeout = aiohttp.ClientTimeout(connect=5, total=900)
             if self.__session is None:

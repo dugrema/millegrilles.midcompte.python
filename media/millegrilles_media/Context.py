@@ -1,3 +1,5 @@
+from ssl import SSLContext
+
 import aiohttp
 import logging
 import ssl
@@ -67,19 +69,23 @@ class MediaContext(MilleGrillesBusContext):
     # def ssl_context_filehost(self):
     #     return self.__ssl_context_filehost
 
-    def get_tcp_connector(self) -> aiohttp.TCPConnector:
-        # Prepare connection information (SSL)
-        ssl_context = False
-        verify = True
-        tls_method = self.filehost.filehost_params.method
-        if tls_method == 'millegrille':
-            ssl_context = self.ssl_context
-        elif tls_method == 'nocheck':
-            verify = False
-
-        connector = aiohttp.TCPConnector(ssl=ssl_context, verify_ssl=verify)
-
-        return connector
+    # def get_tcp_connector(self) -> aiohttp.TCPConnector:
+    #     filehost = self.filehost
+    #     if filehost:
+    #         return get_tcp_connector(self.ssl_context, filehost)
+    #     raise TypeError('filehost is None')
+    #     # # Prepare connection information (SSL)
+    #     # ssl_context = False
+    #     # verify = True
+    #     # tls_method = self.filehost.filehost_params.method
+    #     # if tls_method == 'millegrille':
+    #     #     ssl_context = self.ssl_context
+    #     # elif tls_method == 'nocheck':
+    #     #     verify = False
+    #     #
+    #     # connector = aiohttp.TCPConnector(ssl=ssl_context, verify_ssl=verify)
+    #     #
+    #     # return connector
 
     @property
     def dir_media_staging(self):
@@ -97,3 +103,22 @@ class MediaContext(MilleGrillesBusContext):
     #         raise ValueError("No valid URL")
     #     return url, tls_method
     #
+
+
+# def get_tcp_connector(internal_ssl_context: SSLContext, filehost: Filehost) -> aiohttp.TCPConnector:
+#     # Prepare connection information (SSL)
+#     ssl_context = False
+#     verify = True
+#     if filehost.filehost_params.method == 'millegrille':
+#         ssl_context = internal_ssl_context
+#     elif filehost.filehost_params.method == 'nocheck':
+#         verify = False
+#
+#     if ssl_context:
+#         connector = aiohttp.TCPConnector(ssl=ssl_context)
+#     elif not verify:
+#         connector = aiohttp.TCPConnector(verify_ssl=False)
+#     else:
+#         connector = aiohttp.TCPConnector()
+#
+#     return connector

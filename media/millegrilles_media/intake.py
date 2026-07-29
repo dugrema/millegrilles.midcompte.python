@@ -143,6 +143,8 @@ class IntakeHandler:
         filehost_url = self._context.filehost_url
         url_fichier = urljoin(filehost_url, f'filehost/files/{fuuid}')
 
+        self.__logger.debug(f"Downloading {fuuid} from {filehost_url}")
+
         for i in range(0, 3):
             tmp_file.seek(0)  # Put file back at beginning
             decipher = get_decipher_cle_secrete(decrypted_key, job)
