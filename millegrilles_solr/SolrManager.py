@@ -78,21 +78,31 @@ class SolrManager:
                 await self.__context.wait(30)
 
     async def reload_filehost_configuration(self):
-        producer = await self.__context.get_producer()
-        response = await producer.request(
-            dict(), 'CoreTopologie', 'getFilehostForInstance', exchange="1.public")
-
-        try:
-            filehost_response = response.parsed
-            filehost_dict = filehost_response['filehost']
-            filehost = Filehost.load_from_dict(filehost_dict)
-            self.__context.filehost = filehost
-        except:
-            self.__logger.exception("Error loading filehost")
-            self.__context.filehost = None
+        await self.__context.reload_filehost_configuration()
+        filehost = self.__context.filehost
+        self.__logger.info(f"Using filehost {filehost.filehost_id}, external url: {filehost.filehost_params.url}")
 
         for l in self.__filehost_listeners:
             await l(self.__context.filehost)
+        for l in self.__filehost_listeners:
+            await l(self.__context.filehost)
+
+    # async def reload_filehost_configuration(self):
+    #     producer = await self.__context.get_producer()
+    #     response = await producer.request(
+    #         dict(), 'CoreTopologie', 'getFilehostForInstance', exchange="1.public")
+    #
+    #     try:
+    #         filehost_response = response.parsed
+    #         filehost_dict = filehost_response['filehost']
+    #         filehost = Filehost.load_from_dict(filehost_dict)
+    #         self.__context.filehost = filehost
+    #     except:
+    #         self.__logger.exception("Error loading filehost")
+    #         self.__context.filehost = None
+    #
+    #     for l in self.__filehost_listeners:
+    #         await l(self.__context.filehost)
 
     async def trigger_fetch_jobs(self, delay: Optional[float] = None):
         if delay:
