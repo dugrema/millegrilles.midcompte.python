@@ -58,6 +58,13 @@ services:
         condition: on-failure
         delay: 5s
         max_attempts: 1000
+    healthcheck:
+      test: [ "CMD-SHELL", "mongosh --tls --tlsCertificateKeyFile /run/secrets/mongo.key_cert.pem --tlsCAFile /run/secrets/millegrille.cert.pem -u admin -p $(cat /run/secrets/mongo.root.password) --eval 'db.adminCommand(\"ping\")' --quiet" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period:
+        30s
     configs:
       - source: mgca
         target: /run/secrets/millegrille.cert.pem
