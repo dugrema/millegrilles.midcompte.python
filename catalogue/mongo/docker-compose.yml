@@ -87,8 +87,7 @@ services:
         domain: true
     environment:
       - WEB_PORT=2444
-      - CERT_PEM=/run/secrets/key.pem
-      - KEY_PEM=/run/secrets/key.pem
+      - KEY_PEM=/run/secrets/key_cert.pem
     deploy:
       resources:
         limits:
@@ -103,7 +102,7 @@ services:
         target: /run/secrets/pki.millegrille.cert
     secrets:
       - source: midcompte
-        target: key.pem
+        target: key_cert.pem
       - source: passwd_mongo
         target: passwd.mongo.txt
     hostname: midcompte
@@ -111,6 +110,11 @@ services:
       - app_net
     depends_on:
       - mongo
+
+networks:
+  app_net:
+    name: ${INSTANCE_NAME}_net
+    external: true
 
 configs:
   mgca:

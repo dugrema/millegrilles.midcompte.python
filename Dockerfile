@@ -1,11 +1,10 @@
-FROM registry.millegrilles.com/millegrilles/messages_python:2026.3.9 AS stage1
+FROM registry.millegrilles.com/millegrilles/messages_python:2026.4.12 AS stage1
 
 ENV BUILD_FOLDER=/opt/millegrilles/build \
     BUNDLE_FOLDER=/opt/millegrilles/dist \
     PYTHONPATH=/opt/millegrilles/dist \
     SRC_FOLDER=/opt/millegrilles/build/src \
-    CERT_PEM=/run/secrets/cert.pem \
-    KEY_PEM=/run/secrets/key.pem \
+    KEY_PEM=/run/secrets/key_cert.pem \
     CA_PEM=/run/secrets/pki.millegrille.cert \
     MQ_URL=https://mq:8443 \
     MQ_HOSTNAME=mq \

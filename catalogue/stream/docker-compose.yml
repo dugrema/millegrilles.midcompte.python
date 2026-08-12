@@ -1,9 +1,3 @@
-include:
-  - path: ../include/app_net.yml
-    project_directory: ..
-
-name: ${INSTANCE_NAME}
-
 services:
   stream:
     image: "replace_me"
@@ -20,15 +14,13 @@ services:
         hostnames:
           - stream
         domain: true
-      split: true
     environment:
       - MQ_HOSTNAME=${MQ_HOSTNAME:-mq}
       - MQ_PORT=${MQ_PORT:-5673}
       - MG_REDIS_HOST=redis
       - MG_REDIS_PORT=6379
       - REDIS_PASSWORD_PATH=/run/secrets/passwd.redis.txt
-      - CERT_PATH=/run/secrets/cert.pem
-      - KEY_PATH=/run/secrets/key.pem
+      - KEY_PATH=/run/secrets/key_cert.pem
       - CA_PATH=/run/secrets/millegrille.pem
       - DIR_STAGING=/var/opt/millegrilles/staging/streaming
     volumes:
@@ -43,27 +35,28 @@ services:
         delay: 20s
         max_attempts: 1000
     configs:
-      - source: stream
-        target: /run/secrets/cert.pem
       - source: mgca
         target: /run/secrets/millegrille.pem
     secrets:
       - source: stream
-        target: key.pem
+        target: key_cert.pem
       - source: passwd_redis
         target: passwd.redis.txt
     hostname: stream
     networks:
       - app_net
 
+networks:
+  app_net:
+    name: ${INSTANCE_NAME}_net
+    external: true
+
 configs:
-  stream:
-    file: ${MILLEGRILLES_ROOT}/secrets/stream.cert.pem
   mgca:
     file: ${MILLEGRILLES_ROOT}/etc/millegrille.pem
 
 secrets:
   stream:
-    file: ${MILLEGRILLES_ROOT}/secrets/stream.key.pem
+    file: ${MILLEGRILLES_ROOT}/secrets/stream.pem
   passwd_redis:
     file: ${MILLEGRILLES_ROOT}/secrets/redis.txt
