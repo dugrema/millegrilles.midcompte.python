@@ -32,8 +32,8 @@ class ConfigurationMidcompte:
         self.mongo_port = 27017
         self.mq_url = 'https://mq:8443'
 
-        self.cert_pem_path = '/run/secrets/cert.pem'
-        self.key_pem_path = '/run/secrets/key.pem'
+        self.cert_pem_path: Optional[str] = None  # '/run/secrets/cert.pem'
+        self.key_pem_path = '/run/secrets/key_cert.pem'
         self.ca_pem_path = '/run/secrets/pki.millegrille.cert'
         self.password_mq_path = '/run/secrets/passwd.mqadmin.txt'
         self.password_mongo_path = '/run/secrets/passwd.mongo.txt'
@@ -70,7 +70,7 @@ class ConfigurationMidcompte:
 
         self.mongo_hostname = dict_params.get(Constantes.PARAM_MONGO_HOSTNAME) or self.mongo_hostname
         self.mongo_port = dict_params.get(Constantes.PARAM_MONGO_PORT) or self.mongo_port
-        self.cert_pem_path = dict_params.get(Constantes.PARAM_CERT_PATH) or self.cert_pem_path
+        self.cert_pem_path = dict_params.get(Constantes.PARAM_CERT_PATH)
         self.key_pem_path = dict_params.get(Constantes.PARAM_KEY_PATH) or self.key_pem_path
         self.ca_pem_path = dict_params.get(ConstantesMessages.ENV_CA_PEM) or self.ca_pem_path
         self.password_mq_path = dict_params.get(Constantes.PARAM_MQ_PASSWORD_PATH) or self.password_mq_path
