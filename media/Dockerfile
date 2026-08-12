@@ -1,4 +1,4 @@
-FROM registry.millegrilles.com/millegrilles/messages_python:2026.3.9 AS stage1
+FROM registry.millegrilles.com/millegrilles/messages_python:2026.4.12 AS stage1
 
 ENV BUILD_FOLDER=/opt/millegrilles/build \
     BUNDLE_FOLDER=/opt/millegrilles/dist \
@@ -24,8 +24,7 @@ RUN ls -R $BUILD_FOLDER && \
 FROM stage1
 
 ENV CA_PATH=/run/secrets/millegrille.cert.pem \
-    CERT_PATH=/run/secrets/cert.pem \
-    KEY_PATH=/run/secrets/key.pem \
+    KEY_PATH=/run/secrets/key_cert.pem \
     MQ_HOSTNAME=mq \
     MQ_PORT=5673 \
     REDIS_HOSTNAME=redis \
