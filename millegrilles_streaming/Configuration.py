@@ -1,6 +1,7 @@
 import argparse
 import os
 import logging
+from typing import Optional
 
 from millegrilles_messages.bus.BusConfiguration import MilleGrillesBusConfiguration
 from millegrilles_messages.messages import Constantes as ConstantesMessages
@@ -36,8 +37,8 @@ class StreamingConfiguration(MilleGrillesBusConfiguration):
     def __init__(self):
         super().__init__()
         self.dir_staging = '/var/opt/millegrilles/staging/streaming'
-        self.web_cert_pem_path = '/var/opt/millegrilles/secrets/pki.web.cert'
-        self.web_key_pem_path = '/var/opt/millegrilles/secrets/pki.web.key'
+        self.web_cert_pem_path: Optional[str] = None  # '/var/opt/millegrilles/secrets/pki.web.cert'
+        self.web_key_pem_path = '/run/secrets/key_cert.pem'
         self.web_port = 2443
 
     def parse_config(self):
@@ -48,7 +49,7 @@ class StreamingConfiguration(MilleGrillesBusConfiguration):
         super().parse_config()
 
         self.dir_staging = os.environ.get(ConstantesMessages.ENV_DIR_STAGING) or self.dir_staging
-        self.web_cert_pem_path = os.environ.get(StreamingConstants.ENV_WEB_CERT_PEM) or self.web_cert_pem_path
+        self.web_cert_pem_path = os.environ.get(StreamingConstants.ENV_WEB_CERT_PEM)
         self.web_key_pem_path = os.environ.get(StreamingConstants.ENV_WEB_KEY_PEM) or self.web_key_pem_path
         try:
             self.web_port = int(os.environ.get(StreamingConstants.ENV_WEB_PORT))

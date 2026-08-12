@@ -45,8 +45,8 @@ class WebServer:
         configuration = self.__manager.context.configuration
         self.__ssl_context = SSLContext()
         self.__logger.debug("Charger certificat %s" % configuration.cert_path)
-        self.__ssl_context.load_cert_chain(str(configuration.cert_path),
-                                           str(configuration.key_path))
+        private_cert_file = configuration.cert_path or configuration.key_path
+        self.__ssl_context.load_cert_chain(str(private_cert_file), str(configuration.key_path))
 
     async def handle_path_fuuid(self, request: Request):
         fuuid = request.match_info['fuuid']
