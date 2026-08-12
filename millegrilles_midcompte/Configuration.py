@@ -85,7 +85,8 @@ class ConfigurationWeb:
 
     def __init__(self):
         self.ca_pem_path = '/run/secrets/pki.millegrille.pem'
-        self.web_cert_pem_path = '/run/secrets/cert.pem'
+        self.web_cert_pem_path: Optional[str] = None
+        # self.web_cert_pem_path = '/run/secrets/cert.pem'
         self.web_key_pem_path = '/run/secrets/key.pem'
         self.port = 2444
 

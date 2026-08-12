@@ -1,4 +1,5 @@
 import logging
+import pathlib
 
 from typing import Optional
 
@@ -25,8 +26,13 @@ class EtatMidcompte:
         self.__logger.info("Reload configuration sur disque ou dans docker")
 
         # Charger et verificat cle/certificat
+        if self.__configuration.cert_pem_path:
+            certfile = pathlib.Path(self.__configuration.cert_pem_path)
+        else:
+            certfile = None
+
         self.__clecertificat = CleCertificat.from_files(
-            self.__configuration.key_pem_path, self.__configuration.cert_pem_path)
+            pathlib.Path(self.__configuration.key_pem_path), certfile)
 
         self.__certificat_millegrille = EnveloppeCertificat.from_file(self.__configuration.ca_pem_path)
         self.__idmg = self.__certificat_millegrille.idmg

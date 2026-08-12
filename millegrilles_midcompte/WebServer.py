@@ -43,8 +43,8 @@ class WebServer:
     def _charger_ssl(self):
         ssl_context = SSLContext()
         self.__logger.debug("Charger certificat %s" % self.__configuration.web_cert_pem_path)
-        ssl_context.load_cert_chain(self.__configuration.web_cert_pem_path,
-                                    self.__configuration.web_key_pem_path)
+        private_certfile = self.__configuration.web_cert_pem_path or self.__configuration.web_key_pem_path
+        ssl_context.load_cert_chain(private_certfile, self.__configuration.web_key_pem_path)
         ssl_context.load_verify_locations(cafile=self.__configuration.ca_pem_path)
         ssl_context.verify_mode = VerifyMode.CERT_REQUIRED
 

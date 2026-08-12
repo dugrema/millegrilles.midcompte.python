@@ -25,7 +25,8 @@ class EntretienRabbitMq:
         ca_path = etat_midcompte.configuration.ca_pem_path
         config = self.__etat_midcompte.configuration
         self.__sslcontext = ssl.create_default_context(cafile=ca_path)
-        self.__sslcontext.load_cert_chain(config.cert_pem_path, config.key_pem_path)
+        private_certfile = config.cert_pem_path or config.key_pem_path
+        self.__sslcontext.load_cert_chain(private_certfile, config.key_pem_path)
 
         self.__entretien_initial_complete = False
         self.__url_mq = etat_midcompte.configuration.mq_url
