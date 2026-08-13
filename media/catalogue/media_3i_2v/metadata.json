@@ -1,0 +1,10 @@
+{
+  "name": "media_2i3v",
+  "alias": "media",
+  "version": "DEV",
+  "securite": "2.prive",
+  "labels": {
+    "en": "Media handler and converter module (threads: 3 images, 2 videos)",
+    "fr": "Module de traitement et conversion de media (threads: 3 images, 2 videos)"
+  }
+}
