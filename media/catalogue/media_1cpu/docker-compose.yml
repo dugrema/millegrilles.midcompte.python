@@ -21,7 +21,6 @@ services:
     volumes:
       - ${MILLEGRILLES_ROOT}/var/staging:/var/opt/millegrilles/staging
     deploy:
-      replicas: 2
       resources:
         limits:
           cpus: '1.0'
@@ -57,7 +56,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          cpus: '1.0'
+          memory: 750M
       restart_policy:
         condition: any
         delay: 20s

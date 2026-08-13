@@ -1,6 +1,5 @@
 {
-  "name": "media_1cpu",
-  "alias": "media",
+  "name": "media",
   "version": "DEV",
   "securite": "2.prive",
   "labels": {
