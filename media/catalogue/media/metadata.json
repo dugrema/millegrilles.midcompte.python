@@ -1,9 +1,10 @@
 {
-  "name": "media",
+  "name": "media_1cpu",
+  "alias": "media",
   "version": "DEV",
   "securite": "2.prive",
   "labels": {
-    "en": "Media handler and converter module",
-    "fr": "Module de traitement et conversion de media"
+    "en": "Media handler and converter module (1 cpu)",
+    "fr": "Module de traitement et conversion de media  (1 cpu)"
   }
 }
