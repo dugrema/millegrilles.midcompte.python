@@ -30,7 +30,7 @@ class ConfigurationMidcompte:
     def __init__(self):
         self.mongo_hostname = 'mongo'
         self.mongo_port = 27017
-        self.mq_url = 'https://mq:8443'
+        self.mq_url = 'https://mq:8443/rabbitmq'
 
         self.cert_pem_path: Optional[str] = None  # '/run/secrets/cert.pem'
         self.key_pem_path = '/run/secrets/key_cert.pem'
