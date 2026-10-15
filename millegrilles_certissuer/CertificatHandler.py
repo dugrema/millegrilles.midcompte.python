@@ -168,8 +168,8 @@ class MillegrilleHosting:
         return await self.__validateur_certificats.valider(certificate)
 
     def log_renewal(self, old: EnveloppeCertificat, certificate: EnveloppeCertificat):
+        # Log old (revoked)
         fingerprint = old.fingerprint
-
         try:
             filename = self.__log_path / f'renewed.{certificate.not_valid_after.strftime('%Y%m%d')}.txt'
             with open(filename, 'a') as f:
@@ -177,7 +177,7 @@ class MillegrilleHosting:
         except:
             LOGGER.error(f"Error logging renewal (old) certificate {fingerprint}")
 
-        # Log old
+        # Log new
         self.log_new(certificate)
 
     def log_new(self, certificate: EnveloppeCertificat):
