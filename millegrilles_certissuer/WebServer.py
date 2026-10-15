@@ -30,8 +30,9 @@ class WebServer:
         self.__certificat_handler = CertificatHandler(self.__configuration, self.__etat_certissuer)
         self.__stop_event: Optional[Event] = None
 
-    def setup(self, configuration: Optional[dict] = None):
+    async def setup(self, configuration: Optional[dict] = None):
         self._charger_configuration(configuration)
+        await self.__certificat_handler.init()
         self._preparer_routes()
 
     def _charger_configuration(self, configuration: Optional[dict] = None):
@@ -39,52 +40,35 @@ class WebServer:
 
     def _preparer_routes(self):
         self.__app.add_routes([
-            # web.get('/csr', self.handle_csr),
-            # web.post('/installer', self.handle_installer),
             web.post('/signerModule', self.handle_signer_module),
             web.post('/signerUsager', self.handle_signer_usager_interne),
             web.post('/renouvelerInstance', self.handle_renouveler_instance),
             web.get('/certificate.pem', self.handler_signing_pem_request),
 
             web.post('/certissuerInterne/signerUsager', self.handle_signer_usager_interne),
-
-            # Commandes relayees par nginx
-            # web.post('/certissuer/signing_info', self.handler_signing_info_request),
-            # web.post('/certissuer/signerModule', self.handle_signer_module),
         ])
-
-    # async def handle_csr(self, request):
-    #     csr_str = self.__etat_certissuer.get_csr()
-    #     return web.Response(text=csr_str)
-
-    # async def handle_installer(self, request):
-    #     info_cert = await request.json()
-    #     self.__logger.debug("handle_installer params\n%s" % json.dumps(info_cert, indent=2))
-    #     try:
-    #         await self.__etat_certissuer.sauvegarder_certificat(info_cert)
-    #         self.__logger.debug("Sauvegarde du certificat intermediaire OK")
-    #     except:
-    #         self.__logger.exception("Erreur sauvegarde certificat")
-    #         return web.HTTPForbidden()
-    #
-    #     # Generer le certificat pour l'application d'instance
-    #     csr_instance = info_cert['csr']
-    #     securite = info_cert['securite']
-    #     duree = self.get_duree_certificat()
-    #     cert_instance = self.__certificat_handler.generer_certificat_instance(csr_instance, securite, duree)
-    #     self.__logger.debug("Nouveau certificat d'instance\n%s" % cert_instance)
-    #     return web.json_response({'certificat': cert_instance}, status=201)
 
     async def handle_renouveler_instance(self, request):
         info_cert = await request.json()
         self.__logger.debug("handle_renouveler_instance params\n%s" % json.dumps(info_cert, indent=2))
 
         # Valider signature de request (doit etre role instance, niveau de securite suffisant pour exchanges)
-        enveloppe = await self.__etat_certissuer.validateur_messages.verifier(info_cert)
+        try:
+            # enveloppe = await self.__etat_certissuer.validateur_messages.verifier(info_cert)
+            enveloppe, domain = await self.__certificat_handler.verify_message(info_cert)
+        except:
+            # Bad signature / certificate
+            return web.HTTPForbidden()
 
         # Le certificat doit avoir le role instance
         roles_enveloppe = enveloppe.get_roles
         if 'instance' not in roles_enveloppe:
+            return web.HTTPForbidden()
+
+        try:
+            idmg = enveloppe.idmg
+        except:
+            # Could not find idmg value
             return web.HTTPForbidden()
 
         # Les niveaux de securite demandes doivent etre supporte par le certificat demandeur
@@ -99,7 +83,7 @@ class WebServer:
             niveau_securite = Constantes.SECURITE_PUBLIC
         else:
             self.__logger.error("handle_renouveler_instance() Niveau de securite non supporte : %s" % securite_enveloppe)
-            return web.HTTPBadRequest()
+            return web.HTTPForbidden()
 
         duree = self.get_duree_certificat()
         # if secondes is not None:
@@ -111,18 +95,23 @@ class WebServer:
 
         # Generer le certificat pour l'application d'instance
         csr_instance = contenu['csr']
-        cert_instance = self.__certificat_handler.generer_certificat_instance(csr_instance, niveau_securite, duree)
+        cert_instance = self.__certificat_handler.generer_certificat_instance(domain, csr_instance, niveau_securite, duree)
         self.__logger.debug("Nouveau certificat d'instance\n%s" % cert_instance)
         return web.json_response({'certificat': cert_instance})
 
     async def handle_signer_module(self, request):
         info_cert = await request.json()
-        self.__logger.debug("handle_signer_module params\n%s" % json.dumps(info_cert, indent=2))
+        # self.__logger.debug("handle_signer_module params\n%s" % json.dumps(info_cert, indent=2))
 
         contenu_commande = json.loads(info_cert['contenu'])
 
         # Valider signature de request (doit etre role instance, niveau de securite suffisant pour exchanges)
-        enveloppe = await self.__etat_certissuer.validateur_messages.verifier(info_cert)
+        try:
+            # enveloppe = await self.__etat_certissuer.validateur_messages.verifier(info_cert)
+            enveloppe, domain = await self.__certificat_handler.verify_message(info_cert)
+        except:
+            # Bad signature/certificate
+            return web.HTTPForbidden()
 
         # Le certificat doit avoir le role instance ou core
         try:
@@ -137,6 +126,12 @@ class WebServer:
             exchanges = enveloppe.get_exchanges
         except ExtensionNotFound:
             exchanges = None
+
+        try:
+            idmg = enveloppe.idmg
+        except:
+            self.__logger.debug("Certificate IDMG not available")
+            return web.HTTPForbidden()
 
         if any([r in roles_enveloppe for r in ROLES_CONNEXION_PERMIS]):
             # Les niveaux de securite demandes doivent etre supporte par le certificat demandeur
@@ -159,10 +154,9 @@ class WebServer:
         else:
             return web.HTTPForbidden()
 
-        secondes = int(self.get_duree_certificat().total_seconds())
-
-        if secondes is not None:
-            contenu_commande['duree'] = secondes
+        # secondes = int(self.get_duree_certificat().total_seconds())
+        # if secondes is not None:
+        #     contenu_commande['duree'] = secondes
 
         # Determiner si on renouvelle un certificat d'instance ou signe module
         try:
@@ -189,22 +183,31 @@ class WebServer:
                             break
 
                 if niveau is not None:
-                    try:
-                        duree_int = contenu_commande['duree']
-                        duree = datetime.timedelta(seconds=duree_int)
-                    except KeyError:
-                        duree = self.get_duree_certificat()
-                    chaine = self.__certificat_handler.generer_certificat_instance(csr, niveau, duree)
+                    duree = self.get_duree_certificat(niveau=niveau)
+                    chaine = self.__certificat_handler.generer_certificat_instance(csr, niveau, idmg, duree)
                 else:
                     return web.json_response({'ok': False, 'err': 'Renouvellement instance avec mauvais type de certificat'})
             else:
-                chaine = self.__certificat_handler.generer_certificat_module(contenu_commande)
+                # Renewing a module using the parameters in the command
+                requested_security_levels = contenu_commande['exchanges']
+                levels = [Constantes.SECURITE_SECURE, Constantes.SECURITE_PROTEGE, Constantes.SECURITE_PRIVE, Constantes.SECURITE_PUBLIC, None]
+                top_level = None
+                for top_level in levels:
+                    if top_level in requested_security_levels:
+                        break
+                secondes = int(self.get_duree_certificat(top_level).total_seconds())
+                if secondes is not None:
+                    contenu_commande['duree'] = secondes
+                chaine = self.__certificat_handler.generer_certificat_module(domain, contenu_commande)
         except KeyError:
-            chaine = self.__certificat_handler.generer_certificat_module(contenu_commande)
+            secondes = int(self.get_duree_certificat().total_seconds())
+            if secondes is not None:
+                contenu_commande['duree'] = secondes
+            chaine = self.__certificat_handler.generer_certificat_module(domain, contenu_commande)
 
         return web.json_response({'ok': True, 'certificat': chaine})
 
-    def get_duree_certificat(self):
+    def get_duree_certificat(self, niveau: Optional[str] = None) -> datetime.timedelta:
         params_temps = dict()
 
         try:
@@ -222,8 +225,14 @@ class WebServer:
         if len(params_temps) > 0:
             # Trouver duree en secondes
             duree = datetime.timedelta(**params_temps)
-        else:
+        elif niveau in ['1.public', '2.prive']:
+            duree = datetime.timedelta(days=90)
+        elif niveau == '3.protege':
             duree = datetime.timedelta(days=31)
+        elif niveau == '4.secure':
+            duree = datetime.timedelta(days=9)
+        else:
+            duree = datetime.timedelta(days=180)
 
         # secondes = int(duree.total_seconds())
 
@@ -239,7 +248,12 @@ class WebServer:
         self.__logger.debug("handle_signer_usager_interne params\n%s" % json.dumps(info_cert, indent=2))
 
         # Valider signature de request (doit etre role instance, niveau de securite suffisant pour exchanges)
-        enveloppe = await self.__etat_certissuer.validateur_messages.verifier(info_cert)
+        try:
+            # enveloppe = await self.__etat_certissuer.validateur_messages.verifier(info_cert)
+            enveloppe, domain = await self.__certificat_handler.verify_message(info_cert)
+        except:
+            # Bad certificate / message
+            return web.HTTPForbidden()
 
         # Le certificat doit avoir le role instance ou core
         roles_enveloppe = enveloppe.get_roles
@@ -249,25 +263,22 @@ class WebServer:
         # Parse contenu du message
         contenu = json.loads(info_cert['contenu'])
 
-        chaine = self.__certificat_handler.generer_certificat_usager(contenu)
+        chaine = self.__certificat_handler.generer_certificat_usager(domain, contenu)
 
         return web.json_response({'ok': True, 'certificat': chaine})
 
-    async def handle_signer_usager(self, request: web.Request):
-        """
-        Signe un certificat d'usager qui provient d'un serveur externe (relaye via nginx)
-        :param request:
-        :return:
-        """
-        return web.HTTPNotImplemented()
-
-    async def handler_signing_pem_request(self, _request: web.Request):
+    async def handler_signing_pem_request(self, request: web.Request):
         """
         Returns some information about the Signing CA certificate
         :param _request:
         :return:
         """
-        cert = self.__etat_certissuer.cle_intermediaire.enveloppe
+        idmg = request.query.get('idmg')
+        if not idmg:
+            return web.HTTPBadRequest()
+        domain = await self.__certificat_handler.get_hosting(idmg)
+
+        cert = domain.signing_key.enveloppe
         pem = cert.certificat_pem
 
         return web.Response(content_type="application/x-pem-file", text=pem)

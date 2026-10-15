@@ -14,7 +14,7 @@ from millegrilles_certissuer.WebServer import WebServer
 from millegrilles_certissuer.Configuration import ConfigurationCertissuer
 
 
-def initialiser_certissuer():
+async def initialiser_certissuer():
     logging.basicConfig()
 
     app = CertIssuer()
@@ -33,7 +33,7 @@ def initialiser_certissuer():
     signal.signal(signal.SIGTERM, app.exit_gracefully)
     # signal.signal(signal.SIGHUP, app.reload_configuration)
 
-    app.preparer_environnement()
+    await app.preparer_environnement()
 
     return app
 
@@ -75,7 +75,7 @@ class CertIssuer:
         self.__logger.info("Charger la configuration")
         self.__configuration.parse_config(args)
 
-    def preparer_environnement(self):
+    async def preparer_environnement(self):
         """
         Examine environnement, preparer au besoin (folders, docker, ports, etc)
         :return:
@@ -86,7 +86,7 @@ class CertIssuer:
         # self.preparer_folder_configuration()
 
         self.__web_server = WebServer(self.__etat_certissuer)
-        self.__web_server.setup()
+        await self.__web_server.setup()
 
     # def preparer_folder_configuration(self):
     #     makedirs(self.__configuration.path_certissuer, 0o700, exist_ok=True)
@@ -125,7 +125,7 @@ class CertIssuer:
         self.__loop = asyncio.get_event_loop()
         self._stop_event = Event()
 
-        await self.__etat_certissuer.charger_init()
+        # await self.__etat_certissuer.charger_init()
 
         tasks = [
             asyncio.create_task(self.entretien()),
@@ -141,7 +141,7 @@ def main():
     Methode d'execution du certissuer
     :return:
     """
-    app = initialiser_certissuer()
+    app = asyncio.run(initialiser_certissuer())
     logger = logging.getLogger(__name__)
 
     try:
