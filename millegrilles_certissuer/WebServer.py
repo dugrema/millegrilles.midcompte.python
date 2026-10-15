@@ -95,7 +95,7 @@ class WebServer:
 
         # Generer le certificat pour l'application d'instance
         csr_instance = contenu['csr']
-        cert_instance = self.__certificat_handler.generer_certificat_instance(domain, csr_instance, niveau_securite, duree)
+        cert_instance = self.__certificat_handler.generer_certificat_instance(domain, enveloppe, csr_instance, niveau_securite, duree)
         self.__logger.debug("Nouveau certificat d'instance\n%s" % cert_instance)
         return web.json_response({'certificat': cert_instance})
 
@@ -184,7 +184,7 @@ class WebServer:
 
                 if niveau is not None:
                     duree = self.get_duree_certificat(niveau=niveau)
-                    chaine = self.__certificat_handler.generer_certificat_instance(csr, niveau, idmg, duree)
+                    chaine = self.__certificat_handler.generer_certificat_instance(domain, enveloppe, csr, niveau, duree)
                 else:
                     return web.json_response({'ok': False, 'err': 'Renouvellement instance avec mauvais type de certificat'})
             else:

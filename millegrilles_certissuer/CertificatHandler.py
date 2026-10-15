@@ -1,5 +1,7 @@
+import datetime
 import logging
 import pathlib
+import pytz
 from typing import Union
 
 from millegrilles_certissuer.Configuration import ConfigurationWeb
@@ -27,7 +29,7 @@ class CertificatHandler:
     async def init(self):
         pass
 
-    def generer_certificat_instance(self, domain: MillegrilleHosting, csr: str, securite: str, duree=DUREE_CERT_DEFAUT) -> str:
+    def generer_certificat_instance(self, domain: MillegrilleHosting, old: EnveloppeCertificat, csr: str, securite: str, duree=DUREE_CERT_DEFAUT) -> str:
         signing_key = domain.signing_key
 
         if securite == Constantes.SECURITE_SECURE:
@@ -40,12 +42,18 @@ class CertificatHandler:
             enveloppe_certificat = signer_instance_public(signing_key, csr, duree)
         else:
             raise Exception('Type securite %s non supporte pour une instance' % securite)
+
+        domain.log_renewal(old, enveloppe_certificat)
+
         return enveloppe_certificat.chaine_pem()
 
     def generer_certificat_module(self, domain: MillegrilleHosting, parametres: dict) -> str:
         signing_key = domain.signing_key
         csr = parametres['csr']
         enveloppe = signer_configuration(signing_key, csr, parametres)
+
+        domain.log_new(enveloppe)
+
         return enveloppe.chaine_pem()
 
     def generer_certificat_usager(self, domain: MillegrilleHosting, parametres: dict) -> str:
@@ -57,6 +65,8 @@ class CertificatHandler:
         ca_str = domain.ca_str
         chaine_pem = enveloppe.chaine_pem().copy()
         chaine_pem.append(ca_str)
+
+        domain.log_new(enveloppe)
 
         return chaine_pem
 
@@ -77,7 +87,7 @@ class CertificatHandler:
         signing_keycert_path = hosting_path / 'signing.pem'
         signing_key = CleCertificat.from_files(signing_keycert_path, signing_keycert_path)
         pem = signing_key.enveloppe.chaine_pem()
-        domain = MillegrilleHosting(ca, signing_key)
+        domain = MillegrilleHosting(ca, signing_key, hosting_path)
 
         # Ensure the signing certificate chain is valid
         await domain.verify_certificate(pem)
@@ -108,12 +118,15 @@ class CertificatHandler:
         raise Exception("Invalid message or certificate")
 
 
+LOGGER = logging.getLogger(__name__)
+
 class MillegrilleHosting:
 
-    def __init__(self, ca: EnveloppeCertificat, signing: CleCertificat):
+    def __init__(self, ca: EnveloppeCertificat, signing: CleCertificat, domain_path: pathlib.Path):
         self.__ca = ca
         self.__signing = signing
         self.__idmg = ca.idmg
+        self.__log_path = domain_path / 'logs'
 
         if signing.enveloppe.idmg != self.__idmg:
             raise ValueError('IDMG mismatch between certificates')
@@ -143,3 +156,28 @@ class MillegrilleHosting:
 
     async def verify_certificate(self, certificate: Union[bytes, str, list]) -> EnveloppeCertificat:
         return await self.__validateur_certificats.valider(certificate)
+
+    def log_renewal(self, old: EnveloppeCertificat, certificate: EnveloppeCertificat):
+        fingerprint = old.fingerprint
+
+        try:
+            self.__log_path.mkdir(parents=True, exist_ok=True)
+            filename = self.__log_path / f'renewed.{certificate.not_valid_after.strftime('%Y%m%d')}.txt'
+            with open(filename, 'a') as f:
+                f.write(f'{fingerprint}\n')
+        except:
+            LOGGER.error(f"Error logging renewal (old) certificate {fingerprint}")
+
+        # Log old
+        self.log_new(certificate)
+
+    def log_new(self, certificate: EnveloppeCertificat):
+        fingerprint = certificate.fingerprint
+        try:
+            self.__log_path.mkdir(parents=True, exist_ok=True)
+            filename = self.__log_path / f'expire.{certificate.not_valid_after.strftime('%Y%m%d')}.txt'
+            with open(filename, 'a') as f:
+                f.write(f'{fingerprint};{certificate.subject_rfc4514_string_mq()};{datetime.datetime.now(tz=pytz.UTC).isoformat()}\n')
+        except:
+            LOGGER.error(f"Error logging new certificate {fingerprint}")
+
