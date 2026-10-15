@@ -26,8 +26,16 @@ class CertificatHandler:
         self.__etat_certissuer = etat_certissuer
         self.__signing_certs: dict[str, MillegrilleHosting] = dict()
 
-    async def init(self):
-        pass
+    def list_hosting(self) -> list[str]:
+        signing_path = pathlib.Path(self.__etat_certissuer.configuration.signing_path)
+
+        idmg_list = list()
+        for item in signing_path.iterdir():
+            if not item.is_dir() or item.name == 'logs':
+                continue
+            idmg_list.append(item.name)
+
+        return idmg_list
 
     def generer_certificat_instance(self, domain: MillegrilleHosting, old: EnveloppeCertificat, csr: str, securite: str, duree=DUREE_CERT_DEFAUT) -> str:
         signing_key = domain.signing_key
@@ -128,6 +136,8 @@ class MillegrilleHosting:
         self.__idmg = ca.idmg
         self.__log_path = domain_path / 'logs'
 
+        self.__log_path.mkdir(parents=False, exist_ok=True)
+
         if signing.enveloppe.idmg != self.__idmg:
             raise ValueError('IDMG mismatch between certificates')
 
@@ -161,7 +171,6 @@ class MillegrilleHosting:
         fingerprint = old.fingerprint
 
         try:
-            self.__log_path.mkdir(parents=True, exist_ok=True)
             filename = self.__log_path / f'renewed.{certificate.not_valid_after.strftime('%Y%m%d')}.txt'
             with open(filename, 'a') as f:
                 f.write(f'{fingerprint}\n')
@@ -174,7 +183,6 @@ class MillegrilleHosting:
     def log_new(self, certificate: EnveloppeCertificat):
         fingerprint = certificate.fingerprint
         try:
-            self.__log_path.mkdir(parents=True, exist_ok=True)
             filename = self.__log_path / f'expire.{certificate.not_valid_after.strftime('%Y%m%d')}.txt'
             with open(filename, 'a') as f:
                 f.write(f'{fingerprint};{certificate.subject_rfc4514_string_mq()};{datetime.datetime.now(tz=pytz.UTC).isoformat()}\n')

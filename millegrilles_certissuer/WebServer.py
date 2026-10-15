@@ -17,7 +17,7 @@ from millegrilles_certissuer.CertificatHandler import CertificatHandler
 
 
 # Roles qui peuvent se connecter directement (https)
-ROLES_CONNEXION_PERMIS = ['core', 'instance', 'maitredescles_connexion']
+ROLES_CONNEXION_PERMIS = ['core', 'pki', 'instance', 'maitredescles_connexion']
 
 class WebServer:
 
@@ -32,7 +32,6 @@ class WebServer:
 
     async def setup(self, configuration: Optional[dict] = None):
         self._charger_configuration(configuration)
-        await self.__certificat_handler.init()
         self._preparer_routes()
 
     def _charger_configuration(self, configuration: Optional[dict] = None):
@@ -44,6 +43,7 @@ class WebServer:
             web.post('/signerUsager', self.handle_signer_usager_interne),
             web.post('/renouvelerInstance', self.handle_renouveler_instance),
             web.get('/certificate.pem', self.handler_signing_pem_request),
+            web.get('/hosting', self.handler_hosting_request),
 
             web.post('/certissuerInterne/signerUsager', self.handle_signer_usager_interne),
         ])
@@ -312,3 +312,10 @@ class WebServer:
         finally:
             self.__logger.info("Site arrete")
             await runner.cleanup()
+
+    async def handler_hosting_request(self, _request: web.Request):
+        """ Return list of hosted systems """
+        idmg_list = self.__certificat_handler.list_hosting()
+        idmg_list.sort()
+        content = '\n'.join(idmg_list) +'\n'
+        return web.HTTPOk(text=content)
