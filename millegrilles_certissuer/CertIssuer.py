@@ -25,7 +25,7 @@ async def initialiser_certissuer():
         logging.getLogger('millegrilles_certissuer').setLevel(logging.DEBUG)
     else:
         logging.getLogger('millegrilles_messages').setLevel(logging.WARN)
-        logging.getLogger('millegrilles_certissuer').setLevel(logging.WARN)
+        logging.getLogger('millegrilles_certissuer').setLevel(logging.INFO)
 
     app.charger_configuration(args)
 
