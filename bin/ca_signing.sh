@@ -12,12 +12,10 @@ usage() {
   exit 1
 }
 
-# Activate python venv
-. "${MILLEGRILLES_ROOT}/venv/bin/activate"
-
 # Parse arguments
 PASSWORD=""
 ROOT_CA=""
+INSTANCE_NAME=""
 while [[ "$#" -gt 0 ]]; do
   case $1 in
     --capath) ROOT_CA="$2"; shift ;;

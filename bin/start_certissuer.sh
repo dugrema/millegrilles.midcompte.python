@@ -1,14 +1,10 @@
 #!/bin/env bash
-PATH_MILLEGRILLES=/var/opt/millegrilles
+source .venv/bin/activate
 
-# Importer instance_id
-VARS=`$PATH_MILLEGRILLES/bin/read_config.py`
-source $PATH_MILLEGRILLES/bin/source_config.sh
+export WEB_PORT=2080
+export SIGNING_PATH=$(pwd)/hosting
 
-export INSTANCE_ID
-echo "Demarrer certissuer pour instance $INSTANCE_ID"
+echo "Signing path: $SIGNING_PATH"
+mkdir -p "$SIGNING_PATH"
 
-source /var/opt/millegrilles/venv/bin/activate
-export PYTHONPATH="${PYTHONPATH}:/var/opt/millegrilles/python"
-python3 -m millegrilles_certissuer $@
-
+python3 -m millegrilles_certissuer --verbose
