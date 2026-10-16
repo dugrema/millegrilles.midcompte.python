@@ -27,7 +27,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 # Get INSTANCE_ID or default
-INSTANCE_ID="${INSTANCE_ID:-$(uuidgen 2>/dev/null || echo "default-id")}"
+INSTANCE_ID="${INSTANCE_ID:-$(uuidgen 2>/dev/null || echo "certissuer")}"
 
 # Check if Root CA exists
 if [ -f "$ROOT_CA" ]; then
