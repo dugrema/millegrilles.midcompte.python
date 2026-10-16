@@ -7,18 +7,6 @@ set -euo pipefail
 
 SIGNING_CA_DIR=$(pwd)
 
-# Ensure MILLEGRILLES_ROOT is set
-if [ -z "${MILLEGRILLES_ROOT:-}" ]; then
-  echo "[ERROR] MILLEGRILLES_ROOT is not set. Please source your environment or set it explicitly."
-  exit 1
-fi
-
-# Ensure INSTANCE_NAME is set
-if [ -z "${INSTANCE_NAME:-}" ]; then
-  echo "[ERROR] INSTANCE_NAME is not set."
-  exit 1
-fi
-
 usage() {
   echo "Usage: $0 --capath <path> [--password <password>] [--instanceid <instance id>]"
   exit 1
