@@ -17,6 +17,70 @@ from millegrilles_messages.certificats.Generes import DUREE_CERT_DEFAUT
 from millegrilles_messages.messages.ValidateurCertificats import ValidateurCertificatCache
 from millegrilles_messages.messages.ValidateurMessage import ValidateurMessage
 
+LOGGER = logging.getLogger(__name__)
+
+
+class MillegrilleHosting:
+
+    def __init__(self, ca: EnveloppeCertificat, signing: CleCertificat, domain_path: pathlib.Path):
+        self.__ca = ca
+        self.__signing = signing
+        self.__idmg = ca.idmg
+        self.__log_path = domain_path / 'logs'
+
+        self.__log_path.mkdir(parents=False, exist_ok=True)
+
+        if signing.enveloppe.idmg != self.__idmg:
+            raise ValueError('IDMG mismatch between certificates')
+
+        if not signing.enveloppe.date_valide():
+            raise ValueError('Signing certificate is expired')
+
+        if not ca.date_valide():
+            raise ValueError('CA certificate is expired')
+
+        if not self.__signing.cle_correspondent():
+            raise ValueError("Signing key/certificate mismatch")
+
+        self.__validateur_certificats = ValidateurCertificatCache(self.__ca)
+        self.__validateur_messages = ValidateurMessage(self.__validateur_certificats)
+
+    @property
+    def signing_key(self) -> CleCertificat:
+        return self.__signing
+
+    @property
+    def ca_str(self) -> str:
+        return self.__ca.certificat_pem
+
+    async def verify_message(self, message: dict) -> Union[EnveloppeCertificat, bool]:
+        return await self.__validateur_messages.verifier(message)
+
+    async def verify_certificate(self, certificate: Union[bytes, str, list]) -> EnveloppeCertificat:
+        return await self.__validateur_certificats.valider(certificate)
+
+    def log_renewal(self, old: EnveloppeCertificat, certificate: EnveloppeCertificat):
+        # Log old (revoked)
+        fingerprint = old.fingerprint
+        try:
+            filename = self.__log_path / f'renewed.{certificate.not_valid_after.strftime('%Y%m%d')}.txt'
+            with open(filename, 'a') as f:
+                f.write(f'{fingerprint}\n')
+        except:
+            LOGGER.error(f"Error logging renewal (old) certificate {fingerprint}")
+
+        # Log new
+        self.log_new(certificate)
+
+    def log_new(self, certificate: EnveloppeCertificat):
+        fingerprint = certificate.fingerprint
+        try:
+            filename = self.__log_path / f'expire.{certificate.not_valid_after.strftime('%Y%m%d')}.txt'
+            with open(filename, 'a') as f:
+                f.write(f'{fingerprint};{certificate.subject_rfc4514_string_mq()};{datetime.datetime.now(tz=pytz.UTC).isoformat()}\n')
+        except:
+            LOGGER.error(f"Error logging new certificate {fingerprint}")
+
 
 class CertificatHandler:
 
@@ -124,68 +188,4 @@ class CertificatHandler:
             return result, domain
 
         raise Exception("Invalid message or certificate")
-
-
-LOGGER = logging.getLogger(__name__)
-
-class MillegrilleHosting:
-
-    def __init__(self, ca: EnveloppeCertificat, signing: CleCertificat, domain_path: pathlib.Path):
-        self.__ca = ca
-        self.__signing = signing
-        self.__idmg = ca.idmg
-        self.__log_path = domain_path / 'logs'
-
-        self.__log_path.mkdir(parents=False, exist_ok=True)
-
-        if signing.enveloppe.idmg != self.__idmg:
-            raise ValueError('IDMG mismatch between certificates')
-
-        if not signing.enveloppe.date_valide():
-            raise ValueError('Signing certificate is expired')
-
-        if not ca.date_valide():
-            raise ValueError('CA certificate is expired')
-
-        if not self.__signing.cle_correspondent():
-            raise ValueError("Signing key/certificate mismatch")
-
-        self.__validateur_certificats = ValidateurCertificatCache(self.__ca)
-        self.__validateur_messages = ValidateurMessage(self.__validateur_certificats)
-
-    @property
-    def signing_key(self) -> CleCertificat:
-        return self.__signing
-
-    @property
-    def ca_str(self) -> str:
-        return self.__ca.certificat_pem
-
-    async def verify_message(self, message: dict) -> Union[EnveloppeCertificat, bool]:
-        return await self.__validateur_messages.verifier(message)
-
-    async def verify_certificate(self, certificate: Union[bytes, str, list]) -> EnveloppeCertificat:
-        return await self.__validateur_certificats.valider(certificate)
-
-    def log_renewal(self, old: EnveloppeCertificat, certificate: EnveloppeCertificat):
-        # Log old (revoked)
-        fingerprint = old.fingerprint
-        try:
-            filename = self.__log_path / f'renewed.{certificate.not_valid_after.strftime('%Y%m%d')}.txt'
-            with open(filename, 'a') as f:
-                f.write(f'{fingerprint}\n')
-        except:
-            LOGGER.error(f"Error logging renewal (old) certificate {fingerprint}")
-
-        # Log new
-        self.log_new(certificate)
-
-    def log_new(self, certificate: EnveloppeCertificat):
-        fingerprint = certificate.fingerprint
-        try:
-            filename = self.__log_path / f'expire.{certificate.not_valid_after.strftime('%Y%m%d')}.txt'
-            with open(filename, 'a') as f:
-                f.write(f'{fingerprint};{certificate.subject_rfc4514_string_mq()};{datetime.datetime.now(tz=pytz.UTC).isoformat()}\n')
-        except:
-            LOGGER.error(f"Error logging new certificate {fingerprint}")
 
