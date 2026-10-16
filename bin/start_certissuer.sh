@@ -7,4 +7,4 @@ export SIGNING_PATH=$(pwd)/hosting
 echo "Signing path: $SIGNING_PATH"
 mkdir -p "$SIGNING_PATH"
 
-python3 -m millegrilles_certissuer --verbose
+python3 -m millegrilles_certissuer
