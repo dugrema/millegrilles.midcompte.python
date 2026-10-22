@@ -1,6 +1,12 @@
 FROM registry.millegrilles.com/millegrilles/messages_python:2026.4.13 AS stage1
 
-ENV BUILD_FOLDER=/opt/millegrilles/build \
+ARG APT_PROXY=https://pypi.org/simple/
+ARG PIP_INDEX_URL=https://pypi.org/simple/
+ARG PIP_TRUSTED_HOST=pypi.org
+
+ENV PIP_INDEX_URL="$PIP_INDEX_URL" \
+    PIP_TRUSTED_HOST="$PIP_TRUSTED_HOST" \
+    BUILD_FOLDER=/opt/millegrilles/build \
     BUNDLE_FOLDER=/opt/millegrilles/dist \
     PYTHONPATH=/opt/millegrilles/dist \
     SRC_FOLDER=/opt/millegrilles/build/src
@@ -9,7 +15,10 @@ COPY requirements.txt $BUILD_FOLDER/requirements.txt
 
 WORKDIR /opt/millegrilles/build
 
-RUN apt-get update && \
+RUN if [ -n "$APT_PROXY" ]; then \
+         echo "Acquire::http::Proxy \"$APT_PROXY\";" > /etc/apt/apt.conf.d/01proxy; \
+    fi && \
+    apt-get update && \
     apt-get install -y libmagickwand-dev ghostscript ffmpeg && \
     apt-get clean
 
