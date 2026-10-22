@@ -1,9 +1,14 @@
-FROM registry.millegrilles.com/millegrilles/messages_python:2026.6.16 AS stage1
+FROM registry.millegrilles.com/millegrilles/messages_python:2026.7.18 AS stage1
+
+ARG PIP_INDEX_URL=https://pypi.org/simple/
+ARG PIP_TRUSTED_HOST=pypi.org
 
 ENV BUILD_FOLDER=/opt/millegrilles/build \
     BUNDLE_FOLDER=/opt/millegrilles/dist \
     PYTHONPATH=/opt/millegrilles/dist \
     SRC_FOLDER=/opt/millegrilles/build/src \
+    PIP_INDEX_URL="$PIP_INDEX_URL" \
+    PIP_TRUSTED_HOST="$PIP_TRUSTED_HOST" \
     KEY_PEM=/run/secrets/key_cert.pem \
     CA_PEM=/run/secrets/pki.millegrille.cert \
     MQ_URL=https://mq:8443/rabbitmq \

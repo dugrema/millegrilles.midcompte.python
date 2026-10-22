@@ -6,6 +6,7 @@ VERSION ?= 2026.3
 BUILD_NUMBER ?= 1
 VERSION_FULL ?= $(VERSION).$(BUILD_NUMBER)
 ARCHIVE_NAME ?= midcompte_python
+PIP_INDEX_URL ?= https://pypi.org/simple/
 
 # --- Helpers ---
 DATE_STR := $(shell date '+%Y-%m-%d %H:%M')
@@ -32,7 +33,7 @@ all: package
 # 1. Docker Build
 docker-build:
 	@echo "==> Building docker image..."
-	@docker build -t $(DOCKER_IMAGE):$(VERSION_FULL) .
+    @docker build --build-arg PIP_INDEX_URL="$(PIP_INDEX_URL)" -t $(DOCKER_IMAGE):$(VERSION_FULL) .
 
 # 3. Package the artifacts
 archive-build:
