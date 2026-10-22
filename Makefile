@@ -33,7 +33,7 @@ all: package
 # 1. Docker Build
 docker-build:
 	@echo "==> Building docker image..."
-    @docker build --build-arg PIP_INDEX_URL="$(PIP_INDEX_URL)" -t $(DOCKER_IMAGE):$(VERSION_FULL) .
+	@docker build --build-arg PIP_INDEX_URL="$(PIP_INDEX_URL)" -t $(DOCKER_IMAGE):$(VERSION_FULL) .
 
 # 3. Package the artifacts
 archive-build:
