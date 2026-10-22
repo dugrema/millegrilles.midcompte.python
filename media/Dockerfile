@@ -1,6 +1,6 @@
 FROM registry.millegrilles.com/millegrilles/messages_python:2026.7.18 AS stage1
 
-ARG APT_PROXY=https://pypi.org/simple/
+ARG APT_PROXY
 ARG PIP_INDEX_URL=https://pypi.org/simple/
 ARG PIP_TRUSTED_HOST=pypi.org
 
