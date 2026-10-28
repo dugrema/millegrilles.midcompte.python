@@ -304,13 +304,15 @@ class IntakeHandler:
 
         # Get decryption key
         if file.decrypted_key is None:
-            file_info, decrypted_key, token_expiration = await self.__manager.verify_token(file.fuuid, file.token)
+            # This throws an exception if the token is expired/unknown
+            file_info, decrypted_key, token_expiration = await self.manager.verify_token(file.fuuid, file.token)
             file.decrypted_key = decrypted_key
             decryption_info = file_info['decryption']
             file.nonce = decryption_info['nonce']
             file.format = decryption_info['format']
             file.mimetype = file_info['mimetype']
             file.token_expiration = token_expiration
+            # Cache the token in redis
             await self.__redis_handler.set_token(file.token, token_expiration, file.fuuid, file.mimetype)
 
         # Create job and enqueue

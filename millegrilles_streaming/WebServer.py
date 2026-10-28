@@ -62,12 +62,6 @@ class WebServer:
         header_range = headers.get('Range')
         self.__logger.debug("handle_path_fuuid Requete sur fuuid %s : %s" % (fuuid, header_range))
         try:
-            # claims = await self.verifier_token_jwt(jwt_token, fuuid)
-            # if claims is False:
-            #     self.__logger.debug("handle_path_fuuid ERROR jwt refuse pour requete sur fuuid %s" % fuuid)
-            #     return web.HTTPUnauthorized()
-
-            # TODO security check - replace JWT check with redis token check and back-end token check to populate redis
             token_cached = await self.__redis_client.check_token(token)
             if token_cached:
                 file = InformationFuuid(fuuid, token)
@@ -80,6 +74,7 @@ class WebServer:
                     file.format = decryption_info['format']
                     file.mimetype = file_info['mimetype']
                     file.token_expiration = token_expiration
+                    # Cache the token in redis
                     await self.__redis_client.set_token(file.token, token_expiration, file.fuuid, file.mimetype)
                 except Exception as e:
                     self.__logger.error(f"Error checking token, access denied: {e}")
