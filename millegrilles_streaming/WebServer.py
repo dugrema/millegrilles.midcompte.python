@@ -3,7 +3,7 @@ import logging
 import json
 
 import aiohttp
-import jwt
+# import jwt
 import pathlib
 import re
 
@@ -262,30 +262,6 @@ class WebServer:
             await response.write_eof()
 
         return response
-
-    async def _connect_redis(self, redis_database: Optional[int] = None) -> RedisClient:
-        configuration_app = self.__manager.context.configuration
-        redis_hostname = configuration_app.redis_hostname
-        redis_port = configuration_app.redis_port
-        redis_username = configuration_app.redis_username
-        with open(configuration_app.redis_password_path, 'rt') as fp:
-            redis_password = await asyncio.to_thread(fp.readline, 1024)
-        key_path = configuration_app.key_path
-        cert_path = configuration_app.cert_path
-        ca_path = configuration_app.ca_path
-        redis_database_val = redis_database or configuration_app.redis_session_db
-
-        url_redis = f"rediss://{redis_hostname}:{redis_port}"
-
-        self.__logger.info("Connecting to redis for streaming tokens : %s", url_redis)
-
-        redis_session = await redis.asyncio.from_url(
-            url_redis, db=redis_database_val, username=redis_username, password=redis_password,
-            ssl_keyfile=key_path, ssl_certfile=cert_path, ssl_ca_certs=ca_path,
-            ssl_cert_reqs="required", ssl_check_hostname=True,
-        )
-
-        return redis_session
 
 def parse_range(range, taille_totale):
     re_compiled = re.compile('bytes=([0-9]*)\\-([0-9]*)?')

@@ -2,6 +2,9 @@ import asyncio
 import logging
 import sys
 
+import redis.asyncio
+from redis.asyncio.client import Redis as RedisClient
+
 from asyncio import TaskGroup
 from concurrent.futures.thread import ThreadPoolExecutor
 
@@ -9,11 +12,11 @@ from typing import Awaitable
 
 from millegrilles_streaming.Configuration import StreamingConfiguration
 from millegrilles_streaming.Context import StreamingContext
+from millegrilles_streaming.RedisHandler import RedisClientDao
 from millegrilles_messages.bus.BusContext import ForceTerminateExecution, StopListener
 from millegrilles_messages.bus.PikaConnector import MilleGrillesPikaConnector
 from millegrilles_streaming.Intake import IntakeHandler
 from millegrilles_streaming.MgbusHandler import MgbusHandler
-from millegrilles_streaming.redis import RedisClientDao
 from millegrilles_streaming.StagingMaintenance import StagingMaintenanceHandler
 from millegrilles_streaming.StreamingManager import StreamingManager
 from millegrilles_streaming.WebServer import WebServer

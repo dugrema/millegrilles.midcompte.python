@@ -3,12 +3,13 @@ import datetime
 import json
 import logging
 import pytz
+import redis.asyncio as redis
 
 from typing import Optional
 
-import redis.asyncio
 from redis.asyncio.client import Redis as RedisClient
 
+from millegrilles_streaming.Constantes import REDIS_SESSION_DATABASE
 from millegrilles_streaming.Context import StreamingContext
 
 LOGGER = logging.getLogger(__name__)
@@ -49,16 +50,17 @@ async def _connect_redis(context: StreamingContext) -> RedisClient:
     redis_username = configuration_app.redis_username
     with open(configuration_app.redis_password_path, 'rt') as fp:
         redis_password = await asyncio.to_thread(fp.readline, 1024)
+
     key_path = configuration_app.key_path
-    cert_path = configuration_app.cert_path
+    cert_path = configuration_app.cert_path or configuration_app.key_path
     ca_path = configuration_app.ca_path
-    redis_database_val = configuration_app.redis_session_db
+    redis_database_val = REDIS_SESSION_DATABASE
 
     url_redis = f"rediss://{redis_hostname}:{redis_port}"
 
     LOGGER.info("Connecting to redis for web sessions : %s", url_redis)
 
-    redis_client = await redis.asyncio.from_url(
+    redis_client = await redis.from_url(
         url_redis, db=redis_database_val, username=redis_username, password=redis_password,
         ssl_keyfile=key_path, ssl_certfile=cert_path, ssl_ca_certs=ca_path,
         ssl_cert_reqs="required", ssl_check_hostname=True,

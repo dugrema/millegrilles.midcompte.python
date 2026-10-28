@@ -13,7 +13,7 @@ from urllib.parse import urljoin
 from millegrilles_messages.bus.BusContext import ForceTerminateExecution
 from millegrilles_messages.messages import Constantes
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher_cle_secrete
-from millegrilles_streaming.redis import RedisClientDao
+from millegrilles_streaming.RedisHandler import RedisClientDao
 
 from millegrilles_streaming.Context import StreamingContext
 from millegrilles_streaming.Structs import InformationFuuid, FilehostInvalidException, TooManyRetries
