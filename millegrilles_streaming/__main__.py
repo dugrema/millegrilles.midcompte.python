@@ -13,6 +13,7 @@ from millegrilles_messages.bus.BusContext import ForceTerminateExecution, StopLi
 from millegrilles_messages.bus.PikaConnector import MilleGrillesPikaConnector
 from millegrilles_streaming.Intake import IntakeHandler
 from millegrilles_streaming.MgbusHandler import MgbusHandler
+from millegrilles_streaming.redis import RedisClientDao
 from millegrilles_streaming.StagingMaintenance import StagingMaintenanceHandler
 from millegrilles_streaming.StreamingManager import StreamingManager
 from millegrilles_streaming.WebServer import WebServer
@@ -57,8 +58,9 @@ async def wiring(context: StreamingContext) -> list[Awaitable]:
     loop.set_default_executor(ThreadPoolExecutor(max_workers=10))
 
     # Create instances
+    redis_handler = RedisClientDao(context)
     bus_connector = MilleGrillesPikaConnector(context)
-    intake = IntakeHandler(context)
+    intake = IntakeHandler(context, redis_handler)
     maintenance_handler = StagingMaintenanceHandler(context)
     manager = StreamingManager(context, intake)
 
@@ -72,6 +74,7 @@ async def wiring(context: StreamingContext) -> list[Awaitable]:
     await manager.setup()  # Create folders before rest of setup
     await maintenance_handler.setup()
     await web_server.setup()
+    await redis_handler.connect()
 
     # Create tasks
     coros = [
@@ -83,7 +86,6 @@ async def wiring(context: StreamingContext) -> list[Awaitable]:
     ]
 
     return coros
-
 
 if __name__ == '__main__':
     asyncio.run(main())

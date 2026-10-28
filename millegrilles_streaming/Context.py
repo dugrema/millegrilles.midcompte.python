@@ -38,3 +38,4 @@ class StreamingContext(MilleGrillesBusContext):
     @property
     def decrypted_path(self) -> pathlib.Path:
         return pathlib.Path(self.configuration.dir_staging, 'decrypted')
+

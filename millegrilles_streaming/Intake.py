@@ -13,6 +13,7 @@ from urllib.parse import urljoin
 from millegrilles_messages.bus.BusContext import ForceTerminateExecution
 from millegrilles_messages.messages import Constantes
 from millegrilles_messages.chiffrage.DechiffrageUtils import get_decipher_cle_secrete
+from millegrilles_streaming.redis import RedisClientDao
 
 from millegrilles_streaming.Context import StreamingContext
 from millegrilles_streaming.Structs import InformationFuuid, FilehostInvalidException, TooManyRetries
@@ -57,9 +58,10 @@ class IntakeJob:
 
 class IntakeHandler:
 
-    def __init__(self, context: StreamingContext):
+    def __init__(self, context: StreamingContext, redis_handler: RedisClientDao):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self._context = context
+        self.__redis_handler = redis_handler
         self.__job_status: dict[str, IntakeJob] = dict()  # {fuuid: IntakeJob}
 
         # Create and hold on to a session. It has a cookie that lasts 1 hour.
@@ -333,6 +335,7 @@ class IntakeHandler:
         file.format = decryption_info['format']
         file.mimetype = file_info['mimetype']
         file.token_expiration = token_expiration
+        await self.__redis_handler.set_token(file.token, token_expiration, file.fuuid, file_info)
 
         # Create job and enqueue
         job = IntakeJob(file, decrypted_key)
