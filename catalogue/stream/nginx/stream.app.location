@@ -1,6 +1,7 @@
 location /streams {
   include /etc/nginx/conf.d/modules/applications/stream__stream.app.proxypass;
-  include /etc/nginx/conf.d/component_base_auth.include;
+  include /etc/nginx/conf.d/component_base.include;
+  # include /etc/nginx/conf.d/component_base_auth.include;
 
   # Desactiver buffering de transfert
   proxy_buffering off;  # Desactiver buffering de la reponse (download)
