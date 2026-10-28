@@ -18,20 +18,22 @@ LOGGER = logging.getLogger(__name__)
 class RedisClientDao:
 
     def __init__(self, context: StreamingContext):
+        self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__context = context
         self.__redis_client: Optional[RedisClient] = None
 
     async def connect(self):
         self.__redis_client = await _connect_redis(self.__context)
 
-    async def set_token(self, token: str, expiration: int, fuuid: str, info: dict):
+    async def set_token(self, token: str, expiration: int, fuuid: str, mimetype: str):
         if not self.__redis_client:
             raise Exception("Redis client not set")
         now_epoch = datetime.datetime.now(tz=pytz.UTC)
         duration = int(expiration - now_epoch.timestamp())
+        self.__logger.info(f'Adding token ...{token[-4:]} with duration {duration}')
         if duration < 0:
             raise Exception("Token expired")
-        content = json.dumps(info)
+        content = json.dumps({'fuuid': fuuid, 'mimetype': mimetype})
         await self.__redis_client.setex(f"stream.{token}", duration, content)
 
     async def check_token(self, token: str) -> Optional[dict]:

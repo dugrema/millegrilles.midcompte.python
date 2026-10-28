@@ -67,8 +67,11 @@ async def wiring(context: StreamingContext) -> list[Awaitable]:
     maintenance_handler = StagingMaintenanceHandler(context)
     manager = StreamingManager(context, intake)
 
+    # Additional wiring
+    intake.manager = manager
+
     # Access modules
-    web_server = WebServer(manager)
+    web_server = WebServer(manager, redis_handler)
     bus_handler = MgbusHandler(manager)
 
     # Setup, injecting additional dependencies

@@ -2,6 +2,7 @@ import asyncio
 
 import aiohttp
 import logging
+import multibase
 
 from asyncio import TaskGroup
 from typing import Callable, Awaitable, Optional
@@ -98,3 +99,31 @@ class StreamingManager:
 
     async def load_decrypted_information(self, file_information: InformationFuuid):
             return await self.__intake.load_decrypted_information(file_information)
+
+    async def verify_token(self, fuuid: str, token: str, timeout=15) -> tuple[dict, bytes, Optional[int]]:
+        producer = await self.__context.get_producer()
+        domaine = 'GrosFichiers'
+        action = 'getClesStream'
+        key_request = {'fuuids': [fuuid], 'token': token}
+        key_response = await producer.request(
+            key_request,
+            domain=domaine, action=action, exchange='2.prive', timeout=timeout,
+            # domain_check=['GrosFichiers', 'MaitreDesCles']
+        )
+        reponse_parsed = key_response.parsed
+
+        if reponse_parsed.get('ok') is not True:
+            raise Exception('Key access refused: %s' % reponse_parsed['err'])
+
+        token_expiration: Optional[int] = reponse_parsed.get('expiration')
+
+        # Retrieve the key
+        key_response: dict = reponse_parsed['keys'][fuuid]
+        key_decryption: dict = key_response['decryption']
+        # if len(keys) == 1:
+        #     key_response = keys[0]
+        # else:
+        #     raise Exception('Number of received key != 1')
+
+        key_bytes: bytes = multibase.decode('m'+key_decryption['cle_secrete_base64'])
+        return key_response, key_bytes, token_expiration

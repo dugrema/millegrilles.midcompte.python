@@ -13,15 +13,17 @@ from ssl import SSLContext
 from typing import Optional, Union
 
 from millegrilles_messages.messages import Constantes
+from millegrilles_streaming.RedisHandler import RedisClientDao
 
 from millegrilles_streaming.StreamingManager import StreamingManager
 from millegrilles_streaming.Structs import InformationFuuid
 
 class WebServer:
 
-    def __init__(self, manager: StreamingManager):
+    def __init__(self, manager: StreamingManager, redis_client: RedisClientDao):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
         self.__manager = manager
+        self.__redis_client = redis_client
         self.__app = web.Application()
         self.__ssl_context: Optional[SSLContext] = None
 
@@ -66,12 +68,26 @@ class WebServer:
             #     return web.HTTPUnauthorized()
 
             # TODO security check - replace JWT check with redis token check and back-end token check to populate redis
+            token_cached = await self.__redis_client.check_token(token)
+            if token_cached:
+                file = InformationFuuid(fuuid, token)
+            else:
+                try:
+                    file_info, decrypted_key, token_expiration = await self.__manager.verify_token(fuuid, token)
+                    file = InformationFuuid(fuuid, token, decrypted_key)
+                    decryption_info = file_info['decryption']
+                    file.nonce = decryption_info['nonce']
+                    file.format = decryption_info['format']
+                    file.mimetype = file_info['mimetype']
+                    file.token_expiration = token_expiration
+                    await self.__redis_client.set_token(file.token, token_expiration, file.fuuid, file.mimetype)
+                except Exception as e:
+                    self.__logger.error(f"Error checking token, access denied: {e}")
+                    return web.HTTPForbidden()
 
             # Check if the decrypted file is already available
-            file = InformationFuuid(fuuid, token)
             try:
                 await self.__manager.load_decrypted_information(file)
-                self.__logger.warning("*** NO SECURITY CHECK ON TOKEN ***")  # No check above
                 return await self.stream_reponse(request, file)
             except FileNotFoundError:
                 pass  # File not already decrypted, add job

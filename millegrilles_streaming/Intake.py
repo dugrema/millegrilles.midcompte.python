@@ -29,9 +29,10 @@ class KeyRetrievalException(Exception):
 
 class IntakeJob:
 
-    def __init__(self, info: InformationFuuid, cle_dechiffree: Union[str, bytes]):
+    def __init__(self, info: InformationFuuid):
         self.__creation = datetime.datetime.now()
         self.__info = info
+        cle_dechiffree = info.decrypted_key
         if isinstance(cle_dechiffree, str):
             self.decrypted_key = multibase.decode('m' + cle_dechiffree)
         else:
@@ -60,6 +61,7 @@ class IntakeHandler:
 
     def __init__(self, context: StreamingContext, redis_handler: RedisClientDao):
         self.__logger = logging.getLogger(__name__ + '.' + self.__class__.__name__)
+        self.manager = None
         self._context = context
         self.__redis_handler = redis_handler
         self.__job_status: dict[str, IntakeJob] = dict()  # {fuuid: IntakeJob}
@@ -276,34 +278,6 @@ class IntakeHandler:
 
         raise TooManyRetries('Too many retries')
 
-    async def __get_key(self, user_id: str, fuuid: str, token: str, timeout=15) -> tuple[dict, bytes, Optional[int]]:
-        producer = await self._context.get_producer()
-        domaine = 'GrosFichiers'
-        action = 'getClesStream'
-        key_request = {'user_id': user_id, 'fuuids': [fuuid], 'token': token}
-        key_response = await producer.request(
-            key_request,
-            domain=domaine, action=action, exchange='2.prive', timeout=timeout,
-            # domain_check=['GrosFichiers', 'MaitreDesCles']
-        )
-        reponse_parsed = key_response.parsed
-
-        if reponse_parsed.get('ok') is not True:
-            raise Exception('Key access refused: %s' % reponse_parsed['err'])
-
-        token_expiration: Optional[int] = reponse_parsed.get('expiration')
-
-        # Retrieve the key
-        key_response: dict = reponse_parsed['keys'][fuuid]
-        key_decryption: dict = key_response['decryption']
-        # if len(keys) == 1:
-        #     key_response = keys[0]
-        # else:
-        #     raise Exception('Number of received key != 1')
-
-        key_bytes: bytes = multibase.decode('m'+key_decryption['cle_secrete_base64'])
-        return key_response, key_bytes, token_expiration
-
     async def add_job(self, file: InformationFuuid) -> IntakeJob:
         try:
             existing_job = self.__job_status[file.fuuid]
@@ -329,16 +303,18 @@ class IntakeHandler:
         file_header = await self.get_fuuid_header(file.fuuid)
 
         # Get decryption key
-        file_info, decrypted_key, token_expiration = await self.__get_key(file.user_id, file.fuuid, file.token)
-        decryption_info = file_info['decryption']
-        file.nonce = decryption_info['nonce']
-        file.format = decryption_info['format']
-        file.mimetype = file_info['mimetype']
-        file.token_expiration = token_expiration
-        await self.__redis_handler.set_token(file.token, token_expiration, file.fuuid, file_info)
+        if file.decrypted_key is None:
+            file_info, decrypted_key, token_expiration = await self.__manager.verify_token(file.fuuid, file.token)
+            file.decrypted_key = decrypted_key
+            decryption_info = file_info['decryption']
+            file.nonce = decryption_info['nonce']
+            file.format = decryption_info['format']
+            file.mimetype = file_info['mimetype']
+            file.token_expiration = token_expiration
+            await self.__redis_handler.set_token(file.token, token_expiration, file.fuuid, file.mimetype)
 
         # Create job and enqueue
-        job = IntakeJob(file, decrypted_key)
+        job = IntakeJob(file)
         job.file_size = file_header['taille']
 
         # Set job values from file_header
