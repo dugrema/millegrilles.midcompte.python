@@ -5,9 +5,11 @@ from typing import Optional
 
 class InformationFuuid:
 
-    def __init__(self, fuuid: str, jwt_token: Optional[str] = None, params: Optional[dict] = None):
+    def __init__(self, fuuid: str, token: Optional[str] = None, params: Optional[dict] = None):
         self.fuuid = fuuid
-        self.jwt_token = jwt_token
+        # self.jwt_token = jwt_token
+        self.token = token
+        self.token_expiration: Optional[int] = None         # Epoch seconds of expiration
         self.user_id: Optional[str] = None                  # User_id, requis pour recuperer les cles
         self.taille: Optional[int] = None                   # Taille du fichier
         self.mimetype: Optional[str] = None                 # Mimetype du fichier dechiffre

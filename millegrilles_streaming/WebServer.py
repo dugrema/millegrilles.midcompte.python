@@ -51,9 +51,9 @@ class WebServer:
     async def handle_path_fuuid(self, request: Request):
         fuuid = request.match_info['fuuid']
         headers = request.headers
-        jwt_token = request.query.get('jwt')
+        token = request.query.get('bt') or request.query.get('token')
 
-        if jwt_token is None:
+        if token is None:
             # Token JWT absent
             self.__logger.debug("handle_path_fuuid ERROR jwt absent pour requete sur fuuid %s" % fuuid)
             return web.HTTPForbidden()
@@ -61,15 +61,18 @@ class WebServer:
         header_range = headers.get('Range')
         self.__logger.debug("handle_path_fuuid Requete sur fuuid %s : %s" % (fuuid, header_range))
         try:
-            claims = await self.verifier_token_jwt(jwt_token, fuuid)
-            if claims is False:
-                self.__logger.debug("handle_path_fuuid ERROR jwt refuse pour requete sur fuuid %s" % fuuid)
-                return web.HTTPUnauthorized()
+            # claims = await self.verifier_token_jwt(jwt_token, fuuid)
+            # if claims is False:
+            #     self.__logger.debug("handle_path_fuuid ERROR jwt refuse pour requete sur fuuid %s" % fuuid)
+            #     return web.HTTPUnauthorized()
+
+            # TODO security check - replace JWT check with redis token check and back-end token check to populate redis
 
             # Check if the decrypted file is already available
-            file = InformationFuuid(fuuid, jwt_token, claims)
+            file = InformationFuuid(fuuid, token)
             try:
                 await self.__manager.load_decrypted_information(file)
+                self.__logger.warning("*** NO SECURITY CHECK ON TOKEN ***")  # No check above
                 return await self.stream_reponse(request, file)
             except FileNotFoundError:
                 pass  # File not already decrypted, add job
@@ -133,42 +136,42 @@ class WebServer:
             self.__logger.info("Website stopped")
             await runner.cleanup()
 
-    async def verifier_token_jwt(self, token: str, fuuid: str) -> Union[bool, dict]:
-        # Recuperer kid, charger certificat pour validation
-        header = jwt.get_unverified_header(token)
-        fingerprint = header['kid']
-        producer = await self.__manager.context.get_producer()
-        enveloppe = await producer.fetch_certificate(fingerprint)
-
-        domaines = enveloppe.get_domaines
-        if 'GrosFichiers' in domaines:
-            pass  # OK
-        else:
-            # Certificat n'est pas autorise a signer des streams
-            self.__logger.warning("Certificat de mauvais domaine pour JWT (doit etre GrosFichiers,Messagerie)")
-            return False
-
-        exchanges = enveloppe.get_exchanges
-        if Constantes.SECURITE_SECURE not in exchanges:
-            # Certificat n'est pas autorise a signer des streams
-            self.__logger.warning("Certificat de mauvais niveau de securite pour JWT (doit etre 4.secure)")
-            return False
-
-        public_key = enveloppe.get_public_key()
-
-        try:
-            claims = jwt.decode(token, public_key, algorithms=['EdDSA'])
-        except jwt.exceptions.InvalidSignatureError:
-            # Signature invalide
-            return False
-
-        self.__logger.debug("JWT claims pour %s = %s" % (fuuid, claims))
-
-        if claims['sub'] != fuuid:
-            # JWT pour le mauvais fuuid
-            return False
-
-        return claims
+    # async def verifier_token_jwt(self, token: str, fuuid: str) -> Union[bool, dict]:
+    #     # Recuperer kid, charger certificat pour validation
+    #     header = jwt.get_unverified_header(token)
+    #     fingerprint = header['kid']
+    #     producer = await self.__manager.context.get_producer()
+    #     enveloppe = await producer.fetch_certificate(fingerprint)
+    #
+    #     domaines = enveloppe.get_domaines
+    #     if 'GrosFichiers' in domaines:
+    #         pass  # OK
+    #     else:
+    #         # Certificat n'est pas autorise a signer des streams
+    #         self.__logger.warning("Certificat de mauvais domaine pour JWT (doit etre GrosFichiers,Messagerie)")
+    #         return False
+    #
+    #     exchanges = enveloppe.get_exchanges
+    #     if Constantes.SECURITE_SECURE not in exchanges:
+    #         # Certificat n'est pas autorise a signer des streams
+    #         self.__logger.warning("Certificat de mauvais niveau de securite pour JWT (doit etre 4.secure)")
+    #         return False
+    #
+    #     public_key = enveloppe.get_public_key()
+    #
+    #     try:
+    #         claims = jwt.decode(token, public_key, algorithms=['EdDSA'])
+    #     except jwt.exceptions.InvalidSignatureError:
+    #         # Signature invalide
+    #         return False
+    #
+    #     self.__logger.debug("JWT claims pour %s = %s" % (fuuid, claims))
+    #
+    #     if claims['sub'] != fuuid:
+    #         # JWT pour le mauvais fuuid
+    #         return False
+    #
+    #     return claims
 
     async def stream_reponse(self, request, info: InformationFuuid):
         range_bytes = request.headers.get('Range')

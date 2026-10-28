@@ -274,28 +274,33 @@ class IntakeHandler:
 
         raise TooManyRetries('Too many retries')
 
-    async def __get_key(self, user_id: str, fuuid: str, jwt_token: str, timeout=15) -> bytes:
+    async def __get_key(self, user_id: str, fuuid: str, token: str, timeout=15) -> tuple[dict, bytes, Optional[int]]:
         producer = await self._context.get_producer()
         domaine = 'GrosFichiers'
         action = 'getClesStream'
-        key_request = {'user_id': user_id, 'fuuids': [fuuid], 'jwt': jwt_token}
+        key_request = {'user_id': user_id, 'fuuids': [fuuid], 'token': token}
         key_response = await producer.request(
             key_request,
-            domain=domaine, action=action, exchange='2.prive', timeout=timeout, domain_check=['GrosFichiers', 'MaitreDesCles'])
+            domain=domaine, action=action, exchange='2.prive', timeout=timeout,
+            # domain_check=['GrosFichiers', 'MaitreDesCles']
+        )
         reponse_parsed = key_response.parsed
 
         if reponse_parsed.get('ok') is not True:
             raise Exception('Key access refused: %s' % reponse_parsed['err'])
 
-        # Retrieve the key
-        keys = reponse_parsed['cles']
-        if len(keys) == 1:
-            key_response = keys[0]
-        else:
-            raise Exception('Number of received key != 1')
+        token_expiration: Optional[int] = reponse_parsed.get('expiration')
 
-        decrypted_key: bytes = multibase.decode('m'+key_response['cle_secrete_base64'])
-        return decrypted_key
+        # Retrieve the key
+        key_response: dict = reponse_parsed['keys'][fuuid]
+        key_decryption: dict = key_response['decryption']
+        # if len(keys) == 1:
+        #     key_response = keys[0]
+        # else:
+        #     raise Exception('Number of received key != 1')
+
+        key_bytes: bytes = multibase.decode('m'+key_decryption['cle_secrete_base64'])
+        return key_response, key_bytes, token_expiration
 
     async def add_job(self, file: InformationFuuid) -> IntakeJob:
         try:
@@ -322,7 +327,12 @@ class IntakeHandler:
         file_header = await self.get_fuuid_header(file.fuuid)
 
         # Get decryption key
-        decrypted_key = await self.__get_key(file.user_id, file.fuuid, file.jwt_token)
+        file_info, decrypted_key, token_expiration = await self.__get_key(file.user_id, file.fuuid, file.token)
+        decryption_info = file_info['decryption']
+        file.nonce = decryption_info['nonce']
+        file.format = decryption_info['format']
+        file.mimetype = file_info['mimetype']
+        file.token_expiration = token_expiration
 
         # Create job and enqueue
         job = IntakeJob(file, decrypted_key)
