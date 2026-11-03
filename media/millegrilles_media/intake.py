@@ -20,6 +20,7 @@ from millegrilles_messages.Mimetypes import est_video
 from millegrilles_media.ImagesHandler import traiter_image
 from millegrilles_media.VideosHandler import VideoConversionJob
 from millegrilles_messages.messages.MessagesModule import MessageWrapper
+from millegrilles_streaming.Constantes import DOMAINE_GROSFICHIERS
 
 
 class IntakeHandler:
@@ -366,20 +367,42 @@ class IntakeJobVideo(IntakeHandler):
             await job_handler.annuler()  # Aucun effet si la job s'est terminee correctement
         self.__logger.debug("Fin traiter video de job_handler")
 
-    async def annuler_job(self, job_id: str, emettre_commande=False):
-        if self.__job_handler is not None:
-            job_courante = self.__job_handler.job
-            # Verifier si on doit annuler la job en cours
-            try:
-                if job_id == job_courante['job_id']:
-                    self.__logger.info("Annuler job courante job_id:%s, fuuid:%s", job_id, job_courante['fuuid'])
-                    await self.__job_handler.annuler()
-                else:
-                    self.__logger.debug("annuler_job courante : mismatch, on ne fait rien")
-            except KeyError:
-                self.__logger.debug("annuler_job courante : mismatch keys, on ne fait rien")
-        else:
-            self.__logger.debug("annuler_job courante : aucune job courante - emettre message d'annulation")
+    async def annuler_job(self, job: dict, emettre_commande=False):
+        try:
+            if isinstance(job, dict):
+                fuuid = job['fuuid']
+                tuuid = job['tuuid']
+                job_id = job['job_id']
+            else:
+                raise Exception(f"Wrong format (not dict) for job cancellation: job={job}")
+        except KeyError as e:
+            self.__logger.error(f"Unable to cancel video job (missing fuuid): {e}")
+            raise e
+
+        if emettre_commande:
+            producer = await self._context.get_producer()
+            command = {
+                "fuuid": fuuid,
+                "tuuid": tuuid,
+                "job_id": job_id,
+            }
+            result = await producer.command(command, DOMAINE_GROSFICHIERS, "supprimerJobVideoV2", Constantes.SECURITE_PRIVE)
+            if not result.parsed.get('ok'):
+                self.__logger.error(f"Error response from domain when trying to cancel video job: {result.get('err')}")
+
+        # if self.__job_handler is not None:
+        #     job_courante = self.__job_handler.job
+        #     # Verifier si on doit annuler la job en cours
+        #     try:
+        #         if job_id == job_courante['job_id']:
+        #             self.__logger.info("Annuler job courante job_id:%s, fuuid:%s", job_id, job_courante['fuuid'])
+        #             await self.__job_handler.annuler()
+        #         else:
+        #             self.__logger.debug("annuler_job courante : mismatch, on ne fait rien")
+        #     except KeyError:
+        #         self.__logger.debug("annuler_job courante : mismatch keys, on ne fait rien")
+        # else:
+        #     self.__logger.debug("annuler_job courante : aucune job courante - emettre message d'annulation")
 
 
 class KeyRetrievalException(Exception):

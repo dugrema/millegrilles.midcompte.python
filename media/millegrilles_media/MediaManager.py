@@ -102,5 +102,4 @@ class MediaManager:
             except ExtensionNotFound:
                 user_id = None
 
-        job_id = message.parsed['job_id']
-        await self.__intake_videos.annuler_job(job_id)
+        await self.__intake_videos.annuler_job(message.parsed)
