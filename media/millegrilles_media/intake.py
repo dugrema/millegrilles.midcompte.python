@@ -20,7 +20,6 @@ from millegrilles_messages.Mimetypes import est_video
 from millegrilles_media.ImagesHandler import traiter_image
 from millegrilles_media.VideosHandler import VideoConversionJob
 from millegrilles_messages.messages.MessagesModule import MessageWrapper
-from millegrilles_streaming.Constantes import DOMAINE_GROSFICHIERS
 
 
 class IntakeHandler:
@@ -386,7 +385,7 @@ class IntakeJobVideo(IntakeHandler):
                 "tuuid": tuuid,
                 "job_id": job_id,
             }
-            result = await producer.command(command, DOMAINE_GROSFICHIERS, "supprimerJobVideoV2", Constantes.SECURITE_PRIVE)
+            result = await producer.command(command, Constantes.DOMAINE_GROS_FICHIERS, "supprimerJobVideoV2", Constantes.SECURITE_PRIVE)
             if not result.parsed.get('ok'):
                 self.__logger.error(f"Error response from domain when trying to cancel video job: {result.get('err')}")
 
