@@ -77,6 +77,7 @@ package: docker-build archive-build
 deploy: package
 	@echo "$(NEXUS_PASS)" | docker login ${DOCKER_REGISTRY_URL} -u $(NEXUS_USER) --password-stdin
 	echo "==> Pushing docker image artifacts to ${DOCKER_IMAGE}:${VERSION_FULL}..."
+	@docker push "${DOCKER_IMAGE}:${VERSION_FULL}"
 	@echo "==> Deploying artifacts..."
 	@for dir in catalogue/*; do \
 		if [ -d "$$dir" ]; then \
