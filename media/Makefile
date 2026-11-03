@@ -2,12 +2,15 @@
 
 # --- Configuration ---
 # Defaults that can be overridden via command line (e.g., make build VERSION=2027.0)
-VERSION ?= 2026.3
+VERSION ?= 2026.7
 BUILD_NUMBER ?= 1
 VERSION_FULL ?= $(VERSION).$(BUILD_NUMBER)
 ARCHIVE_NAME ?= media_python
 PIP_INDEX_URL ?= https://pypi.org/simple/
 APT_PROXY ?=
+DOCKER_REGISTRY_URL ?=
+NEXUS_USER ?=
+NEXUS_PASS ?=
 
 # --- Helpers ---
 DATE_STR := $(shell date '+%Y-%m-%d %H:%M')
@@ -34,7 +37,10 @@ all: package
 # 1. Docker Build
 docker-build:
 	@echo "==> Building docker image..."
-	@docker build --build-arg APT_PROXY="$(APT_PROXY)" --build-arg PIP_INDEX_URL="$(PIP_INDEX_URL)" -t $(DOCKER_IMAGE):$(VERSION_FULL) .
+	@docker build \
+		--build-arg APT_PROXY=$(APT_PROXY) \
+		--build-arg PIP_INDEX_URL="$(PIP_INDEX_URL)" \
+		-t $(DOCKER_IMAGE):$(VERSION_FULL) .
 
 # 3. Package the artifacts
 archive-build:
@@ -69,8 +75,8 @@ archive-build:
 package: docker-build archive-build
 
 deploy: package
-	@docker push "${DOCKER_IMAGE}:${VERSION_FULL}"
-	@echo "==> Pushing docker image artifacts..."
+	@echo "$(NEXUS_PASS)" | docker login ${DOCKER_REGISTRY_URL} -u $(NEXUS_USER) --password-stdin
+	echo "==> Pushing docker image artifacts to ${DOCKER_IMAGE}:${VERSION_FULL}..."
 	@echo "==> Deploying artifacts..."
 	@for dir in catalogue/*; do \
 		if [ -d "$$dir" ]; then \
