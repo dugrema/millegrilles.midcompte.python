@@ -28,7 +28,7 @@ pipeline {
                     usernameVariable: 'NEXUS_USER',
                     passwordVariable: 'NEXUS_PASS'
                 )]) {
-                    sh "make deploy VERSION_FULL=${VBUILD}"
+                    sh "cd media && make deploy VERSION_FULL=${VBUILD}"
                 }
             }
         }
