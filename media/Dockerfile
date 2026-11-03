@@ -1,4 +1,4 @@
-FROM registry.millegrilles.com/millegrilles/messages_python:2026.7.23 AS stage1
+FROM vmhost2.maple.maceroc.com/millegrilles/messages_python:2026.7.26 AS stage1
 
 ARG APT_PROXY
 ARG PIP_INDEX_URL=https://pypi.org/simple/
