@@ -32,6 +32,9 @@ RUN ls -R $BUILD_FOLDER && \
 # Final stage
 FROM stage1
 
+ARG PIP_INDEX_URL=https://pypi.org/simple/
+ARG PIP_TRUSTED_HOST=pypi.org
+
 ENV CA_PATH=/run/secrets/millegrille.cert.pem \
     KEY_PATH=/run/secrets/key_cert.pem \
     MQ_HOSTNAME=mq \
