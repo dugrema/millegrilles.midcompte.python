@@ -102,4 +102,6 @@ class MediaManager:
             except ExtensionNotFound:
                 user_id = None
 
-        await self.__intake_videos.annuler_job(message.parsed)
+        # Videos handler is optional, ensure it is active
+        if self.__intake_images is not None:
+            await self.__intake_videos.annuler_job(message.parsed)
