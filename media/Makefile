@@ -21,7 +21,7 @@ DIST_DIR = dist
 BUILD_ASSETS_DIR = build_assets
 MANIFEST_FILE = $(BUILD_ASSETS_DIR)/manifest.build.json
 STAGING_DIR = staging
-DOCKER_IMAGE?=registry.millegrilles.com:5000/millegrilles/media_python
+DOCKER_IMAGE?=nexus.maple.maceroc.com/millegrilles/media_python
 DOCKER_IMAGE_NO_PORT=$(shell echo $(DOCKER_IMAGE) | sed 's/:[0-9]*//')
 
 # --- Environment ---
@@ -95,7 +95,7 @@ deploy: package
 			fi; \
 			echo "==> Deploying $$NAME"; \
 			rsync "$(ARTIFACTS_DIR)/$$NAME.$(VERSION_FULL).tar.gz" ${DEPLOY_RSYNC_WEBAPP_DEST}/media/${NAME}/; \
-			${DEPLOY_CATALOGUE_UPDATE_COMMAND} --baseurl https://libs.millegrilles.com/archives/media --archive archives/media/"$$NAME.$(VERSION_FULL).tar.gz"; \
+			${DEPLOY_CATALOGUE_UPDATE_COMMAND} --baseurl ${DEPLOY_ARCHIVE_URL}/media --archive archives/media/"$$NAME.$(VERSION_FULL).tar.gz"; \
 		fi; \
 	done
 

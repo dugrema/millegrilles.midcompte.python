@@ -6,7 +6,7 @@ pipeline {
         string(defaultValue: '2026.7', name: 'VERSION')
         string(defaultValue: 'jenkins-maple', name: 'CREDENTIALS_ID')
         string(defaultValue: 'ssh://git.maple.maceroc.com/git/millegrilles.midcompte.python', name: 'GIT_URL')
-        string(defaultValue: 'vmhost2.maple.maceroc.com/millegrilles/media_python', name: 'DOCKER_IMAGE')
+        string(defaultValue: 'nexus.maple.maceroc.com/millegrilles/media_python', name: 'DOCKER_IMAGE')
     }
 
     environment {
