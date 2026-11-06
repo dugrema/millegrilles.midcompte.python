@@ -93,7 +93,7 @@ deploy: package
 			fi; \
 			echo "==> Deploying $$NAME"; \
 			rsync "$(ARTIFACTS_DIR)/$$NAME.$(VERSION_FULL).tar.gz" ${DEPLOY_RSYNC_WEBAPP_DEST}/midcompte/${NAME}/; \
-			${DEPLOY_CATALOGUE_UPDATE_COMMAND} --baseurl https://libs.millegrilles.com/archives/midcompte --archive archives/midcompte/"$$NAME.$(VERSION_FULL).tar.gz"; \
+			${DEPLOY_CATALOGUE_UPDATE_COMMAND} --baseurl ${DEPLOY_ARCHIVE_URL}/midcompte --archive archives/midcompte/"$$NAME.$(VERSION_FULL).tar.gz"; \
 		fi; \
 	done
 
