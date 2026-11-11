@@ -1,4 +1,4 @@
-FROM nexus.maple.maceroc.com/millegrilles/messages_python:2026.7.29 AS stage1
+FROM nexus.maple.maceroc.com/docker_millegrilles/millegrilles/messages_python:2026.7.29 AS stage1
 
 ARG PIP_INDEX_URL=https://pypi.org/simple/
 ARG PIP_TRUSTED_HOST=pypi.org
